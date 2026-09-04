@@ -38,6 +38,7 @@ export default function SettingsModal({
   // Firebase Config State
   const [firebaseJson, setFirebaseJson] = useState('');
   const [fbStatus, setFbStatus] = useState(null);
+  const [isResetting, setIsResetting] = useState(false);
 
   useEffect(() => {
     if (isOpen) {
@@ -114,12 +115,15 @@ export default function SettingsModal({
 
   const handleResetDataClick = async () => {
     if (confirm("¿Estás seguro de que deseas reiniciar todos los ingresos del evento? Los estudiantes volverán a tener 0 personas registradas.")) {
+      setIsResetting(true);
       try {
         await onResetData();
         alert("Los datos del evento han sido reiniciados.");
         onClose();
       } catch (error) {
         alert(error.message);
+      } finally {
+        setIsResetting(false);
       }
     }
   };
@@ -292,9 +296,10 @@ export default function SettingsModal({
             </p>
             <button
               onClick={handleResetDataClick}
-              className="px-4 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold border border-rose-200 rounded-xl transition-colors"
+              disabled={isResetting}
+              className="px-4 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold border border-rose-200 rounded-xl transition-colors disabled:opacity-60 disabled:cursor-wait"
             >
-              Reiniciar Asistencia del Evento a Cero
+              {isResetting ? 'Reiniciando asistencia…' : 'Reiniciar Asistencia del Evento a Cero'}
             </button>
           </div>
         </div>

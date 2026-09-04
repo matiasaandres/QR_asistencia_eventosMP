@@ -7,7 +7,10 @@ import {
   onSnapshot,
   query,
   orderBy,
-  runTransaction
+  runTransaction,
+  getDocs,
+  writeBatch,
+  deleteField
 } from 'firebase/firestore';
 
 const LOCAL_STORAGE_KEY_STUDENTS = 'mp_students_data_';
@@ -400,18 +403,90 @@ export async function saveStudentsList(eventId, newStudents) {
   }
 }
 
-// Reset data to initial state for testing
+const FIRESTORE_BATCH_LIMIT = 450;
+
+async function commitInChunks(db, operations) {
+  for (let start = 0; start < operations.length; start += FIRESTORE_BATCH_LIMIT) {
+    const batch = writeBatch(db);
+    operations
+      .slice(start, start + FIRESTORE_BATCH_LIMIT)
+      .forEach((operation) => operation(batch));
+    await batch.commit();
+  }
+}
+
+function resetLocalStudent(student) {
+  const { lastEntryAt, ...studentWithoutLastEntry } = student;
+  const parsedCapacity = Number(student.maxCapacity);
+  const hasAccess = !Number.isFinite(parsedCapacity) || parsedCapacity > 0;
+
+  return {
+    ...studentWithoutLastEntry,
+    enteredCount: 0,
+    status: hasAccess ? 'PENDIENTE' : student.status
+  };
+}
+
+// Reset attendance while preserving the roster and each family's capacity.
 export async function resetEventData(eventId) {
   const { db, isConfigured } = initFirebase();
 
   if (isConfigured && db) {
-    throw new Error(
-      'El reinicio remoto está bloqueado por seguridad. Los ingresos guardados en Firestore no se pueden borrar desde el sitio público.'
+    const studentsCol = collection(db, 'events', eventId, 'students');
+    const logsCol = collection(db, 'events', eventId, 'logs');
+    const [studentsSnapshot, logsSnapshot] = await Promise.all([
+      getDocs(studentsCol),
+      getDocs(logsCol)
+    ]);
+
+    const operations = [];
+
+    studentsSnapshot.docs.forEach((studentDoc) => {
+      const student = studentDoc.data();
+      const parsedCapacity = Number(student.maxCapacity);
+      const hasAccess = !Number.isFinite(parsedCapacity) || parsedCapacity > 0;
+      const resetStatus = hasAccess ? 'PENDIENTE' : student.status;
+      const needsReset =
+        (Number(student.enteredCount) || 0) !== 0 ||
+        student.lastEntryAt != null ||
+        student.status !== resetStatus;
+
+      if (needsReset) {
+        operations.push((batch) => batch.update(studentDoc.ref, {
+          enteredCount: 0,
+          status: resetStatus,
+          lastEntryAt: deleteField()
+        }));
+      }
+    });
+
+    logsSnapshot.docs.forEach((logDoc) => {
+      operations.push((batch) => batch.delete(logDoc.ref));
+    });
+
+    await commitInChunks(db, operations);
+
+    localStorage.setItem(
+      LOCAL_STORAGE_KEY_STUDENTS + eventId,
+      JSON.stringify(studentsSnapshot.docs.map((studentDoc) => ({
+        ...resetLocalStudent(studentDoc.data()),
+        id: studentDoc.id
+      })))
     );
+    localStorage.setItem(LOCAL_STORAGE_KEY_LOGS + eventId, JSON.stringify([]));
+    return;
   }
 
-  localStorage.removeItem(LOCAL_STORAGE_KEY_STUDENTS + eventId);
-  localStorage.removeItem(LOCAL_STORAGE_KEY_LOGS + eventId);
+  const studentsKey = LOCAL_STORAGE_KEY_STUDENTS + eventId;
+  let students = INITIAL_STUDENTS;
+
+  try {
+    const storedStudents = localStorage.getItem(studentsKey);
+    if (storedStudents) students = JSON.parse(storedStudents);
+  } catch (e) {}
+
+  localStorage.setItem(studentsKey, JSON.stringify(students.map(resetLocalStudent)));
+  localStorage.setItem(LOCAL_STORAGE_KEY_LOGS + eventId, JSON.stringify([]));
 
   if (localChannel) {
     localChannel.postMessage({ type: 'STUDENTS_UPDATED', eventId });

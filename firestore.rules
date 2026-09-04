@@ -26,8 +26,18 @@ service cloud.firestore {
           && request.resource.data.diff(resource.data).affectedKeys()
             .hasOnly(['enteredCount', 'status', 'lastEntryAt'])
           && request.resource.data.enteredCount is int
-          && request.resource.data.enteredCount >= resource.data.enteredCount
-          && request.resource.data.enteredCount <= resource.data.maxCapacity;
+          && (
+            (
+              request.resource.data.enteredCount >= resource.data.enteredCount
+              && request.resource.data.enteredCount <= resource.data.maxCapacity
+            )
+            || (
+              resource.data.maxCapacity > 0
+              && request.resource.data.enteredCount == 0
+              && request.resource.data.status == 'PENDIENTE'
+              && !('lastEntryAt' in request.resource.data)
+            )
+          );
       }
 
       match /logs/{logId} {
@@ -36,6 +46,7 @@ service cloud.firestore {
           && request.resource.data.count is int
           && request.resource.data.count >= 1
           && request.resource.data.count <= 5;
+        allow delete: if eventIsOpen();
       }
     }
   }

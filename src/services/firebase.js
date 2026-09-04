@@ -1,9 +1,30 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
-import { getFirestore } from 'firebase/firestore';
+import {
+  getFirestore,
+  initializeFirestore,
+  persistentLocalCache,
+  persistentMultipleTabManager
+} from 'firebase/firestore';
 
 const STORAGE_KEY_FIREBASE = 'mundopalabra_firebase_config';
 
 export function getSavedFirebaseConfig() {
+  const envConfig = {
+    apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+    authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+    projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+    storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+    messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+    appId: import.meta.env.VITE_FIREBASE_APP_ID
+  };
+
+  // A deployment-level config guarantees that every phone uses the same DB.
+  if (envConfig.apiKey && envConfig.projectId && envConfig.appId) {
+    return Object.fromEntries(
+      Object.entries(envConfig).filter(([, value]) => Boolean(value))
+    );
+  }
+
   try {
     const raw = localStorage.getItem(STORAGE_KEY_FIREBASE);
     if (!raw) return null;
@@ -36,7 +57,17 @@ export function initFirebase() {
       cachedApp = existing.length > 0 ? getApp() : initializeApp(config);
     }
     if (!cachedDb && cachedApp) {
-      cachedDb = getFirestore(cachedApp);
+      try {
+        cachedDb = initializeFirestore(cachedApp, {
+          localCache: persistentLocalCache({
+            tabManager: persistentMultipleTabManager()
+          })
+        });
+      } catch (persistenceError) {
+        // IndexedDB can be unavailable in private mode. Firestore still works
+        // online, only without its durable offline cache.
+        cachedDb = getFirestore(cachedApp);
+      }
     }
     return { app: cachedApp, db: cachedDb, isConfigured: true };
   } catch (err) {

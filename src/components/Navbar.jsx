@@ -9,7 +9,8 @@ import {
   DoorClosed,
   Cloud,
   HardDrive,
-  School
+  School,
+  AlertTriangle
 } from 'lucide-react';
 
 export default function Navbar({ 
@@ -64,19 +65,34 @@ export default function Navbar({
               className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border transition-colors ${
                 syncMode === 'cloud'
                   ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
+                  : syncMode === 'error'
+                    ? 'bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100'
                   : 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100'
               }`}
-              title={syncMode === 'cloud' ? 'Sincronizado en la nube (Firebase)' : 'Modo local (Haz clic para configurar Firebase)'}
+              title={
+                syncMode === 'cloud'
+                  ? 'Sincronizado en la nube (Firebase)'
+                  : syncMode === 'offline'
+                    ? 'Sin conexión: usando la copia persistente de Firebase'
+                    : syncMode === 'error'
+                      ? 'Error de sincronización: revisa Firebase'
+                      : 'Modo local (Haz clic para configurar Firebase)'
+              }
             >
               {syncMode === 'cloud' ? (
                 <>
                   <Cloud className="w-3.5 h-3.5 text-emerald-600" />
                   <span className="hidden md:inline">En vivo</span>
                 </>
+              ) : syncMode === 'error' ? (
+                <>
+                  <AlertTriangle className="w-3.5 h-3.5 text-rose-600" />
+                  <span className="hidden md:inline">Error de sincronización</span>
+                </>
               ) : (
                 <>
                   <HardDrive className="w-3.5 h-3.5 text-amber-600" />
-                  <span className="hidden md:inline">Local</span>
+                  <span className="hidden md:inline">{syncMode === 'offline' ? 'Sin conexión' : 'Local'}</span>
                 </>
               )}
             </button>

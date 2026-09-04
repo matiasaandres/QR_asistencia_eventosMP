@@ -27,10 +27,12 @@ export default function CheckinPanel({
 
   if (!student) return null;
 
-  const maxCap = Number(student.maxCapacity) || 5;
+  const parsedCapacity = Number(student.maxCapacity);
+  const maxCap = Number.isFinite(parsedCapacity) ? Math.max(0, parsedCapacity) : 5;
   const entered = Number(student.enteredCount) || 0;
   const remaining = Math.max(0, maxCap - entered);
   const isFull = remaining <= 0;
+  const remainingAfterSelection = Math.max(0, remaining - selectedCount);
 
   // Handle immediate registration
   const handleRegister = async (countToRegister) => {
@@ -184,7 +186,7 @@ export default function CheckinPanel({
               <AlertTriangle className="w-8 h-8 text-rose-600 mx-auto mb-2" />
               <h4 className="font-bold text-rose-900 text-base">Capacidad Máxima Alcanzada</h4>
               <p className="text-xs text-rose-700 mt-1 max-w-sm mx-auto">
-                No existen más cupos disponibles asociados a este estudiante. Todas las 5 personas autorizadas ya ingresaron.
+                No existen más cupos disponibles asociados a este estudiante. Se alcanzó el máximo de {maxCap} personas autorizadas.
               </p>
               <button
                 onClick={onClose}
@@ -201,7 +203,7 @@ export default function CheckinPanel({
                 ¿Cuántas personas están ingresando en este momento?
               </p>
 
-              {/* Grid of quick action buttons for 1, 2, 3, 4, 5 */}
+              {/* Select first, then confirm to prevent accidental check-ins. */}
               <div className="grid grid-cols-5 gap-2">
                 {[1, 2, 3, 4, 5].map((num) => {
                   const isAvailable = num <= remaining;
@@ -210,9 +212,11 @@ export default function CheckinPanel({
                       key={num}
                       type="button"
                       disabled={!isAvailable || isSubmitting}
-                      onClick={() => handleRegister(num)}
+                      onClick={() => setSelectedCount(num)}
                       className={`h-16 flex flex-col items-center justify-center rounded-xl font-bold transition-all ${
-                        isAvailable
+                        selectedCount === num && isAvailable
+                          ? 'bg-sky-600 border-2 border-sky-600 text-white ring-2 ring-sky-200 shadow-sm'
+                          : isAvailable
                           ? 'bg-sky-50 border-2 border-sky-300 text-sky-900 hover:bg-sky-600 hover:border-sky-600 hover:text-white active:scale-95 shadow-sm'
                           : 'bg-slate-100 border border-slate-200 text-slate-300 cursor-not-allowed opacity-60'
                       }`}
@@ -225,6 +229,26 @@ export default function CheckinPanel({
                   );
                 })}
               </div>
+
+              <div className="mt-4 rounded-xl border border-sky-200 bg-sky-50 p-3 text-center">
+                <p className="text-sm font-bold text-sky-950">
+                  Ingresarán {selectedCount} {selectedCount === 1 ? 'persona' : 'personas'}
+                </p>
+                <p className="mt-0.5 text-xs font-semibold text-sky-700">
+                  Después de registrar quedarán {remainingAfterSelection} de {maxCap} cupos disponibles.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                disabled={isSubmitting || selectedCount > remaining}
+                onClick={() => handleRegister(selectedCount)}
+                className="mt-3 w-full rounded-xl bg-emerald-600 px-4 py-3 text-sm font-extrabold text-white shadow-sm transition-colors hover:bg-emerald-500 disabled:cursor-wait disabled:opacity-60"
+              >
+                {isSubmitting
+                  ? 'Registrando de forma segura…'
+                  : `Confirmar ingreso de ${selectedCount} ${selectedCount === 1 ? 'persona' : 'personas'}`}
+              </button>
 
               <div className="mt-4 flex items-center justify-between text-xs text-slate-500">
                 <span>Solo se pueden registrar hasta {remaining} persona(s) más.</span>

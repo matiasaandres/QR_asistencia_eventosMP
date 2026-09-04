@@ -42,8 +42,9 @@ export default function App() {
       if (mode) setSyncMode(mode);
     });
 
-    const unsubLogs = subscribeToLogs(event.id, (data) => {
+    const unsubLogs = subscribeToLogs(event.id, (data, mode) => {
       setLogs(data);
+      if (mode === 'error') setSyncMode('error');
     });
 
     return () => {
@@ -70,7 +71,8 @@ export default function App() {
     const student = students.find((s) => s.id === decodedText || s.id.toLowerCase() === decodedText.toLowerCase());
 
     if (student) {
-      const maxCap = Number(student.maxCapacity) || 5;
+      const parsedCapacity = Number(student.maxCapacity);
+      const maxCap = Number.isFinite(parsedCapacity) ? Math.max(0, parsedCapacity) : 5;
       const entered = Number(student.enteredCount) || 0;
       if (entered >= maxCap) {
         sounds.playWarning();
@@ -161,7 +163,7 @@ export default function App() {
       {/* Check-in Action Modal */}
       {checkinStudent && (
         <CheckinPanel
-          student={checkinStudent}
+          student={students.find((student) => student.id === checkinStudent.id) || checkinStudent}
           currentDoor={currentDoor}
           onConfirmCheckIn={handleConfirmCheckIn}
           onClose={() => setCheckinStudent(null)}

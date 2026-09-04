@@ -5,12 +5,11 @@ import {
   doc,
   getDocs,
   setDoc,
-  updateDoc,
-  addDoc,
   onSnapshot,
   query,
   orderBy,
-  runTransaction
+  runTransaction,
+  writeBatch
 } from 'firebase/firestore';
 
 const LOCAL_STORAGE_KEY_STUDENTS = 'mp_students_data_';
@@ -57,10 +56,15 @@ export function subscribeToStudents(eventId, onUpdate) {
     const studentsCol = collection(db, 'events', eventId, 'students');
     const unsubscribe = onSnapshot(
       studentsCol,
+      { includeMetadataChanges: true },
       (snapshot) => {
         if (snapshot.empty) {
-          // Initialize remote collection with initial data if empty
-          initializeRemoteStudents(db, eventId);
+          // Seed once, atomically. The transaction marker prevents two devices
+          // from re-seeding and overwriting attendance at the same time.
+          initializeRemoteStudents(db, eventId).catch((error) => {
+            console.error("Error initializing remote students:", error);
+            loadCachedStudents(eventId, onUpdate, 'error');
+          });
           return;
         }
         const students = snapshot.docs.map((d) => ({
@@ -69,17 +73,28 @@ export function subscribeToStudents(eventId, onUpdate) {
         }));
         // Cache locally for offline backup
         localStorage.setItem(LOCAL_STORAGE_KEY_STUDENTS + eventId, JSON.stringify(students));
-        onUpdate(students, 'cloud');
+        onUpdate(students, snapshot.metadata.fromCache ? 'offline' : 'cloud');
       },
       (error) => {
-        console.warn("Firestore subscription error, falling back to local:", error);
-        fallbackToLocalStudents(eventId, onUpdate);
+        console.warn("Firestore subscription error:", error);
+        // Never silently switch a cloud deployment to independent local data.
+        // Show the durable cache, but mark synchronization as failed.
+        loadCachedStudents(eventId, onUpdate, 'error');
       }
     );
     return unsubscribe;
   } else {
     // Local mode
     return fallbackToLocalStudents(eventId, onUpdate);
+  }
+}
+
+function loadCachedStudents(eventId, onUpdate, mode) {
+  try {
+    const raw = localStorage.getItem(LOCAL_STORAGE_KEY_STUDENTS + eventId);
+    onUpdate(raw ? JSON.parse(raw) : [], mode);
+  } catch (e) {
+    onUpdate([], mode);
   }
 }
 
@@ -130,14 +145,22 @@ function fallbackToLocalStudents(eventId, onUpdate) {
 }
 
 async function initializeRemoteStudents(db, eventId) {
-  try {
+  const eventRef = doc(db, 'events', eventId);
+
+  await runTransaction(db, async (transaction) => {
+    const eventSnap = await transaction.get(eventRef);
+    if (eventSnap.exists() && eventSnap.data().studentsInitialized) return;
+
     for (const student of INITIAL_STUDENTS) {
       const studentRef = doc(db, 'events', eventId, 'students', student.id);
-      await setDoc(studentRef, student);
+      transaction.set(studentRef, student);
     }
-  } catch (err) {
-    console.error("Error initializing remote students:", err);
-  }
+    transaction.set(eventRef, {
+      ...INITIAL_EVENT,
+      studentsInitialized: true,
+      initializedAt: new Date().toISOString()
+    }, { merge: true });
+  });
 }
 
 // Subscribe to Entry Logs (real-time)
@@ -149,22 +172,32 @@ export function subscribeToLogs(eventId, onUpdate) {
     const q = query(logsCol, orderBy('timestamp', 'desc'));
     const unsubscribe = onSnapshot(
       q,
+      { includeMetadataChanges: true },
       (snapshot) => {
         const logs = snapshot.docs.map((d) => ({
           ...d.data(),
           id: d.id
         }));
         localStorage.setItem(LOCAL_STORAGE_KEY_LOGS + eventId, JSON.stringify(logs));
-        onUpdate(logs);
+        onUpdate(logs, snapshot.metadata.fromCache ? 'offline' : 'cloud');
       },
       (err) => {
-        console.warn("Firestore logs error, falling back to local:", err);
-        fallbackToLocalLogs(eventId, onUpdate);
+        console.warn("Firestore logs error:", err);
+        loadCachedLogs(eventId, onUpdate, 'error');
       }
     );
     return unsubscribe;
   } else {
     return fallbackToLocalLogs(eventId, onUpdate);
+  }
+}
+
+function loadCachedLogs(eventId, onUpdate, mode) {
+  try {
+    const raw = localStorage.getItem(LOCAL_STORAGE_KEY_LOGS + eventId);
+    onUpdate(raw ? JSON.parse(raw) : [], mode);
+  } catch (e) {
+    onUpdate([], mode);
   }
 }
 
@@ -200,6 +233,10 @@ export async function registerCheckIn({
   count,
   doorName
 }) {
+  if (!Number.isInteger(count) || count < 1) {
+    throw new Error("La cantidad de personas debe ser un número entero mayor que cero.");
+  }
+
   const { db, isConfigured } = initFirebase();
   const now = new Date();
   const timestampIso = now.toISOString();
@@ -209,7 +246,7 @@ export async function registerCheckIn({
   if (isConfigured && db) {
     // Cloud Firestore Transaction to guarantee concurrency safety across phones
     const studentRef = doc(db, 'events', eventId, 'students', studentId);
-    const logsCol = collection(db, 'events', eventId, 'logs');
+    const logRef = doc(collection(db, 'events', eventId, 'logs'));
 
     return await runTransaction(db, async (transaction) => {
       const studentSnap = await transaction.get(studentRef);
@@ -219,7 +256,8 @@ export async function registerCheckIn({
 
       const currentData = studentSnap.data();
       const currentEntered = Number(currentData.enteredCount) || 0;
-      const maxCap = Number(currentData.maxCapacity) || 5;
+      const parsedCapacity = Number(currentData.maxCapacity);
+      const maxCap = Number.isFinite(parsedCapacity) ? Math.max(0, parsedCapacity) : 5;
       const remaining = maxCap - currentEntered;
 
       if (remaining <= 0) {
@@ -252,7 +290,9 @@ export async function registerCheckIn({
         formattedDate
       };
 
-      await addDoc(logsCol, logData);
+      // Student counter and audit log commit together. A transaction retry uses
+      // the same log ID, so concurrent scans cannot create duplicate entries.
+      transaction.set(logRef, logData);
 
       return {
         student: { ...currentData, enteredCount: newEntered, status: newStatus },
@@ -281,7 +321,8 @@ export async function registerCheckIn({
 
     const student = students[studentIndex];
     const currentEntered = Number(student.enteredCount) || 0;
-    const maxCap = Number(student.maxCapacity) || 5;
+    const parsedCapacity = Number(student.maxCapacity);
+    const maxCap = Number.isFinite(parsedCapacity) ? Math.max(0, parsedCapacity) : 5;
     const remaining = maxCap - currentEntered;
 
     if (remaining <= 0) {
@@ -369,6 +410,17 @@ export async function resetEventData(eventId) {
   localStorage.removeItem(LOCAL_STORAGE_KEY_LOGS + eventId);
 
   if (isConfigured && db) {
+    const studentsSnapshot = await getDocs(collection(db, 'events', eventId, 'students'));
+    const logsSnapshot = await getDocs(collection(db, 'events', eventId, 'logs'));
+    const documents = [...studentsSnapshot.docs, ...logsSnapshot.docs];
+
+    for (let offset = 0; offset < documents.length; offset += 450) {
+      const batch = writeBatch(db);
+      documents.slice(offset, offset + 450).forEach((document) => batch.delete(document.ref));
+      await batch.commit();
+    }
+
+    await setDoc(doc(db, 'events', eventId), { studentsInitialized: false }, { merge: true });
     await initializeRemoteStudents(db, eventId);
   }
 

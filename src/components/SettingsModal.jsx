@@ -112,11 +112,15 @@ export default function SettingsModal({
     }
   };
 
-  const handleResetDataClick = () => {
+  const handleResetDataClick = async () => {
     if (confirm("¿Estás seguro de que deseas reiniciar todos los ingresos del evento? Los estudiantes volverán a tener 0 personas registradas.")) {
-      onResetData();
-      alert("Los datos del evento han sido reiniciados.");
-      onClose();
+      try {
+        await onResetData();
+        alert("Los datos del evento han sido reiniciados.");
+        onClose();
+      } catch (error) {
+        alert(error.message);
+      }
     }
   };
 

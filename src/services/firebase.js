@@ -7,6 +7,17 @@ import {
 } from 'firebase/firestore';
 
 const STORAGE_KEY_FIREBASE = 'mundopalabra_firebase_config';
+// Firebase web configuration is a public client identifier (not a server
+// credential). Keeping it here ensures every Vercel device uses the same DB,
+// even when deployment environment variables have not been configured yet.
+const DEFAULT_FIREBASE_CONFIG = {
+  apiKey: 'AIzaSyCy3DmCUQWgtR4hR-q4DlH9kzZBRf6OUmU',
+  authDomain: 'mundopalabra-acceso.firebaseapp.com',
+  projectId: 'mundopalabra-acceso',
+  storageBucket: 'mundopalabra-acceso.firebasestorage.app',
+  messagingSenderId: '609103289658',
+  appId: '1:609103289658:web:e213924bdd24ac4a72c403'
+};
 
 export function getSavedFirebaseConfig() {
   const envConfig = {
@@ -27,10 +38,10 @@ export function getSavedFirebaseConfig() {
 
   try {
     const raw = localStorage.getItem(STORAGE_KEY_FIREBASE);
-    if (!raw) return null;
+    if (!raw) return DEFAULT_FIREBASE_CONFIG;
     return JSON.parse(raw);
   } catch (e) {
-    return null;
+    return DEFAULT_FIREBASE_CONFIG;
   }
 }
 

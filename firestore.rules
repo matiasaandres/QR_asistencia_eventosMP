@@ -1,0 +1,42 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /events/{eventId} {
+      function isCurrentEvent() {
+        return eventId == 'acto-cultural-2026';
+      }
+
+      function eventIsOpen() {
+        return isCurrentEvent() && request.time < timestamp.date(2026, 10, 1);
+      }
+
+      allow read: if eventIsOpen();
+      allow create: if eventIsOpen()
+        && request.resource.data.studentsInitialized == true;
+
+      match /students/{studentId} {
+        allow read: if eventIsOpen();
+        allow create: if eventIsOpen()
+          && request.resource.data.enteredCount is int
+          && request.resource.data.maxCapacity is int
+          && request.resource.data.enteredCount == 0
+          && request.resource.data.maxCapacity >= 0;
+        allow update: if eventIsOpen()
+          && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['enteredCount', 'status', 'lastEntryAt'])
+          && request.resource.data.enteredCount is int
+          && request.resource.data.enteredCount >= resource.data.enteredCount
+          && request.resource.data.enteredCount <= resource.data.maxCapacity;
+      }
+
+      match /logs/{logId} {
+        allow read: if eventIsOpen();
+        allow create: if eventIsOpen()
+          && request.resource.data.count is int
+          && request.resource.data.count >= 1
+          && request.resource.data.count <= 5;
+      }
+    }
+  }
+}

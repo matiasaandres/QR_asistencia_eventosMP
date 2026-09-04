@@ -3,13 +3,11 @@ import { INITIAL_STUDENTS, INITIAL_EVENT } from '../mock/sampleStudents';
 import {
   collection,
   doc,
-  getDocs,
   setDoc,
   onSnapshot,
   query,
   orderBy,
-  runTransaction,
-  writeBatch
+  runTransaction
 } from 'firebase/firestore';
 
 const LOCAL_STORAGE_KEY_STUDENTS = 'mp_students_data_';
@@ -406,23 +404,14 @@ export async function saveStudentsList(eventId, newStudents) {
 export async function resetEventData(eventId) {
   const { db, isConfigured } = initFirebase();
 
+  if (isConfigured && db) {
+    throw new Error(
+      'El reinicio remoto está bloqueado por seguridad. Los ingresos guardados en Firestore no se pueden borrar desde el sitio público.'
+    );
+  }
+
   localStorage.removeItem(LOCAL_STORAGE_KEY_STUDENTS + eventId);
   localStorage.removeItem(LOCAL_STORAGE_KEY_LOGS + eventId);
-
-  if (isConfigured && db) {
-    const studentsSnapshot = await getDocs(collection(db, 'events', eventId, 'students'));
-    const logsSnapshot = await getDocs(collection(db, 'events', eventId, 'logs'));
-    const documents = [...studentsSnapshot.docs, ...logsSnapshot.docs];
-
-    for (let offset = 0; offset < documents.length; offset += 450) {
-      const batch = writeBatch(db);
-      documents.slice(offset, offset + 450).forEach((document) => batch.delete(document.ref));
-      await batch.commit();
-    }
-
-    await setDoc(doc(db, 'events', eventId), { studentsInitialized: false }, { merge: true });
-    await initializeRemoteStudents(db, eventId);
-  }
 
   if (localChannel) {
     localChannel.postMessage({ type: 'STUDENTS_UPDATED', eventId });

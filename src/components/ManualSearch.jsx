@@ -10,6 +10,7 @@ import {
   Filter,
   QrCode
 } from 'lucide-react';
+import { getCapacityState } from '../services/checkinPolicy';
 
 export default function ManualSearch({ 
   students, 
@@ -38,10 +39,9 @@ export default function ManualSearch({
 
       const matchesCourse = selectedCourse === 'ALL' || s.course === selectedCourse;
 
-      const maxCap = Number(s.maxCapacity) || 5;
-      const entered = Number(s.enteredCount) || 0;
-      const isFull = entered >= maxCap;
-      const isPending = entered === 0;
+      const capacity = getCapacityState(s);
+      const isFull = capacity.isFull;
+      const isPending = capacity.enteredCount === 0;
 
       let matchesStatus = true;
       if (statusFilter === 'AVAILABLE') matchesStatus = !isFull;
@@ -149,10 +149,11 @@ export default function ManualSearch({
           </div>
         ) : (
           filteredStudents.map((student) => {
-            const maxCap = Number(student.maxCapacity) || 5;
-            const entered = Number(student.enteredCount) || 0;
-            const remaining = Math.max(0, maxCap - entered);
-            const isFull = remaining <= 0;
+            const capacity = getCapacityState(student);
+            const maxCap = capacity.maxCapacity;
+            const entered = capacity.enteredCount;
+            const remaining = capacity.remaining;
+            const isFull = capacity.isFull;
 
             return (
               <div

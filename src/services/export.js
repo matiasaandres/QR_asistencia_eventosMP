@@ -1,14 +1,15 @@
 import * as XLSX from 'xlsx';
+import { getCapacityState } from './checkinPolicy';
 
 export function exportToExcel({ event, students, logs }) {
   const wb = XLSX.utils.book_new();
 
   // 1. Resumen por Estudiante
   const studentsData = students.map((s) => {
-    const parsedCapacity = Number(s.maxCapacity);
-    const maxCapacity = Number.isFinite(parsedCapacity) ? Math.max(0, parsedCapacity) : 5;
-    const enteredCount = Number(s.enteredCount) || 0;
-    const hasExtraGuest = Boolean(s.extraGuest) || enteredCount > maxCapacity;
+    const capacity = getCapacityState(s);
+    const maxCapacity = capacity.maxCapacity;
+    const enteredCount = capacity.enteredCount;
+    const hasExtraGuest = capacity.hasExtraGuest;
 
     return {
       "Código": s.id,

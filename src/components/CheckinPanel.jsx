@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { sounds } from '../services/sound';
+import { getCapacityState } from '../services/checkinPolicy';
 
 export default function CheckinPanel({ 
   student, 
@@ -28,16 +29,13 @@ export default function CheckinPanel({
 
   if (!student) return null;
 
-  const parsedCapacity = Number(student.maxCapacity);
-  const maxCap = Number.isFinite(parsedCapacity) ? Math.max(0, parsedCapacity) : 5;
-  const entered = Number(student.enteredCount) || 0;
-  const remaining = Math.max(0, maxCap - entered);
-  const isFull = remaining <= 0;
-  const hasExtraGuest = Boolean(student.extraGuest) || entered > maxCap;
-  const canAddExtra = isFull
-    && maxCap > 0
-    && !hasExtraGuest
-    && student.status !== 'RETIRADO';
+  const capacity = getCapacityState(student);
+  const maxCap = capacity.maxCapacity;
+  const entered = capacity.enteredCount;
+  const remaining = capacity.remaining;
+  const isFull = capacity.isFull;
+  const hasExtraGuest = capacity.hasExtraGuest;
+  const canAddExtra = capacity.canAddExtra;
   const remainingAfterSelection = selectedCount == null
     ? remaining
     : Math.max(0, remaining - selectedCount);

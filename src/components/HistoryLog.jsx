@@ -136,7 +136,7 @@ export default function HistoryLog({
                       </span>
                     </td>
                     <td className="py-3 px-4 text-center font-semibold text-slate-700">
-                      {log.accumulated} de {log.maxCapacity || 5}{log.isExtra ? ' + 1 extra' : ''}
+                      {log.accumulated} de {log.maxCapacity ?? 5}{log.isExtra ? ' + 1 extra' : ''}
                     </td>
                     <td className="py-3 px-4 text-slate-600 font-medium">
                       {log.doorName}

@@ -15,6 +15,7 @@ import {
   clearAuthSession,
   getActiveAuthSession
 } from './services/auth';
+import { getCapacityState } from './services/checkinPolicy';
 import { 
   getCurrentEvent, 
   saveCurrentEvent, 
@@ -121,10 +122,8 @@ export default function App() {
     const student = students.find((s) => s.id === decodedText || s.id.toLowerCase() === decodedText.toLowerCase());
 
     if (student) {
-      const parsedCapacity = Number(student.maxCapacity);
-      const maxCap = Number.isFinite(parsedCapacity) ? Math.max(0, parsedCapacity) : 5;
-      const entered = Number(student.enteredCount) || 0;
-      if (entered >= maxCap) {
+      const capacity = getCapacityState(student);
+      if (capacity.isFull) {
         sounds.playWarning();
       } else {
         sounds.playSuccess();

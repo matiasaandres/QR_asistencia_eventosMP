@@ -1,6 +1,13 @@
 import { initFirebase } from './firebase';
 import { INITIAL_STUDENTS, INITIAL_EVENT } from '../mock/sampleStudents';
 import {
+  createCheckInPlan,
+  ensureRequiredDoors,
+  getCapacityState,
+  normalizeExtraPerson,
+  resetStudentAttendance
+} from './checkinPolicy';
+import {
   collection,
   doc,
   setDoc,
@@ -17,7 +24,6 @@ const LOCAL_STORAGE_KEY_STUDENTS = 'mp_students_data_';
 const LOCAL_STORAGE_KEY_LOGS = 'mp_logs_data_';
 const LOCAL_STORAGE_KEY_EVENT = 'mp_current_event';
 const LOCAL_STORAGE_KEY_DOOR = 'mp_current_door';
-const REQUIRED_DOORS = ['Puerta 1', 'Puerta 2'];
 
 // BroadcastChannel for instant multi-tab sync in local mode
 let localChannel = null;
@@ -35,31 +41,19 @@ export function setCurrentDoor(doorName) {
   localStorage.setItem(LOCAL_STORAGE_KEY_DOOR, doorName);
 }
 
-export function ensureRequiredDoors(eventData) {
-  const baseEvent = eventData && typeof eventData === 'object' ? eventData : INITIAL_EVENT;
-  const currentDoors = Array.isArray(baseEvent.doors)
-    ? baseEvent.doors.map((door) => String(door).trim()).filter(Boolean)
-    : [];
-
-  return {
-    ...baseEvent,
-    doors: Array.from(new Set([...currentDoors, ...REQUIRED_DOORS]))
-  };
-}
-
 export function getCurrentEvent() {
   try {
     const raw = localStorage.getItem(LOCAL_STORAGE_KEY_EVENT);
-    const currentEvent = ensureRequiredDoors(raw ? JSON.parse(raw) : INITIAL_EVENT);
+    const currentEvent = ensureRequiredDoors(raw ? JSON.parse(raw) : INITIAL_EVENT, INITIAL_EVENT);
     localStorage.setItem(LOCAL_STORAGE_KEY_EVENT, JSON.stringify(currentEvent));
     return currentEvent;
   } catch (e) {
-    return ensureRequiredDoors(INITIAL_EVENT);
+    return ensureRequiredDoors(INITIAL_EVENT, INITIAL_EVENT);
   }
 }
 
 export function saveCurrentEvent(eventData) {
-  const normalizedEvent = ensureRequiredDoors(eventData);
+  const normalizedEvent = ensureRequiredDoors(eventData, INITIAL_EVENT);
   localStorage.setItem(LOCAL_STORAGE_KEY_EVENT, JSON.stringify(normalizedEvent));
   return normalizedEvent;
 }
@@ -251,34 +245,46 @@ export async function registerCheckIn({
   doorName,
   extraPerson = null
 }) {
-  if (!Number.isInteger(count) || count < 1) {
-    throw new Error("La cantidad de personas debe ser un número entero mayor que cero.");
-  }
-
-  const normalizedExtraPerson = extraPerson
-    ? {
-        name: String(extraPerson.name || '').trim(),
-        relationship: String(extraPerson.relationship || '').trim()
-      }
-    : null;
-
-  if (normalizedExtraPerson) {
-    if (count !== 1) {
-      throw new Error("El cupo extraordinario solo permite registrar a una persona.");
-    }
-    if (normalizedExtraPerson.name.length < 2) {
-      throw new Error("Ingresa el nombre completo de la persona adicional.");
-    }
-    if (normalizedExtraPerson.relationship.length < 2) {
-      throw new Error("Selecciona o escribe el parentesco con el alumno.");
-    }
-  }
-
   const { db, isConfigured } = initFirebase();
   const now = new Date();
   const timestampIso = now.toISOString();
   const formattedTime = now.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
   const formattedDate = now.toLocaleDateString('es-CL');
+  const normalizedExtraPerson = normalizeExtraPerson(extraPerson);
+
+  const buildPlan = (student) => createCheckInPlan({
+    student,
+    count,
+    doorName,
+    timestampIso,
+    extraPerson: normalizedExtraPerson
+  });
+
+  const buildLogData = (student, plan) => ({
+    studentId,
+    studentName: student.name,
+    course: student.course,
+    count,
+    accumulated: plan.newEntered,
+    maxCapacity: getCapacityState(student).maxCapacity,
+    doorName: doorName || 'Acceso Principal',
+    timestamp: timestampIso,
+    formattedTime,
+    formattedDate,
+    isExtra: plan.isExtra,
+    ...(plan.extraGuest ? {
+      guestName: plan.extraGuest.name,
+      relationship: plan.extraGuest.relationship
+    } : {})
+  });
+
+  const buildUpdatedStudent = (student, plan) => ({
+    ...student,
+    enteredCount: plan.newEntered,
+    status: plan.newStatus,
+    lastEntryAt: timestampIso,
+    ...(plan.extraGuest ? { extraGuest: plan.extraGuest } : {})
+  });
 
   if (isConfigured && db) {
     // Cloud Firestore Transaction to guarantee concurrency safety across phones
@@ -292,91 +298,27 @@ export async function registerCheckIn({
       }
 
       const currentData = studentSnap.data();
-      const currentEntered = Number(currentData.enteredCount) || 0;
-      const parsedCapacity = Number(currentData.maxCapacity);
-      const maxCap = Number.isFinite(parsedCapacity) ? Math.max(0, parsedCapacity) : 5;
-      const remaining = maxCap - currentEntered;
+      const plan = buildPlan(currentData);
+      const updatedStudent = buildUpdatedStudent(currentData, plan);
 
-      let newEntered;
-      let newStatus;
-      let extraGuest = null;
-
-      if (normalizedExtraPerson) {
-        const isEligible = maxCap > 0 && currentData.status !== 'RETIRADO';
-        if (!isEligible) {
-          throw new Error("Este alumno no está habilitado para un cupo extraordinario.");
-        }
-        if (currentEntered !== maxCap || currentData.extraGuest) {
-          throw new Error("El cupo extraordinario solo puede usarse una vez, después de completar el cupo normal.");
-        }
-
-        newEntered = maxCap + 1;
-        newStatus = 'CUPO_EXTRA';
-        extraGuest = {
-          ...normalizedExtraPerson,
-          addedAt: timestampIso,
-          doorName: doorName || 'Acceso Principal'
-        };
-
-        transaction.update(studentRef, {
-          enteredCount: newEntered,
-          status: newStatus,
-          lastEntryAt: timestampIso,
-          extraGuest
-        });
-      } else {
-        if (remaining <= 0) {
-          throw new Error("El estudiante ya completó el cupo máximo de personas.");
-        }
-
-        if (count > remaining) {
-          throw new Error(`Solo quedan ${remaining} cupo(s) disponible(s).`);
-        }
-
-        newEntered = currentEntered + count;
-        newStatus = newEntered >= maxCap ? 'COMPLETO' : 'PARCIAL';
-
-        transaction.update(studentRef, {
-          enteredCount: newEntered,
-          status: newStatus,
-          lastEntryAt: timestampIso
-        });
-      }
-
-      const logData = {
-        studentId: studentId,
-        studentName: currentData.name,
-        course: currentData.course,
-        count: count,
-        accumulated: newEntered,
-        maxCapacity: maxCap,
-        doorName: doorName || 'Acceso Principal',
-        timestamp: timestampIso,
-        formattedTime,
-        formattedDate,
-        isExtra: Boolean(normalizedExtraPerson),
-        ...(normalizedExtraPerson ? {
-          guestName: normalizedExtraPerson.name,
-          relationship: normalizedExtraPerson.relationship
-        } : {})
-      };
+      transaction.update(studentRef, {
+        enteredCount: plan.newEntered,
+        status: plan.newStatus,
+        lastEntryAt: timestampIso,
+        ...(plan.extraGuest ? { extraGuest: plan.extraGuest } : {})
+      });
 
       // Student counter and audit log commit together. A transaction retry uses
       // the same log ID, so concurrent scans cannot create duplicate entries.
-      transaction.set(logRef, logData);
+      transaction.set(logRef, buildLogData(currentData, plan));
 
       return {
-        student: {
-          ...currentData,
-          enteredCount: newEntered,
-          status: newStatus,
-          ...(extraGuest ? { extraGuest } : {})
-        },
-        newEntered,
-        remaining: maxCap - newEntered,
+        student: updatedStudent,
+        newEntered: plan.newEntered,
+        remaining: plan.remaining,
         count,
-        isExtra: Boolean(normalizedExtraPerson),
-        extraGuest
+        isExtra: plan.isExtra,
+        extraGuest: plan.extraGuest
       };
     });
   } else {
@@ -398,50 +340,8 @@ export async function registerCheckIn({
     }
 
     const student = students[studentIndex];
-    const currentEntered = Number(student.enteredCount) || 0;
-    const parsedCapacity = Number(student.maxCapacity);
-    const maxCap = Number.isFinite(parsedCapacity) ? Math.max(0, parsedCapacity) : 5;
-    const remaining = maxCap - currentEntered;
-
-    let newEntered;
-    let newStatus;
-    let extraGuest = null;
-
-    if (normalizedExtraPerson) {
-      const isEligible = maxCap > 0 && student.status !== 'RETIRADO';
-      if (!isEligible) {
-        throw new Error("Este alumno no está habilitado para un cupo extraordinario.");
-      }
-      if (currentEntered !== maxCap || student.extraGuest) {
-        throw new Error("El cupo extraordinario solo puede usarse una vez, después de completar el cupo normal.");
-      }
-
-      newEntered = maxCap + 1;
-      newStatus = 'CUPO_EXTRA';
-      extraGuest = {
-        ...normalizedExtraPerson,
-        addedAt: timestampIso,
-        doorName: doorName || 'Acceso Principal'
-      };
-    } else {
-      if (remaining <= 0) {
-        throw new Error("El estudiante ya completó el cupo máximo.");
-      }
-      if (count > remaining) {
-        throw new Error(`Solo quedan ${remaining} cupo(s) disponible(s).`);
-      }
-
-      newEntered = currentEntered + count;
-      newStatus = newEntered >= maxCap ? 'COMPLETO' : 'PARCIAL';
-    }
-
-    students[studentIndex] = {
-      ...student,
-      enteredCount: newEntered,
-      status: newStatus,
-      lastEntryAt: timestampIso,
-      ...(extraGuest ? { extraGuest } : {})
-    };
+    const plan = buildPlan(student);
+    students[studentIndex] = buildUpdatedStudent(student, plan);
 
     localStorage.setItem(keyStudents, JSON.stringify(students));
 
@@ -456,21 +356,7 @@ export async function registerCheckIn({
 
     const logEntry = {
       id: 'log_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7),
-      studentId: student.id,
-      studentName: student.name,
-      course: student.course,
-      count: count,
-      accumulated: newEntered,
-      maxCapacity: maxCap,
-      doorName: doorName || 'Acceso Principal',
-      timestamp: timestampIso,
-      formattedTime,
-      formattedDate,
-      isExtra: Boolean(normalizedExtraPerson),
-      ...(normalizedExtraPerson ? {
-        guestName: normalizedExtraPerson.name,
-        relationship: normalizedExtraPerson.relationship
-      } : {})
+      ...buildLogData(student, plan)
     };
 
     logs.unshift(logEntry);
@@ -483,11 +369,11 @@ export async function registerCheckIn({
 
     return {
       student: students[studentIndex],
-      newEntered,
-      remaining: maxCap - newEntered,
+      newEntered: plan.newEntered,
+      remaining: plan.remaining,
       count,
-      isExtra: Boolean(normalizedExtraPerson),
-      extraGuest
+      isExtra: plan.isExtra,
+      extraGuest: plan.extraGuest
     };
   }
 }
@@ -523,15 +409,7 @@ async function commitInChunks(db, operations) {
 }
 
 function resetLocalStudent(student) {
-  const { lastEntryAt, extraGuest, ...studentWithoutAttendance } = student;
-  const parsedCapacity = Number(student.maxCapacity);
-  const hasAccess = !Number.isFinite(parsedCapacity) || parsedCapacity > 0;
-
-  return {
-    ...studentWithoutAttendance,
-    enteredCount: 0,
-    status: hasAccess ? 'PENDIENTE' : student.status
-  };
+  return resetStudentAttendance(student);
 }
 
 // Reset attendance while preserving the roster and each family's capacity.
@@ -550,8 +428,7 @@ export async function resetEventData(eventId) {
 
     studentsSnapshot.docs.forEach((studentDoc) => {
       const student = studentDoc.data();
-      const parsedCapacity = Number(student.maxCapacity);
-      const hasAccess = !Number.isFinite(parsedCapacity) || parsedCapacity > 0;
+      const hasAccess = getCapacityState(student).maxCapacity > 0;
       const resetStatus = hasAccess ? 'PENDIENTE' : student.status;
       const needsReset =
         (Number(student.enteredCount) || 0) !== 0 ||

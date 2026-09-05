@@ -14,6 +14,7 @@ import {
   Plus,
   CheckCircle2
 } from 'lucide-react';
+import { getCapacityState, normalizeCapacityValue } from '../services/checkinPolicy';
 
 export default function StudentsManager({ 
   students, 
@@ -48,7 +49,7 @@ export default function StudentsManager({
       id: nextId,
       name: newStudent.name.trim(),
       course: newStudent.course.trim(),
-      maxCapacity: Number(newStudent.maxCapacity) || 5,
+      maxCapacity: Math.max(1, normalizeCapacityValue(newStudent.maxCapacity)),
       enteredCount: 0,
       status: 'PENDIENTE'
     };
@@ -79,7 +80,8 @@ export default function StudentsManager({
         const newEntries = rows.map((row, idx) => {
           const name = row['Nombre'] || row['Estudiante'] || row['Alumno'] || row['Nombre Estudiante'] || `Estudiante ${idx + 1}`;
           const course = row['Curso'] || row['Nivel'] || 'General';
-          const maxCap = Number(row['Capacidad'] || row['Cupos'] || row['Maximo'] || 5);
+          const rawCapacity = row['Capacidad'] ?? row['Cupos'] ?? row['Maximo'];
+          const maxCap = normalizeCapacityValue(rawCapacity);
           const customId = row['Codigo'] || row['ID'] || `MP-${new Date().getFullYear()}-${String(students.length + idx + 1).padStart(3, '0')}`;
 
           return {
@@ -88,7 +90,7 @@ export default function StudentsManager({
             course: String(course),
             maxCapacity: maxCap,
             enteredCount: 0,
-            status: 'PENDIENTE'
+            status: maxCap === 0 ? 'RETIRADO' : 'PENDIENTE'
           };
         });
 
@@ -205,9 +207,10 @@ export default function StudentsManager({
                 </tr>
               ) : (
                 filteredStudents.map((s) => {
-                  const maxCap = Number(s.maxCapacity) || 5;
-                  const entered = Number(s.enteredCount) || 0;
-                  const isFull = entered >= maxCap;
+                  const capacity = getCapacityState(s);
+                  const maxCap = capacity.maxCapacity;
+                  const entered = capacity.enteredCount;
+                  const isFull = capacity.isFull;
 
                   return (
                     <tr key={s.id} className="hover:bg-slate-50/70 transition-colors">

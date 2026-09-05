@@ -1,5 +1,6 @@
 import React, { useRef, useState, useMemo } from 'react';
 import QRCode from 'qrcode';
+import { getCapacityState } from '../services/checkinPolicy';
 import { 
   Printer, 
   Download, 
@@ -149,7 +150,7 @@ export default function QRCardPrinter({
       {/* Printable Cards Grid */}
       <div className="max-w-4xl w-full grid grid-cols-1 sm:grid-cols-2 gap-6 print:grid-cols-2 print:gap-4 print:max-w-none print:w-full">
         {studentsToPrint.map((student) => {
-          const maxCap = student.maxCapacity || 5;
+          const maxCap = getCapacityState(student).maxCapacity;
 
           return (
             <div

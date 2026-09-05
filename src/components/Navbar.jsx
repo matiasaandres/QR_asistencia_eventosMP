@@ -9,8 +9,8 @@ import {
   DoorClosed,
   Cloud,
   HardDrive,
-  School,
-  AlertTriangle
+  AlertTriangle,
+  LogOut
 } from 'lucide-react';
 
 export default function Navbar({ 
@@ -20,7 +20,8 @@ export default function Navbar({
   currentDoor, 
   onDoorChange, 
   syncMode, 
-  onOpenSettings 
+  onOpenSettings,
+  onLogout
 }) {
   return (
     <header className="bg-white border-b border-slate-200 sticky top-0 z-40 shadow-sm no-print">
@@ -28,8 +29,12 @@ export default function Navbar({
         <div className="flex items-center justify-between h-16">
           {/* Brand Logo & Name */}
           <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-sky-600 to-indigo-600 flex items-center justify-center text-white shadow-md shadow-sky-500/20">
-              <School className="w-6 h-6" />
+            <div className="w-11 h-11 rounded-xl bg-white border border-slate-200 flex items-center justify-center shadow-sm overflow-hidden">
+              <img
+                src="/logo-mundopalabra.png"
+                alt="Logo de MundoPalabra"
+                className="w-full h-full object-contain"
+              />
             </div>
             <div>
               <div className="flex items-center gap-2">
@@ -104,6 +109,15 @@ export default function Navbar({
               title="Ajustes y Firebase"
             >
               <Settings className="w-5 h-5" />
+            </button>
+
+            <button
+              onClick={onLogout}
+              className="flex items-center gap-1.5 p-2 text-slate-500 hover:text-rose-700 hover:bg-rose-50 rounded-lg transition-colors"
+              title="Cerrar sesión"
+            >
+              <LogOut className="w-5 h-5" />
+              <span className="hidden lg:inline text-xs font-bold">Salir</span>
             </button>
           </div>
         </div>

@@ -8,7 +8,13 @@ import StudentsManager from './components/StudentsManager';
 import HistoryLog from './components/HistoryLog';
 import QRCardPrinter from './components/QRCardPrinter';
 import SettingsModal from './components/SettingsModal';
+import LoginScreen from './components/LoginScreen';
 import { sounds } from './services/sound';
+import {
+  AUTH_SESSION_KEY,
+  clearAuthSession,
+  getActiveAuthSession
+} from './services/auth';
 import { 
   getCurrentEvent, 
   saveCurrentEvent, 
@@ -22,6 +28,7 @@ import {
 } from './services/storage';
 
 export default function App() {
+  const [authSession, setAuthSession] = useState(getActiveAuthSession);
   const [activeTab, setActiveTab] = useState('dashboard');
   const [event, setEvent] = useState(getCurrentEvent());
   const [currentDoor, setCurrentDoorState] = useState(getCurrentDoor());
@@ -37,6 +44,12 @@ export default function App() {
 
   // Subscribe to students and logs
   useEffect(() => {
+    if (!authSession) {
+      setStudents([]);
+      setLogs([]);
+      return undefined;
+    }
+
     const unsubStudents = subscribeToStudents(event.id, (data, mode) => {
       setStudents(data);
       if (mode) setSyncMode(mode);
@@ -51,7 +64,44 @@ export default function App() {
       if (unsubStudents) unsubStudents();
       if (unsubLogs) unsubLogs();
     };
-  }, [event.id]);
+  }, [event.id, authSession]);
+
+  useEffect(() => {
+    if (!authSession) return undefined;
+
+    const remainingTime = authSession.expiresAt - Date.now();
+    if (remainingTime <= 0) {
+      clearAuthSession();
+      setAuthSession(null);
+      return undefined;
+    }
+
+    const expirationTimer = window.setTimeout(() => {
+      clearAuthSession();
+      setAuthSession(null);
+    }, remainingTime);
+
+    const handleStorage = (event) => {
+      if (event.key === AUTH_SESSION_KEY) {
+        setAuthSession(getActiveAuthSession());
+      }
+    };
+
+    window.addEventListener('storage', handleStorage);
+    return () => {
+      window.clearTimeout(expirationTimer);
+      window.removeEventListener('storage', handleStorage);
+    };
+  }, [authSession]);
+
+  const handleLogout = () => {
+    clearAuthSession();
+    setAuthSession(null);
+    setCheckinStudent(null);
+    setPrintStudent(null);
+    setShowPrinter(false);
+    setShowSettings(false);
+  };
 
   // Handle door change
   const handleDoorChange = (newDoor) => {
@@ -103,6 +153,10 @@ export default function App() {
     setShowPrinter(true);
   };
 
+  if (!authSession) {
+    return <LoginScreen onLogin={setAuthSession} />;
+  }
+
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col selection:bg-sky-500 selection:text-white">
       {/* Top Navigation */}
@@ -114,6 +168,7 @@ export default function App() {
         onDoorChange={handleDoorChange}
         syncMode={syncMode}
         onOpenSettings={() => setShowSettings(true)}
+        onLogout={handleLogout}
       />
 
       {/* Main Content Area */}

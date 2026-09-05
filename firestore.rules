@@ -23,7 +23,17 @@ service cloud.firestore {
           && request.resource.data.enteredCount == 0
           && request.resource.data.maxCapacity >= 0;
         allow update: if eventIsOpen()
-          && request.resource.data.diff(resource.data).affectedKeys()
+          && (
+            // One-time roster migration: add a missing RUT without changing
+            // attendance or any other student field.
+            (
+              request.resource.data.diff(resource.data).affectedKeys().hasOnly(['rut'])
+              && !('rut' in resource.data)
+              && request.resource.data.rut is string
+              && request.resource.data.rut.matches('^[0-9.]+-[0-9Kk]$')
+            )
+            || (
+          request.resource.data.diff(resource.data).affectedKeys()
             .hasOnly(['enteredCount', 'status', 'lastEntryAt', 'extraGuest'])
           && request.resource.data.enteredCount is int
           && (
@@ -59,6 +69,8 @@ service cloud.firestore {
               && request.resource.data.status == 'PENDIENTE'
               && !('lastEntryAt' in request.resource.data)
               && !('extraGuest' in request.resource.data)
+            )
+          )
             )
           );
       }

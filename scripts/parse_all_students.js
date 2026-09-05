@@ -289,13 +289,21 @@ function normalizeCourse(c) {
   return cleaned;
 }
 
+function normalizeRutDisplay(value) {
+  const cleaned = String(value || '').toUpperCase().replace(/[^0-9K]/g, '');
+  if (cleaned.length < 8) return '';
+  const body = cleaned.slice(0, -1);
+  const verifier = cleaned.slice(-1);
+  return `${Number(body).toLocaleString('es-CL')}-${verifier}`;
+}
+
 const allRaw = [...batch1Raw, ...batch2Raw];
 const seenNames = new Set();
 const allStudents = [];
 
 let counter = 1;
 for (const line of allRaw) {
-  const parts = line.split('\t').map(p => p.trim()).filter(Boolean);
+  const parts = line.split('\t').map(p => p.trim());
   const rawName = parts[0]
     .replace(/\u00A0/g, ' ')
     .replace(/\s+/g, ' ')
@@ -312,11 +320,13 @@ for (const line of allRaw) {
   const coursePart = parts[parts.length - 1];
   const course = normalizeCourse(coursePart);
   const isRet = course === 'Retirado';
+  const rut = normalizeRutDisplay(parts[4]);
 
   allStudents.push({
     id: 'MP-2026-' + String(counter).padStart(3, '0'),
     name: titleCase(rawName),
     rawName: rawName,
+    rut,
     course: course,
     maxCapacity: isRet ? 0 : 5,
     enteredCount: 0,
@@ -345,7 +355,9 @@ export const INITIAL_EVENT = {
     "Acceso Principal",
     "Acceso Básica",
     "Acceso Prebásica",
-    "Puerta Gimnasio"
+    "Puerta Gimnasio",
+    "Puerta 1",
+    "Puerta 2"
   ]
 };
 `;

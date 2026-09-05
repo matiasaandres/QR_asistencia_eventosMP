@@ -41,20 +41,27 @@ export default function App() {
   const [checkinStudent, setCheckinStudent] = useState(null);
   const [printStudent, setPrintStudent] = useState(null);
   const [showPrinter, setShowPrinter] = useState(false);
+  const [guardianStudent, setGuardianStudent] = useState(null);
   const [showSettings, setShowSettings] = useState(false);
 
-  // Subscribe to students and logs
+  // The roster is also needed on the public login screen so guardians can
+  // recover an existing QR. Attendance logs remain staff-only in the UI.
   useEffect(() => {
-    if (!authSession) {
-      setStudents([]);
-      setLogs([]);
-      return undefined;
-    }
-
     const unsubStudents = subscribeToStudents(event.id, (data, mode) => {
       setStudents(data);
       if (mode) setSyncMode(mode);
     });
+
+    return () => {
+      if (unsubStudents) unsubStudents();
+    };
+  }, [event.id]);
+
+  useEffect(() => {
+    if (!authSession) {
+      setLogs([]);
+      return undefined;
+    }
 
     const unsubLogs = subscribeToLogs(event.id, (data, mode) => {
       setLogs(data);
@@ -62,7 +69,6 @@ export default function App() {
     });
 
     return () => {
-      if (unsubStudents) unsubStudents();
       if (unsubLogs) unsubLogs();
     };
   }, [event.id, authSession]);
@@ -154,7 +160,23 @@ export default function App() {
   };
 
   if (!authSession) {
-    return <LoginScreen onLogin={setAuthSession} />;
+    return (
+      <>
+        <LoginScreen
+          onLogin={setAuthSession}
+          students={students}
+          onGuardianQr={setGuardianStudent}
+        />
+        {guardianStudent && (
+          <QRCardPrinter
+            students={[guardianStudent]}
+            selectedStudent={guardianStudent}
+            event={event}
+            onClose={() => setGuardianStudent(null)}
+          />
+        )}
+      </>
+    );
   }
 
   return (

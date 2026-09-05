@@ -22,6 +22,10 @@ const styles = await readFile(
   new URL('../src/index.css', import.meta.url),
   'utf8'
 );
+const loginScreen = await readFile(
+  new URL('../src/components/LoginScreen.jsx', import.meta.url),
+  'utf8'
+);
 
 test('seleccionar cantidad no registra automáticamente y muestra confirmación', () => {
   assert.match(checkinPanel, /onClick=\{\(\) => setSelectedCount\(num\)\}/);
@@ -65,4 +69,12 @@ test('ofrece un ZIP con un PDF individual por alumno y progreso visible', () => 
   assert.match(qrPrinter, /students,\s*event,/);
   assert.match(qrPrinter, /Creando PDF \$\{archiveProgress\.current\} de \$\{archiveProgress\.total\}/);
   assert.match(qrPrinter, /Comprimiendo ZIP/);
+});
+
+test('el login ofrece recuperación de QR para apoderados mediante RUT y curso', () => {
+  assert.match(loginScreen, />\s*Apoderados\s*</);
+  assert.match(loginScreen, /id="guardian-rut"/);
+  assert.match(loginScreen, /id="guardian-course"/);
+  assert.match(loginScreen, /findStudentForGuardian/);
+  assert.match(loginScreen, /Generar mi QR/);
 });

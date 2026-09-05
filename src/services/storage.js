@@ -24,6 +24,16 @@ const LOCAL_STORAGE_KEY_STUDENTS = 'mp_students_data_';
 const LOCAL_STORAGE_KEY_LOGS = 'mp_logs_data_';
 const LOCAL_STORAGE_KEY_EVENT = 'mp_current_event';
 const LOCAL_STORAGE_KEY_DOOR = 'mp_current_door';
+const initialStudentsById = new Map(INITIAL_STUDENTS.map((student) => [student.id, student]));
+const rutBackfillsInProgress = new Set();
+
+function hydrateStudentRuts(students) {
+  return students.map((student) => {
+    if (student.rut) return student;
+    const initialStudent = initialStudentsById.get(student.id);
+    return initialStudent?.rut ? { ...student, rut: initialStudent.rut } : student;
+  });
+}
 
 // BroadcastChannel for instant multi-tab sync in local mode
 let localChannel = null;
@@ -78,13 +88,16 @@ export function subscribeToStudents(eventId, onUpdate) {
           });
           return;
         }
-        const students = snapshot.docs.map((d) => ({
+        const students = hydrateStudentRuts(snapshot.docs.map((d) => ({
           ...d.data(),
           id: d.id
-        }));
+        })));
         // Cache locally for offline backup
         localStorage.setItem(LOCAL_STORAGE_KEY_STUDENTS + eventId, JSON.stringify(students));
         onUpdate(students, snapshot.metadata.fromCache ? 'offline' : 'cloud');
+        backfillRemoteStudentRuts(db, eventId, snapshot.docs).catch((error) => {
+          console.warn('No fue posible completar los RUT faltantes en Firestore:', error);
+        });
       },
       (error) => {
         console.warn("Firestore subscription error:", error);
@@ -103,7 +116,7 @@ export function subscribeToStudents(eventId, onUpdate) {
 function loadCachedStudents(eventId, onUpdate, mode) {
   try {
     const raw = localStorage.getItem(LOCAL_STORAGE_KEY_STUDENTS + eventId);
-    onUpdate(raw ? JSON.parse(raw) : [], mode);
+    onUpdate(raw ? hydrateStudentRuts(JSON.parse(raw)) : [], mode);
   } catch (e) {
     onUpdate([], mode);
   }
@@ -124,7 +137,9 @@ function fallbackToLocalStudents(eventId, onUpdate) {
         onUpdate(INITIAL_STUDENTS, 'local');
         return;
       }
-      onUpdate(JSON.parse(raw), 'local');
+      const hydratedStudents = hydrateStudentRuts(JSON.parse(raw));
+      localStorage.setItem(LOCAL_STORAGE_KEY_STUDENTS + eventId, JSON.stringify(hydratedStudents));
+      onUpdate(hydratedStudents, 'local');
     } catch (e) {
       onUpdate(INITIAL_STUDENTS, 'local');
     }
@@ -405,6 +420,33 @@ async function commitInChunks(db, operations) {
       .slice(start, start + FIRESTORE_BATCH_LIMIT)
       .forEach((operation) => operation(batch));
     await batch.commit();
+  }
+}
+
+async function backfillRemoteStudentRuts(db, eventId, studentDocs) {
+  if (rutBackfillsInProgress.has(eventId)) return;
+
+  const missingRuts = studentDocs
+    .map((studentDoc) => ({
+      ref: studentDoc.ref,
+      currentRut: studentDoc.data().rut,
+      rut: initialStudentsById.get(studentDoc.id)?.rut
+    }))
+    .filter((student) => !student.currentRut && student.rut);
+
+  if (!missingRuts.length) return;
+
+  rutBackfillsInProgress.add(eventId);
+  try {
+    for (let start = 0; start < missingRuts.length; start += 450) {
+      const batch = writeBatch(db);
+      missingRuts.slice(start, start + 450).forEach((student) => {
+        batch.update(student.ref, { rut: student.rut });
+      });
+      await batch.commit();
+    }
+  } finally {
+    rutBackfillsInProgress.delete(eventId);
   }
 }
 

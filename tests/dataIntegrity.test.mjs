@@ -23,3 +23,10 @@ test('el evento inicial contiene ambas puertas requeridas', () => {
   assert.ok(INITIAL_EVENT.doors.includes('Puerta 1'));
   assert.ok(INITIAL_EVENT.doors.includes('Puerta 2'));
 });
+
+test('la nómina incorpora los 250 RUT disponibles sin duplicarlos', () => {
+  const ruts = INITIAL_STUDENTS.map((student) => student.rut).filter(Boolean);
+  assert.equal(ruts.length, 250);
+  assert.equal(new Set(ruts.map((rut) => rut.replace(/[^0-9K]/gi, '').toUpperCase())).size, 250);
+  assert.ok(ruts.every((rut) => /^\d[\d.]*-[\dkK]$/.test(rut)));
+});

@@ -152,10 +152,19 @@ export default function QRCardPrinter({
 
           <button
             onClick={handlePrint}
+            title={selectedStudent
+              ? 'Abre la ventana para guardar esta credencial como PDF'
+              : 'Abre la ventana para guardar todos los códigos QR como PDF'}
             className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-5 py-2 bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold rounded-xl shadow-md shadow-sky-600/30 transition-all active:scale-95"
           >
-            <Printer className="w-4 h-4" />
-            <span>Imprimir Tarjetas (PDF)</span>
+            {selectedStudent
+              ? <Printer className="w-4 h-4" />
+              : <Download className="w-4 h-4" />}
+            <span>
+              {selectedStudent
+                ? 'Guardar tarjeta en PDF'
+                : 'Descargar todos los QR en PDF'}
+            </span>
           </button>
 
           <button

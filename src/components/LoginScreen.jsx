@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { KeyRound, LogIn, ShieldCheck, User } from 'lucide-react';
 import { authenticate } from '../services/auth';
+import { APP_VERSION } from '../config/appVersion';
 
 export default function LoginScreen({ onLogin }) {
   const [username, setUsername] = useState('');
@@ -101,6 +102,9 @@ export default function LoginScreen({ onLogin }) {
 
             <p className="text-center text-xs text-slate-400">
               La sesión permanecerá activa durante 5 horas.
+            </p>
+            <p className="text-center text-[11px] font-semibold text-slate-400" aria-label={`Versión de la aplicación ${APP_VERSION}`}>
+              Versión {APP_VERSION}
             </p>
           </form>
         </div>

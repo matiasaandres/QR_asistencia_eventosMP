@@ -15,6 +15,9 @@ import {
   CheckCircle2
 } from 'lucide-react';
 import { getCapacityState, normalizeCapacityValue } from '../services/checkinPolicy';
+import { createStudentCodeGenerator } from '../services/studentCodes';
+
+const BULK_IMPORT_TEMPLATE_PATH = '/Plantilla_Carga_Masiva_MundoPalabra.xlsx';
 
 export default function StudentsManager({ 
   students, 
@@ -70,22 +73,22 @@ export default function StudentsManager({
         const workbook = XLSX.read(data, { type: 'binary' });
         const sheetName = workbook.SheetNames[0];
         const sheet = workbook.Sheets[sheetName];
-        const rows = XLSX.utils.sheet_to_json(sheet);
+        const importRows = XLSX.utils.sheet_to_json(sheet);
 
-        if (!rows || rows.length === 0) {
-          alert("El archivo no contiene filas válidas.");
+        if (importRows.length === 0) {
+          alert("El archivo no contiene estudiantes para importar. Completa al menos una fila.");
           return;
         }
 
-        const newEntries = rows.map((row, idx) => {
+        const generateStudentCode = createStudentCodeGenerator(students);
+        const newEntries = importRows.map((row, idx) => {
           const name = row['Nombre'] || row['Estudiante'] || row['Alumno'] || row['Nombre Estudiante'] || `Estudiante ${idx + 1}`;
           const course = row['Curso'] || row['Nivel'] || 'General';
           const rawCapacity = row['Capacidad'] ?? row['Cupos'] ?? row['Maximo'];
           const maxCap = normalizeCapacityValue(rawCapacity);
-          const customId = row['Codigo'] || row['ID'] || `MP-${new Date().getFullYear()}-${String(students.length + idx + 1).padStart(3, '0')}`;
 
           return {
-            id: String(customId),
+            id: generateStudentCode(),
             name: String(name),
             course: String(course),
             maxCapacity: maxCap,
@@ -125,11 +128,21 @@ export default function StudentsManager({
             Nómina de Estudiantes y Credenciales
           </h1>
           <p className="text-xs text-slate-500 mt-0.5">
-            Administra los alumnos autorizados y genera sus códigos QR institucionales
+            Administra los alumnos autorizados, descarga la plantilla e importa la nómina completada
           </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          {/* Downloadable bulk import template */}
+          <a
+            href={BULK_IMPORT_TEMPLATE_PATH}
+            download="Plantilla_Carga_Masiva_MundoPalabra.xlsx"
+            className="flex items-center gap-1.5 px-3.5 py-2 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-800 text-xs font-bold rounded-xl transition-colors"
+          >
+            <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
+            <span>Descargar plantilla Excel</span>
+          </a>
+
           {/* File Upload (Excel/CSV) */}
           <label className="flex items-center gap-1.5 px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl cursor-pointer transition-colors">
             <Upload className="w-4 h-4 text-slate-500" />

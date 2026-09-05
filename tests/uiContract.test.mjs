@@ -58,3 +58,11 @@ test('la impresión masiva muestra un botón explícito para descargar todos los
   assert.match(qrPrinter, /Descargar todos los QR en PDF/);
   assert.match(qrPrinter, /guardar todos los códigos QR como PDF/);
 });
+
+test('ofrece un ZIP con un PDF individual por alumno y progreso visible', () => {
+  assert.match(qrPrinter, /Descargar ZIP: un PDF por alumno/);
+  assert.match(qrPrinter, /createStudentQrArchive/);
+  assert.match(qrPrinter, /students,\s*event,/);
+  assert.match(qrPrinter, /Creando PDF \$\{archiveProgress\.current\} de \$\{archiveProgress\.total\}/);
+  assert.match(qrPrinter, /Comprimiendo ZIP/);
+});

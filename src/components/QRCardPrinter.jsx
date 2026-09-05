@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import QRCode from 'qrcode';
 import { getCapacityState } from '../services/checkinPolicy';
+import { createStudentQrArchive } from '../services/qrArchive';
 import { 
   Printer, 
   Download, 
@@ -57,6 +58,8 @@ export default function QRCardPrinter({
   onClose 
 }) {
   const [filterCourse, setFilterCourse] = useState('ALL');
+  const [archiveProgress, setArchiveProgress] = useState(null);
+  const [archiveError, setArchiveError] = useState('');
 
   // If a single student was clicked, only show that student
   // Otherwise show students (filtered by course if selected)
@@ -104,6 +107,39 @@ export default function QRCardPrinter({
     }
   };
 
+  const handleDownloadArchive = async () => {
+    setArchiveError('');
+    setArchiveProgress({ phase: 'pdfs', current: 0, total: students.length });
+
+    try {
+      const archive = await createStudentQrArchive({
+        students,
+        event,
+        onProgress: setArchiveProgress
+      });
+      const blob = new Blob([archive.bytes], { type: 'application/zip' });
+      const downloadUrl = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = downloadUrl;
+      anchor.download = archive.fileName;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      setTimeout(() => URL.revokeObjectURL(downloadUrl), 1000);
+      setArchiveProgress(null);
+    } catch (error) {
+      console.error('Error generating QR archive:', error);
+      setArchiveError(error?.message || 'No fue posible crear el archivo ZIP.');
+      setArchiveProgress(null);
+    }
+  };
+
+  const archiveProgressLabel = archiveProgress?.phase === 'zip'
+    ? `Comprimiendo ZIP ${archiveProgress.percent || 0}%`
+    : archiveProgress
+      ? `Creando PDF ${archiveProgress.current} de ${archiveProgress.total}`
+      : 'Descargar ZIP: un PDF por alumno';
+
   return (
     <div className="qr-print-overlay fixed inset-0 z-50 bg-slate-900/80 backdrop-blur-sm overflow-y-auto p-4 sm:p-6 flex flex-col items-center animate-in fade-in duration-150">
       {/* Top Action Bar (Hidden during print) */}
@@ -139,7 +175,7 @@ export default function QRCardPrinter({
           </select>
         )}
 
-        <div className="flex items-center gap-2 w-full sm:w-auto">
+        <div className="flex flex-wrap items-center justify-center gap-2 w-full sm:w-auto">
           {selectedStudent && (
             <button
               onClick={() => handleDownloadPNG(selectedStudent.id, selectedStudent.name)}
@@ -167,6 +203,18 @@ export default function QRCardPrinter({
             </span>
           </button>
 
+          {!selectedStudent && (
+            <button
+              onClick={handleDownloadArchive}
+              disabled={Boolean(archiveProgress)}
+              title="Crea una carpeta por curso y un PDF de una sola página por alumno"
+              className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-5 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:bg-emerald-300 disabled:cursor-wait text-white text-xs font-bold rounded-xl shadow-md shadow-emerald-600/30 transition-all active:scale-95"
+            >
+              <Download className="w-4 h-4" />
+              <span>{archiveProgressLabel}</span>
+            </button>
+          )}
+
           <button
             onClick={onClose}
             className="p-2 hover:bg-slate-100 rounded-xl text-slate-400 hover:text-slate-600"
@@ -175,6 +223,12 @@ export default function QRCardPrinter({
           </button>
         </div>
       </div>
+
+      {archiveError && (
+        <div className="no-print max-w-4xl w-full mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
+          {archiveError}
+        </div>
+      )}
 
       {/* Printable Cards Grid */}
       <div className="qr-print-grid max-w-4xl w-full grid grid-cols-1 sm:grid-cols-2 gap-6 print:max-w-none print:w-full">

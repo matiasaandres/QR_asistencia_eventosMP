@@ -4,7 +4,7 @@ Fecha: 4 de septiembre de 2026
 
 ## Resultado ejecutivo
 
-- 28 pruebas automatizadas aprobadas.
+- 32 pruebas automatizadas aprobadas.
 - Compilación de producción aprobada.
 - 251 estudiantes iniciales validados, sin identificadores duplicados.
 - La auditoría no registró asistentes ni modificó datos de Firestore.
@@ -27,6 +27,8 @@ Fecha: 4 de septiembre de 2026
 - Generación vectorial no vacía de los 251 códigos QR.
 - Diseño paginable para imprimir seis credenciales por hoja A4.
 - Botón explícito para descargar todos los códigos QR en PDF.
+- ZIP con un PDF A4 de una sola página por alumno, agrupado en 15 carpetas de curso.
+- Nombres de archivo seguros con el formato `Alumno - Curso.pdf`.
 
 ## Falla encontrada y corregida localmente
 

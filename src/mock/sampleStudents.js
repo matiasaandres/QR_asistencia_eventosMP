@@ -2270,6 +2270,8 @@ export const INITIAL_EVENT = {
     "Acceso Principal",
     "Acceso Básica",
     "Acceso Prebásica",
-    "Puerta Gimnasio"
+    "Puerta Gimnasio",
+    "Puerta 1",
+    "Puerta 2"
   ]
 };

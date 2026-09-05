@@ -25,7 +25,9 @@ export default function HistoryLog({
       !term ||
       (log.studentName && log.studentName.toLowerCase().includes(term)) ||
       (log.course && log.course.toLowerCase().includes(term)) ||
-      (log.studentId && log.studentId.toLowerCase().includes(term));
+      (log.studentId && log.studentId.toLowerCase().includes(term)) ||
+      (log.guestName && log.guestName.toLowerCase().includes(term)) ||
+      (log.relationship && log.relationship.toLowerCase().includes(term));
 
     const matchesDoor = selectedDoor === 'ALL' || log.doorName === selectedDoor;
 
@@ -112,7 +114,12 @@ export default function HistoryLog({
                       {log.formattedTime}
                     </td>
                     <td className="py-3 px-4 font-bold text-slate-900">
-                      {log.studentName}
+                      <div>{log.studentName}</div>
+                      {log.isExtra && (
+                        <div className="mt-1 text-[11px] font-semibold text-violet-700">
+                          Cupo extra: {log.guestName} ({log.relationship})
+                        </div>
+                      )}
                     </td>
                     <td className="py-3 px-4">
                       <span className="bg-sky-50 text-sky-800 border border-sky-200 font-semibold px-2 py-0.5 rounded-md">
@@ -120,12 +127,16 @@ export default function HistoryLog({
                       </span>
                     </td>
                     <td className="py-3 px-4 text-center font-bold">
-                      <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded-md">
-                        +{log.count}
+                      <span className={`px-2 py-0.5 rounded-md ${
+                        log.isExtra
+                          ? 'bg-violet-100 text-violet-800'
+                          : 'bg-emerald-100 text-emerald-800'
+                      }`}>
+                        {log.isExtra ? 'Extra +1' : `+${log.count}`}
                       </span>
                     </td>
                     <td className="py-3 px-4 text-center font-semibold text-slate-700">
-                      {log.accumulated} de {log.maxCapacity || 5}
+                      {log.accumulated} de {log.maxCapacity || 5}{log.isExtra ? ' + 1 extra' : ''}
                     </td>
                     <td className="py-3 px-4 text-slate-600 font-medium">
                       {log.doorName}

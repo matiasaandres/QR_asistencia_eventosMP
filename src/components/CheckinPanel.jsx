@@ -3,14 +3,13 @@ import {
   CheckCircle2, 
   AlertTriangle, 
   X, 
-  User, 
   GraduationCap, 
   Users, 
   Clock, 
   DoorClosed, 
-  ArrowRight,
   ShieldCheck,
-  AlertOctagon
+  AlertOctagon,
+  UserPlus
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { sounds } from '../services/sound';
@@ -21,9 +20,11 @@ export default function CheckinPanel({
   onConfirmCheckIn, 
   onClose 
 }) {
-  const [selectedCount, setSelectedCount] = useState(1);
+  const [selectedCount, setSelectedCount] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [successMessage, setSuccessMessage] = useState(null);
+  const [extraGuestName, setExtraGuestName] = useState('');
+  const [extraRelationship, setExtraRelationship] = useState('');
 
   if (!student) return null;
 
@@ -32,18 +33,26 @@ export default function CheckinPanel({
   const entered = Number(student.enteredCount) || 0;
   const remaining = Math.max(0, maxCap - entered);
   const isFull = remaining <= 0;
-  const remainingAfterSelection = Math.max(0, remaining - selectedCount);
+  const hasExtraGuest = Boolean(student.extraGuest) || entered > maxCap;
+  const canAddExtra = isFull
+    && maxCap > 0
+    && !hasExtraGuest
+    && student.status !== 'RETIRADO';
+  const remainingAfterSelection = selectedCount == null
+    ? remaining
+    : Math.max(0, remaining - selectedCount);
 
   // Handle immediate registration
-  const handleRegister = async (countToRegister) => {
-    if (countToRegister > remaining || isSubmitting) return;
+  const handleRegister = async (countToRegister, extraPerson = null) => {
+    if (isSubmitting || (!extraPerson && countToRegister > remaining)) return;
 
     setIsSubmitting(true);
     try {
       const result = await onConfirmCheckIn({
         studentId: student.id,
         count: countToRegister,
-        doorName: currentDoor
+        doorName: currentDoor,
+        extraPerson
       });
 
       sounds.playSuccess();
@@ -58,7 +67,9 @@ export default function CheckinPanel({
       setSuccessMessage({
         count: countToRegister,
         total: result?.newEntered || (entered + countToRegister),
-        remaining: result?.remaining ?? (remaining - countToRegister)
+        remaining: Math.max(0, result?.remaining ?? (remaining - countToRegister)),
+        isExtra: Boolean(result?.isExtra || extraPerson),
+        extraPerson
       });
 
       setTimeout(() => {
@@ -70,9 +81,17 @@ export default function CheckinPanel({
     }
   };
 
+  const handleExtraRegister = () => {
+    const name = extraGuestName.trim();
+    const relationship = extraRelationship.trim();
+
+    if (name.length < 2 || relationship.length < 2) return;
+    handleRegister(1, { name, relationship });
+  };
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-sm animate-in fade-in duration-200">
-      <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden border border-slate-100">
+    <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center overflow-y-auto p-4 bg-slate-900/70 backdrop-blur-sm animate-in fade-in duration-200">
+      <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden border border-slate-100 my-auto">
         
         {/* Header with Status Banner */}
         <div className={`p-5 text-white ${
@@ -174,23 +193,107 @@ export default function CheckinPanel({
             <div className="bg-emerald-50 border border-emerald-200 text-emerald-900 rounded-xl p-4 text-center animate-in zoom-in-95 duration-150">
               <CheckCircle2 className="w-8 h-8 text-emerald-600 mx-auto mb-1.5 animate-bounce" />
               <p className="font-bold text-base">
-                ¡Ingreso de {successMessage.count} persona(s) registrado!
+                {successMessage.isExtra
+                  ? '¡Cupo extraordinario registrado correctamente!'
+                  : `¡Ingreso de ${successMessage.count} persona(s) registrado!`}
               </p>
               <p className="text-xs text-emerald-700 mt-0.5">
-                Total acumulado: {successMessage.total} de {maxCap} • Restan {successMessage.remaining} cupos
+                {successMessage.isExtra
+                  ? `${successMessage.extraPerson?.name} · ${successMessage.extraPerson?.relationship}`
+                  : `Total acumulado: ${successMessage.total} de ${maxCap} • Restan ${successMessage.remaining} cupos`}
               </p>
             </div>
           ) : isFull ? (
             /* Warning Screen if Cupo Completo */
-            <div className="bg-rose-50 border border-rose-200 rounded-xl p-4 text-center">
-              <AlertTriangle className="w-8 h-8 text-rose-600 mx-auto mb-2" />
-              <h4 className="font-bold text-rose-900 text-base">Capacidad Máxima Alcanzada</h4>
-              <p className="text-xs text-rose-700 mt-1 max-w-sm mx-auto">
-                No existen más cupos disponibles asociados a este estudiante. Se alcanzó el máximo de {maxCap} personas autorizadas.
-              </p>
+            <div className="space-y-4">
+              <div className="bg-rose-50 border border-rose-200 rounded-xl p-4 text-center">
+                <AlertTriangle className="w-8 h-8 text-rose-600 mx-auto mb-2" />
+                <h4 className="font-bold text-rose-900 text-base">Capacidad Máxima Alcanzada</h4>
+                <p className="text-xs text-rose-700 mt-1 max-w-sm mx-auto">
+                  Se alcanzó el máximo normal de {maxCap} personas autorizadas.
+                </p>
+              </div>
+
+              {canAddExtra ? (
+                <div className="rounded-xl border border-violet-200 bg-violet-50 p-4">
+                  <div className="flex items-start gap-2.5">
+                    <div className="rounded-lg bg-violet-100 p-2 text-violet-700">
+                      <UserPlus className="h-5 w-5" />
+                    </div>
+                    <div>
+                      <h4 className="font-extrabold text-violet-950">Agregar 1 cupo extraordinario</h4>
+                      <p className="mt-0.5 text-xs text-violet-700">
+                        Este cupo solo se puede usar una vez. Identifica a la persona antes de autorizar su ingreso.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 space-y-3">
+                    <div>
+                      <label htmlFor="extra-guest-name" className="mb-1 block text-xs font-bold text-slate-700">
+                        Nombre completo de la persona
+                      </label>
+                      <input
+                        id="extra-guest-name"
+                        type="text"
+                        value={extraGuestName}
+                        onChange={(event) => setExtraGuestName(event.target.value)}
+                        placeholder="Ej.: María González"
+                        maxLength={80}
+                        disabled={isSubmitting}
+                        className="w-full rounded-xl border border-violet-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-900 outline-none transition focus:border-violet-500 focus:ring-2 focus:ring-violet-200"
+                      />
+                    </div>
+
+                    <div>
+                      <label htmlFor="extra-guest-relationship" className="mb-1 block text-xs font-bold text-slate-700">
+                        Parentesco con el alumno
+                      </label>
+                      <select
+                        id="extra-guest-relationship"
+                        value={extraRelationship}
+                        onChange={(event) => setExtraRelationship(event.target.value)}
+                        disabled={isSubmitting}
+                        className="w-full rounded-xl border border-violet-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-900 outline-none transition focus:border-violet-500 focus:ring-2 focus:ring-violet-200"
+                      >
+                        <option value="">Seleccionar parentesco…</option>
+                        <option value="Madre">Madre</option>
+                        <option value="Padre">Padre</option>
+                        <option value="Abuela/o">Abuela/o</option>
+                        <option value="Hermana/o">Hermana/o</option>
+                        <option value="Tía/o">Tía/o</option>
+                        <option value="Apoderada/o">Apoderada/o</option>
+                        <option value="Otro familiar">Otro familiar</option>
+                      </select>
+                    </div>
+
+                    <div className="rounded-lg border border-violet-200 bg-white/80 px-3 py-2 text-xs font-semibold text-violet-900">
+                      Confirma que se agregará 1 persona extraordinaria por <strong>{currentDoor}</strong>.
+                    </div>
+
+                    <button
+                      type="button"
+                      disabled={isSubmitting || extraGuestName.trim().length < 2 || extraRelationship.length < 2}
+                      onClick={handleExtraRegister}
+                      className="w-full rounded-xl bg-violet-700 px-4 py-3 text-sm font-extrabold text-white shadow-sm transition hover:bg-violet-600 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {isSubmitting ? 'Registrando…' : 'Confirmar cupo extraordinario'}
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="rounded-xl border border-slate-200 bg-slate-100 p-4 text-center">
+                  <p className="text-sm font-bold text-slate-800">
+                    {hasExtraGuest
+                      ? 'El cupo extraordinario de este alumno ya fue utilizado.'
+                      : 'Este alumno no está habilitado para agregar cupos.'}
+                  </p>
+                </div>
+              )}
+
               <button
                 onClick={onClose}
-                className="mt-4 w-full py-2.5 bg-slate-800 hover:bg-slate-900 text-white font-semibold rounded-xl text-sm transition-colors"
+                className="w-full py-2.5 bg-slate-800 hover:bg-slate-900 text-white font-semibold rounded-xl text-sm transition-colors"
               >
                 Volver al Escáner
               </button>
@@ -230,25 +333,31 @@ export default function CheckinPanel({
                 })}
               </div>
 
-              <div className="mt-4 rounded-xl border border-sky-200 bg-sky-50 p-3 text-center">
-                <p className="text-sm font-bold text-sky-950">
-                  Ingresarán {selectedCount} {selectedCount === 1 ? 'persona' : 'personas'}
-                </p>
-                <p className="mt-0.5 text-xs font-semibold text-sky-700">
-                  Después de registrar quedarán {remainingAfterSelection} de {maxCap} cupos disponibles.
-                </p>
-              </div>
-
-              <button
-                type="button"
-                disabled={isSubmitting || selectedCount > remaining}
-                onClick={() => handleRegister(selectedCount)}
-                className="mt-3 w-full rounded-xl bg-emerald-600 px-4 py-3 text-sm font-extrabold text-white shadow-sm transition-colors hover:bg-emerald-500 disabled:cursor-wait disabled:opacity-60"
-              >
-                {isSubmitting
-                  ? 'Registrando de forma segura…'
-                  : `Confirmar ingreso de ${selectedCount} ${selectedCount === 1 ? 'persona' : 'personas'}`}
-              </button>
+              {selectedCount == null ? (
+                <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3 text-center text-xs font-semibold text-slate-600">
+                  Selecciona una cantidad para mostrar la confirmación.
+                </div>
+              ) : (
+                <div role="alert" className="mt-4 rounded-xl border border-amber-300 bg-amber-50 p-4 text-center">
+                  <AlertTriangle className="mx-auto mb-1.5 h-6 w-6 text-amber-600" />
+                  <p className="text-sm font-extrabold text-amber-950">
+                    ¿Confirmas el ingreso de {selectedCount} {selectedCount === 1 ? 'persona' : 'personas'}?
+                  </p>
+                  <p className="mt-1 text-xs font-semibold text-amber-800">
+                    Se registrará por {currentDoor} y quedarán {remainingAfterSelection} de {maxCap} cupos disponibles.
+                  </p>
+                  <button
+                    type="button"
+                    disabled={isSubmitting || selectedCount > remaining}
+                    onClick={() => handleRegister(selectedCount)}
+                    className="mt-3 w-full rounded-xl bg-emerald-600 px-4 py-3 text-sm font-extrabold text-white shadow-sm transition-colors hover:bg-emerald-500 disabled:cursor-wait disabled:opacity-60"
+                  >
+                    {isSubmitting
+                      ? 'Registrando de forma segura…'
+                      : `Sí, confirmar ${selectedCount} ${selectedCount === 1 ? 'persona' : 'personas'}`}
+                  </button>
+                </div>
+              )}
 
               <div className="mt-4 flex items-center justify-between text-xs text-slate-500">
                 <span>Solo se pueden registrar hasta {remaining} persona(s) más.</span>

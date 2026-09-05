@@ -233,6 +233,11 @@ export default function Dashboard({
                         {log.studentName}
                       </span>
                     </div>
+                    {log.isExtra && (
+                      <p className="text-[10px] font-semibold text-violet-700">
+                        Extra: {log.guestName} ({log.relationship})
+                      </p>
+                    )}
                     <div className="flex items-center gap-1 text-[11px] text-slate-500">
                       <span>{log.course}</span>
                       <span>•</span>
@@ -241,8 +246,12 @@ export default function Dashboard({
                   </div>
 
                   <div className="text-right shrink-0">
-                    <span className="inline-block px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded font-bold text-xs">
-                      +{log.count} pers.
+                    <span className={`inline-block px-2 py-0.5 rounded font-bold text-xs ${
+                      log.isExtra
+                        ? 'bg-violet-100 text-violet-800'
+                        : 'bg-emerald-100 text-emerald-800'
+                    }`}>
+                      {log.isExtra ? 'Extra +1' : `+${log.count} pers.`}
                     </span>
                     <p className="text-[10px] text-slate-400 mt-0.5 font-mono">
                       {log.formattedTime}

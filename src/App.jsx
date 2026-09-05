@@ -111,8 +111,8 @@ export default function App() {
 
   // Handle Event save
   const handleSaveEvent = (updatedEvent) => {
-    setEvent(updatedEvent);
-    saveCurrentEvent(updatedEvent);
+    const normalizedEvent = saveCurrentEvent(updatedEvent);
+    setEvent(normalizedEvent);
   };
 
   // Handle QR scan detection
@@ -137,12 +137,13 @@ export default function App() {
   };
 
   // Perform check-in
-  const handleConfirmCheckIn = async ({ studentId, count, doorName }) => {
+  const handleConfirmCheckIn = async ({ studentId, count, doorName, extraPerson }) => {
     const result = await registerCheckIn({
       eventId: event.id,
       studentId,
       count,
-      doorName
+      doorName,
+      extraPerson
     });
     return result;
   };

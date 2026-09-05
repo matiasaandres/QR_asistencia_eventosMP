@@ -4,20 +4,32 @@ export function exportToExcel({ event, students, logs }) {
   const wb = XLSX.utils.book_new();
 
   // 1. Resumen por Estudiante
-  const studentsData = students.map((s) => ({
-    "Código": s.id,
-    "Estudiante": s.name,
-    "Curso": s.course,
-    "Capacidad Autorizada": s.maxCapacity || 5,
-    "Personas Ingresadas": s.enteredCount || 0,
-    "Cupos Restantes": (s.maxCapacity || 5) - (s.enteredCount || 0),
-    "Estado Acceso": s.enteredCount >= (s.maxCapacity || 5) 
-      ? "COMPLETO" 
-      : s.enteredCount > 0 
-        ? "PARCIAL" 
-        : "PENDIENTE",
-    "Último Registro": s.lastEntryAt ? new Date(s.lastEntryAt).toLocaleString('es-CL') : 'Sin ingresos'
-  }));
+  const studentsData = students.map((s) => {
+    const parsedCapacity = Number(s.maxCapacity);
+    const maxCapacity = Number.isFinite(parsedCapacity) ? Math.max(0, parsedCapacity) : 5;
+    const enteredCount = Number(s.enteredCount) || 0;
+    const hasExtraGuest = Boolean(s.extraGuest) || enteredCount > maxCapacity;
+
+    return {
+      "Código": s.id,
+      "Estudiante": s.name,
+      "Curso": s.course,
+      "Capacidad Autorizada": maxCapacity,
+      "Personas Ingresadas": enteredCount,
+      "Cupos Restantes": Math.max(0, maxCapacity - enteredCount),
+      "Estado Acceso": hasExtraGuest
+        ? "CUPO EXTRA"
+        : enteredCount >= maxCapacity
+          ? "COMPLETO"
+          : enteredCount > 0
+            ? "PARCIAL"
+            : "PENDIENTE",
+      "Cupo Extraordinario": hasExtraGuest ? 'Sí' : 'No',
+      "Nombre Persona Extra": s.extraGuest?.name || '',
+      "Parentesco Persona Extra": s.extraGuest?.relationship || '',
+      "Último Registro": s.lastEntryAt ? new Date(s.lastEntryAt).toLocaleString('es-CL') : 'Sin ingresos'
+    };
+  });
   const wsStudents = XLSX.utils.json_to_sheet(studentsData);
   XLSX.utils.book_append_sheet(wb, wsStudents, "Resumen Estudiantes");
 
@@ -30,7 +42,10 @@ export function exportToExcel({ event, students, logs }) {
     "Código": l.studentId || '',
     "Personas en este Ingreso": l.count || 0,
     "Total Acumulado": l.accumulated || 0,
-    "Punto / Puerta": l.doorName || 'Acceso Principal'
+    "Punto / Puerta": l.doorName || 'Acceso Principal',
+    "Cupo Extraordinario": l.isExtra ? 'Sí' : 'No',
+    "Nombre Persona Extra": l.guestName || '',
+    "Parentesco": l.relationship || ''
   }));
   const wsLogs = XLSX.utils.json_to_sheet(logsData);
   XLSX.utils.book_append_sheet(wb, wsLogs, "Bitácora de Ingresos");

@@ -17,6 +17,7 @@ const LOCAL_STORAGE_KEY_STUDENTS = 'mp_students_data_';
 const LOCAL_STORAGE_KEY_LOGS = 'mp_logs_data_';
 const LOCAL_STORAGE_KEY_EVENT = 'mp_current_event';
 const LOCAL_STORAGE_KEY_DOOR = 'mp_current_door';
+const REQUIRED_DOORS = ['Puerta 1', 'Puerta 2'];
 
 // BroadcastChannel for instant multi-tab sync in local mode
 let localChannel = null;
@@ -34,18 +35,33 @@ export function setCurrentDoor(doorName) {
   localStorage.setItem(LOCAL_STORAGE_KEY_DOOR, doorName);
 }
 
+export function ensureRequiredDoors(eventData) {
+  const baseEvent = eventData && typeof eventData === 'object' ? eventData : INITIAL_EVENT;
+  const currentDoors = Array.isArray(baseEvent.doors)
+    ? baseEvent.doors.map((door) => String(door).trim()).filter(Boolean)
+    : [];
+
+  return {
+    ...baseEvent,
+    doors: Array.from(new Set([...currentDoors, ...REQUIRED_DOORS]))
+  };
+}
+
 export function getCurrentEvent() {
   try {
     const raw = localStorage.getItem(LOCAL_STORAGE_KEY_EVENT);
-    if (!raw) return INITIAL_EVENT;
-    return JSON.parse(raw);
+    const currentEvent = ensureRequiredDoors(raw ? JSON.parse(raw) : INITIAL_EVENT);
+    localStorage.setItem(LOCAL_STORAGE_KEY_EVENT, JSON.stringify(currentEvent));
+    return currentEvent;
   } catch (e) {
-    return INITIAL_EVENT;
+    return ensureRequiredDoors(INITIAL_EVENT);
   }
 }
 
 export function saveCurrentEvent(eventData) {
-  localStorage.setItem(LOCAL_STORAGE_KEY_EVENT, JSON.stringify(eventData));
+  const normalizedEvent = ensureRequiredDoors(eventData);
+  localStorage.setItem(LOCAL_STORAGE_KEY_EVENT, JSON.stringify(normalizedEvent));
+  return normalizedEvent;
 }
 
 // Subscribe to Students list (real-time via Firestore OR LocalStorage)
@@ -232,10 +248,30 @@ export async function registerCheckIn({
   eventId,
   studentId,
   count,
-  doorName
+  doorName,
+  extraPerson = null
 }) {
   if (!Number.isInteger(count) || count < 1) {
     throw new Error("La cantidad de personas debe ser un número entero mayor que cero.");
+  }
+
+  const normalizedExtraPerson = extraPerson
+    ? {
+        name: String(extraPerson.name || '').trim(),
+        relationship: String(extraPerson.relationship || '').trim()
+      }
+    : null;
+
+  if (normalizedExtraPerson) {
+    if (count !== 1) {
+      throw new Error("El cupo extraordinario solo permite registrar a una persona.");
+    }
+    if (normalizedExtraPerson.name.length < 2) {
+      throw new Error("Ingresa el nombre completo de la persona adicional.");
+    }
+    if (normalizedExtraPerson.relationship.length < 2) {
+      throw new Error("Selecciona o escribe el parentesco con el alumno.");
+    }
   }
 
   const { db, isConfigured } = initFirebase();
@@ -261,22 +297,51 @@ export async function registerCheckIn({
       const maxCap = Number.isFinite(parsedCapacity) ? Math.max(0, parsedCapacity) : 5;
       const remaining = maxCap - currentEntered;
 
-      if (remaining <= 0) {
-        throw new Error("El estudiante ya completó el cupo máximo de personas.");
+      let newEntered;
+      let newStatus;
+      let extraGuest = null;
+
+      if (normalizedExtraPerson) {
+        const isEligible = maxCap > 0 && currentData.status !== 'RETIRADO';
+        if (!isEligible) {
+          throw new Error("Este alumno no está habilitado para un cupo extraordinario.");
+        }
+        if (currentEntered !== maxCap || currentData.extraGuest) {
+          throw new Error("El cupo extraordinario solo puede usarse una vez, después de completar el cupo normal.");
+        }
+
+        newEntered = maxCap + 1;
+        newStatus = 'CUPO_EXTRA';
+        extraGuest = {
+          ...normalizedExtraPerson,
+          addedAt: timestampIso,
+          doorName: doorName || 'Acceso Principal'
+        };
+
+        transaction.update(studentRef, {
+          enteredCount: newEntered,
+          status: newStatus,
+          lastEntryAt: timestampIso,
+          extraGuest
+        });
+      } else {
+        if (remaining <= 0) {
+          throw new Error("El estudiante ya completó el cupo máximo de personas.");
+        }
+
+        if (count > remaining) {
+          throw new Error(`Solo quedan ${remaining} cupo(s) disponible(s).`);
+        }
+
+        newEntered = currentEntered + count;
+        newStatus = newEntered >= maxCap ? 'COMPLETO' : 'PARCIAL';
+
+        transaction.update(studentRef, {
+          enteredCount: newEntered,
+          status: newStatus,
+          lastEntryAt: timestampIso
+        });
       }
-
-      if (count > remaining) {
-        throw new Error(`Solo quedan ${remaining} cupo(s) disponible(s).`);
-      }
-
-      const newEntered = currentEntered + count;
-      const newStatus = newEntered >= maxCap ? 'COMPLETO' : 'PARCIAL';
-
-      transaction.update(studentRef, {
-        enteredCount: newEntered,
-        status: newStatus,
-        lastEntryAt: timestampIso
-      });
 
       const logData = {
         studentId: studentId,
@@ -288,7 +353,12 @@ export async function registerCheckIn({
         doorName: doorName || 'Acceso Principal',
         timestamp: timestampIso,
         formattedTime,
-        formattedDate
+        formattedDate,
+        isExtra: Boolean(normalizedExtraPerson),
+        ...(normalizedExtraPerson ? {
+          guestName: normalizedExtraPerson.name,
+          relationship: normalizedExtraPerson.relationship
+        } : {})
       };
 
       // Student counter and audit log commit together. A transaction retry uses
@@ -296,10 +366,17 @@ export async function registerCheckIn({
       transaction.set(logRef, logData);
 
       return {
-        student: { ...currentData, enteredCount: newEntered, status: newStatus },
+        student: {
+          ...currentData,
+          enteredCount: newEntered,
+          status: newStatus,
+          ...(extraGuest ? { extraGuest } : {})
+        },
         newEntered,
         remaining: maxCap - newEntered,
-        count
+        count,
+        isExtra: Boolean(normalizedExtraPerson),
+        extraGuest
       };
     });
   } else {
@@ -326,21 +403,44 @@ export async function registerCheckIn({
     const maxCap = Number.isFinite(parsedCapacity) ? Math.max(0, parsedCapacity) : 5;
     const remaining = maxCap - currentEntered;
 
-    if (remaining <= 0) {
-      throw new Error("El estudiante ya completó el cupo máximo.");
-    }
-    if (count > remaining) {
-      throw new Error(`Solo quedan ${remaining} cupo(s) disponible(s).`);
-    }
+    let newEntered;
+    let newStatus;
+    let extraGuest = null;
 
-    const newEntered = currentEntered + count;
-    const newStatus = newEntered >= maxCap ? 'COMPLETO' : 'PARCIAL';
+    if (normalizedExtraPerson) {
+      const isEligible = maxCap > 0 && student.status !== 'RETIRADO';
+      if (!isEligible) {
+        throw new Error("Este alumno no está habilitado para un cupo extraordinario.");
+      }
+      if (currentEntered !== maxCap || student.extraGuest) {
+        throw new Error("El cupo extraordinario solo puede usarse una vez, después de completar el cupo normal.");
+      }
+
+      newEntered = maxCap + 1;
+      newStatus = 'CUPO_EXTRA';
+      extraGuest = {
+        ...normalizedExtraPerson,
+        addedAt: timestampIso,
+        doorName: doorName || 'Acceso Principal'
+      };
+    } else {
+      if (remaining <= 0) {
+        throw new Error("El estudiante ya completó el cupo máximo.");
+      }
+      if (count > remaining) {
+        throw new Error(`Solo quedan ${remaining} cupo(s) disponible(s).`);
+      }
+
+      newEntered = currentEntered + count;
+      newStatus = newEntered >= maxCap ? 'COMPLETO' : 'PARCIAL';
+    }
 
     students[studentIndex] = {
       ...student,
       enteredCount: newEntered,
       status: newStatus,
-      lastEntryAt: timestampIso
+      lastEntryAt: timestampIso,
+      ...(extraGuest ? { extraGuest } : {})
     };
 
     localStorage.setItem(keyStudents, JSON.stringify(students));
@@ -365,7 +465,12 @@ export async function registerCheckIn({
       doorName: doorName || 'Acceso Principal',
       timestamp: timestampIso,
       formattedTime,
-      formattedDate
+      formattedDate,
+      isExtra: Boolean(normalizedExtraPerson),
+      ...(normalizedExtraPerson ? {
+        guestName: normalizedExtraPerson.name,
+        relationship: normalizedExtraPerson.relationship
+      } : {})
     };
 
     logs.unshift(logEntry);
@@ -380,7 +485,9 @@ export async function registerCheckIn({
       student: students[studentIndex],
       newEntered,
       remaining: maxCap - newEntered,
-      count
+      count,
+      isExtra: Boolean(normalizedExtraPerson),
+      extraGuest
     };
   }
 }
@@ -416,12 +523,12 @@ async function commitInChunks(db, operations) {
 }
 
 function resetLocalStudent(student) {
-  const { lastEntryAt, ...studentWithoutLastEntry } = student;
+  const { lastEntryAt, extraGuest, ...studentWithoutAttendance } = student;
   const parsedCapacity = Number(student.maxCapacity);
   const hasAccess = !Number.isFinite(parsedCapacity) || parsedCapacity > 0;
 
   return {
-    ...studentWithoutLastEntry,
+    ...studentWithoutAttendance,
     enteredCount: 0,
     status: hasAccess ? 'PENDIENTE' : student.status
   };
@@ -449,13 +556,15 @@ export async function resetEventData(eventId) {
       const needsReset =
         (Number(student.enteredCount) || 0) !== 0 ||
         student.lastEntryAt != null ||
+        student.extraGuest != null ||
         student.status !== resetStatus;
 
       if (needsReset) {
         operations.push((batch) => batch.update(studentDoc.ref, {
           enteredCount: 0,
           status: resetStatus,
-          lastEntryAt: deleteField()
+          lastEntryAt: deleteField(),
+          extraGuest: deleteField()
         }));
       }
     });

@@ -1,4 +1,5 @@
 import QRCode from 'qrcode';
+import { getCapacityState } from './checkinPolicy.js';
 
 const PDF_WIDTH_MM = 210;
 let pdfLibraryPromise;
@@ -72,56 +73,96 @@ export async function createStudentQrPdf({ student, event }) {
     creator: 'MundoPalabra Acceso'
   });
 
-  pdf.setFillColor(3, 105, 161);
-  pdf.rect(0, 0, PDF_WIDTH_MM, 46, 'F');
+  // Reproduce the on-screen credential as a centered printable card.
+  pdf.setFillColor(248, 250, 252);
+  pdf.rect(0, 0, PDF_WIDTH_MM, 297, 'F');
+
+  const cardX = 18;
+  const cardY = 14;
+  const cardWidth = 174;
+  const cardHeight = 269;
+  const contentLeft = cardX + 10;
+  const contentRight = cardX + cardWidth - 10;
+
+  pdf.setFillColor(255, 255, 255);
+  pdf.setDrawColor(203, 213, 225);
+  pdf.setLineWidth(0.7);
+  pdf.roundedRect(cardX, cardY, cardWidth, cardHeight, 5, 5, 'FD');
+
+  // Header: MP mark, institution/event and course badge.
+  pdf.setFillColor(2, 132, 199);
+  pdf.roundedRect(contentLeft, cardY + 10, 14, 14, 2.5, 2.5, 'F');
   pdf.setTextColor(255, 255, 255);
   pdf.setFont('helvetica', 'bold');
-  pdf.setFontSize(25);
-  pdf.text('MundoPalabra', PDF_WIDTH_MM / 2, 19, { align: 'center' });
-  pdf.setFont('helvetica', 'normal');
-  pdf.setFontSize(12);
-  pdf.text('Credencial QR de acceso', PDF_WIDTH_MM / 2, 29, { align: 'center' });
-  pdf.setFontSize(10);
-  pdf.text(pdf.splitTextToSize(eventName, 170), PDF_WIDTH_MM / 2, 38, { align: 'center' });
+  pdf.setFontSize(8.5);
+  pdf.text('MP', contentLeft + 7, cardY + 18.8, { align: 'center' });
 
-  pdf.setDrawColor(203, 213, 225);
-  pdf.setLineWidth(0.6);
-  pdf.roundedRect(18, 56, 174, 219, 5, 5, 'S');
+  pdf.setTextColor(15, 23, 42);
+  pdf.setFontSize(11.5);
+  pdf.text('MundoPalabra', contentLeft + 18, cardY + 15.5);
+  pdf.setFont('helvetica', 'normal');
+  pdf.setFontSize(7.5);
+  pdf.setTextColor(100, 116, 139);
+  pdf.text(eventName, contentLeft + 18, cardY + 21, { maxWidth: 79 });
+
+  pdf.setFont('helvetica', 'bold');
+  pdf.setFontSize(8.5);
+  const courseWidth = Math.min(57, Math.max(34, pdf.getTextWidth(student.course) + 10));
+  const courseX = contentRight - courseWidth;
+  pdf.setFillColor(240, 249, 255);
+  pdf.setDrawColor(186, 230, 253);
+  pdf.roundedRect(courseX, cardY + 11, courseWidth, 11, 5.5, 5.5, 'FD');
+  pdf.setTextColor(7, 89, 133);
+  pdf.text(student.course, courseX + (courseWidth / 2), cardY + 18.2, { align: 'center' });
+
+  pdf.setDrawColor(226, 232, 240);
+  pdf.setLineWidth(0.35);
+  pdf.line(contentLeft, cardY + 31, contentRight, cardY + 31);
 
   pdf.setTextColor(15, 23, 42);
   pdf.setFont('helvetica', 'bold');
-  let cursorY = addCenteredWrappedText(pdf, student.name, 74, 160, 20, 1.1);
+  const nameBottom = addCenteredWrappedText(pdf, student.name, cardY + 47, 150, 18, 1.05);
 
-  pdf.setFillColor(224, 242, 254);
-  pdf.setDrawColor(125, 211, 252);
-  pdf.roundedRect(55, cursorY + 2, 100, 13, 6, 6, 'FD');
-  pdf.setTextColor(7, 89, 133);
-  pdf.setFontSize(12);
-  pdf.text(student.course, PDF_WIDTH_MM / 2, cursorY + 10.5, { align: 'center' });
+  pdf.setTextColor(100, 116, 139);
+  pdf.setFont('courier', 'bold');
+  pdf.setFontSize(10.5);
+  pdf.text(`ID: ${student.id}`, PDF_WIDTH_MM / 2, nameBottom + 2.5, { align: 'center' });
 
-  const qrSize = 105;
+  const qrSize = 104;
   const qrX = (PDF_WIDTH_MM - qrSize) / 2;
-  const qrY = Math.max(101, cursorY + 23);
+  const qrY = Math.max(cardY + 74, nameBottom + 11);
   pdf.setFillColor(255, 255, 255);
   pdf.setDrawColor(226, 232, 240);
-  pdf.roundedRect(qrX - 4, qrY - 4, qrSize + 8, qrSize + 8, 4, 4, 'FD');
+  pdf.setLineWidth(0.45);
+  pdf.roundedRect(qrX - 4, qrY - 4, qrSize + 8, qrSize + 8, 5, 5, 'FD');
   pdf.addImage(qrDataUrl, 'PNG', qrX, qrY, qrSize, qrSize, undefined, 'FAST');
 
-  pdf.setTextColor(71, 85, 105);
-  pdf.setFont('courier', 'bold');
-  pdf.setFontSize(13);
-  pdf.text(`ID: ${student.id}`, PDF_WIDTH_MM / 2, qrY + qrSize + 14, { align: 'center' });
+  const maxCapacity = getCapacityState(student).maxCapacity;
+  const capacityLabel = maxCapacity > 0
+    ? `Válido para hasta ${maxCapacity} personas autorizadas`
+    : 'Sin acceso habilitado';
+  const badgeY = qrY + qrSize + 12;
+  pdf.setFillColor(255, 251, 235);
+  pdf.setDrawColor(253, 230, 138);
+  pdf.roundedRect(49, badgeY, 112, 13, 6.5, 6.5, 'FD');
+  pdf.setTextColor(146, 64, 14);
+  pdf.setFont('helvetica', 'bold');
+  pdf.setFontSize(9.2);
+  pdf.text(capacityLabel, PDF_WIDTH_MM / 2, badgeY + 8.4, { align: 'center' });
 
+  const footerLineY = cardY + cardHeight - 36;
+  pdf.setDrawColor(241, 245, 249);
+  pdf.line(contentLeft, footerLineY, contentRight, footerLineY);
   pdf.setFont('helvetica', 'normal');
-  pdf.setFontSize(10);
-  pdf.setTextColor(71, 85, 105);
+  pdf.setFontSize(9.2);
+  pdf.setTextColor(100, 116, 139);
   pdf.text(
     pdf.splitTextToSize(
-      'Presenta este código en el acceso al evento, impreso o desde la pantalla de tu celular.',
-      150
+      'Presenta este código en el acceso al evento (impreso o en la pantalla de tu celular). Los ingresos pueden ser simultáneos o por separado.',
+      145
     ),
     PDF_WIDTH_MM / 2,
-    qrY + qrSize + 29,
+    footerLineY + 9,
     { align: 'center' }
   );
 

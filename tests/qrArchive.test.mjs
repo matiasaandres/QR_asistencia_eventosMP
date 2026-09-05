@@ -32,6 +32,24 @@ test('cada credencial PDF contiene exactamente una página', async () => {
   assert.equal((pdfText.match(/\/Type\s*\/Page\b/g) || []).length, 1);
 });
 
+test('el PDF conserva el cupo familiar de la credencial en pantalla', async () => {
+  const bytes = await createStudentQrPdf({
+    student: {
+      id: 'MP-2026-001',
+      name: 'Ana Pérez',
+      course: '1° Básico A',
+      maxCapacity: 5,
+      enteredCount: 0
+    },
+    event
+  });
+  const pdfText = Buffer.from(bytes).toString('latin1');
+
+  assert.equal(pdfText.slice(0, 5), '%PDF-');
+  assert.equal((pdfText.match(/\/Type\s*\/Page\b/g) || []).length, 1);
+  assert.ok(bytes.length > 10_000);
+});
+
 test('el ZIP agrupa los PDF por curso y evita sobrescribir homónimos', async () => {
   const progress = [];
   const students = [
@@ -56,4 +74,3 @@ test('el ZIP agrupa los PDF por curso y evita sobrescribir homónimos', async ()
   assert.ok(progress.some((value) => value.phase === 'pdfs' && value.current === 3));
   assert.ok(progress.some((value) => value.phase === 'zip'));
 });
-

@@ -1,4 +1,4 @@
-import React, { useRef, useState, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import QRCode from 'qrcode';
 import { getCapacityState } from '../services/checkinPolicy';
 import { 
@@ -9,37 +9,44 @@ import {
   ArrowLeft
 } from 'lucide-react';
 
-// Fast individual QR Canvas component with zero memory overhead or infinite loops
-function StudentQRCanvas({ studentId, size = 180 }) {
-  const canvasRef = useRef(null);
+// SVG is synchronous and survives multi-page browser printing more reliably than canvas.
+function StudentQRGraphic({ studentId, size = 180 }) {
+  const qr = useMemo(
+    () => QRCode.create(String(studentId), { errorCorrectionLevel: 'M' }),
+    [studentId]
+  );
 
-  React.useEffect(() => {
-    if (canvasRef.current && studentId) {
-      QRCode.toCanvas(
-        canvasRef.current,
-        studentId,
-        {
-          width: size,
-          margin: 1,
-          errorCorrectionLevel: 'M',
-          color: {
-            dark: '#0f172a',
-            light: '#ffffff'
-          }
-        },
-        (error) => {
-          if (error) console.error("Error generating QR:", error);
+  const margin = 1;
+  const viewBoxSize = qr.modules.size + (margin * 2);
+  const darkModulesPath = useMemo(() => {
+    let path = '';
+
+    for (let row = 0; row < qr.modules.size; row += 1) {
+      for (let column = 0; column < qr.modules.size; column += 1) {
+        if (qr.modules.get(row, column)) {
+          path += `M${column + margin} ${row + margin}h1v1h-1z`;
         }
-      );
+      }
     }
-  }, [studentId, size]);
+
+    return path;
+  }, [qr, margin]);
 
   return (
-    <canvas 
-      ref={canvasRef} 
-      id={`canvas-qr-${studentId}`}
+    <svg
+      id={`qr-${studentId}`}
+      data-print-qr="true"
+      viewBox={`0 0 ${viewBoxSize} ${viewBoxSize}`}
+      width={size}
+      height={size}
+      role="img"
+      aria-label={`Código QR de ${studentId}`}
       className="mx-auto block rounded-xl"
-    />
+      shapeRendering="crispEdges"
+    >
+      <rect width={viewBoxSize} height={viewBoxSize} fill="#ffffff" />
+      <path d={darkModulesPath} fill="#0f172a" />
+    </svg>
   );
 }
 
@@ -64,16 +71,29 @@ export default function QRCardPrinter({
     return students.filter((s) => s.course === filterCourse);
   }, [selectedStudent, students, filterCourse]);
 
-  const handlePrint = () => {
+  const handlePrint = async () => {
+    if (document.fonts?.ready) {
+      await document.fonts.ready;
+    }
+
+    // Let the browser finish the current paint before opening the print preview.
+    await new Promise((resolve) => {
+      requestAnimationFrame(() => requestAnimationFrame(resolve));
+    });
     window.print();
   };
 
-  const handleDownloadPNG = (studentId, studentName) => {
-    const canvas = document.getElementById(`canvas-qr-${studentId}`);
-    if (!canvas) return;
-
+  const handleDownloadPNG = async (studentId, studentName) => {
     try {
-      const dataUrl = canvas.toDataURL('image/png');
+      const dataUrl = await QRCode.toDataURL(String(studentId), {
+        width: 1000,
+        margin: 2,
+        errorCorrectionLevel: 'M',
+        color: {
+          dark: '#0f172a',
+          light: '#ffffff'
+        }
+      });
       const a = document.createElement('a');
       a.href = dataUrl;
       const cleanName = (studentName || 'Estudiante').replace(/[^a-zA-Z0-9]/g, '_');
@@ -85,7 +105,7 @@ export default function QRCardPrinter({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/80 backdrop-blur-sm overflow-y-auto p-4 sm:p-6 flex flex-col items-center animate-in fade-in duration-150">
+    <div className="qr-print-overlay fixed inset-0 z-50 bg-slate-900/80 backdrop-blur-sm overflow-y-auto p-4 sm:p-6 flex flex-col items-center animate-in fade-in duration-150">
       {/* Top Action Bar (Hidden during print) */}
       <div className="bg-white rounded-2xl p-4 shadow-xl border border-slate-200 max-w-4xl w-full mb-6 flex flex-col sm:flex-row items-center justify-between gap-3 no-print">
         <div className="flex items-center gap-3">
@@ -148,14 +168,14 @@ export default function QRCardPrinter({
       </div>
 
       {/* Printable Cards Grid */}
-      <div className="max-w-4xl w-full grid grid-cols-1 sm:grid-cols-2 gap-6 print:grid-cols-2 print:gap-4 print:max-w-none print:w-full">
+      <div className="qr-print-grid max-w-4xl w-full grid grid-cols-1 sm:grid-cols-2 gap-6 print:max-w-none print:w-full">
         {studentsToPrint.map((student) => {
           const maxCap = getCapacityState(student).maxCapacity;
 
           return (
             <div
               key={student.id}
-              className="bg-white rounded-2xl border-2 border-slate-300 p-5 shadow-lg flex flex-col justify-between print:shadow-none print:border-dashed print:border-2 print:border-slate-400 print:rounded-xl print:p-4 print:break-inside-avoid relative overflow-hidden"
+              className="qr-print-card bg-white rounded-2xl border-2 border-slate-300 p-5 shadow-lg flex flex-col justify-between print:shadow-none print:border-dashed print:border-2 print:border-slate-400 print:rounded-xl relative overflow-hidden"
             >
               {/* Header */}
               <div className="flex items-center justify-between border-b border-slate-200 pb-3">
@@ -174,8 +194,8 @@ export default function QRCardPrinter({
                 </span>
               </div>
 
-              {/* Body: Student name & QR Canvas */}
-              <div className="my-4 text-center">
+              {/* Body: Student name & vector QR */}
+              <div className="qr-print-body my-4 text-center">
                 <h4 className="font-extrabold text-lg text-slate-900 leading-snug">
                   {student.name}
                 </h4>
@@ -183,9 +203,9 @@ export default function QRCardPrinter({
                   ID: {student.id}
                 </p>
 
-                {/* QR Canvas Container */}
-                <div className="my-3 inline-block bg-white p-2 rounded-2xl border border-slate-200 shadow-sm">
-                  <StudentQRCanvas studentId={student.id} size={selectedStudent ? 200 : 160} />
+                {/* Vector QR container */}
+                <div className="qr-print-code my-3 inline-block bg-white p-2 rounded-2xl border border-slate-200 shadow-sm">
+                  <StudentQRGraphic studentId={student.id} size={selectedStudent ? 200 : 160} />
                 </div>
 
                 {/* Capacity badge */}

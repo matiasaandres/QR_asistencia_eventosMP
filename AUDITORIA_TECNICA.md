@@ -4,7 +4,7 @@ Fecha: 4 de septiembre de 2026
 
 ## Resultado ejecutivo
 
-- 25 pruebas automatizadas aprobadas.
+- 27 pruebas automatizadas aprobadas.
 - Compilación de producción aprobada.
 - 251 estudiantes iniciales validados, sin identificadores duplicados.
 - La auditoría no registró asistentes ni modificó datos de Firestore.
@@ -24,6 +24,8 @@ Fecha: 4 de septiembre de 2026
 - Reinicio de contador y eliminación de los datos extraordinarios.
 - Contratos de interfaz para confirmación y formulario extraordinario.
 - Controles estructurales de las reglas de Firestore.
+- Generación vectorial no vacía de los 251 códigos QR.
+- Diseño paginable para imprimir seis credenciales por hoja A4.
 
 ## Falla encontrada y corregida localmente
 
@@ -34,6 +36,12 @@ regresión que exige conservar el valor cero.
 
 También se corrigió la importación de planillas para conservar capacidades en
 cero y asignar estado `RETIRADO` a esos registros.
+
+La impresión masiva dibujaba los códigos en elementos `canvas` asíncronos. En
+documentos extensos el navegador podía enviar a PDF las tarjetas antes de que
+todos los lienzos estuvieran rasterizados, dejando códigos vacíos después de la
+primera página. Los 251 códigos ahora se generan de forma síncrona como SVG
+vectorial y el contenedor de impresión usa flujo estático paginado.
 
 ## Riesgos pendientes
 

@@ -10,7 +10,20 @@
 }
 
 /* Custom styles for printing credentials/cards */
+@page {
+  size: A4 portrait;
+  margin: 10mm;
+}
+
 @media print {
+  html,
+  body,
+  #root {
+    height: auto !important;
+    min-height: 0 !important;
+    overflow: visible !important;
+  }
+
   body {
     background: white !important;
     color: black !important;
@@ -23,6 +36,61 @@
   }
   .page-break {
     page-break-after: always;
+  }
+
+  .qr-print-overlay {
+    position: static !important;
+    inset: auto !important;
+    z-index: auto !important;
+    display: block !important;
+    overflow: visible !important;
+    padding: 0 !important;
+    background: white !important;
+    backdrop-filter: none !important;
+  }
+
+  .qr-print-grid {
+    display: block !important;
+    width: 100% !important;
+    max-width: none !important;
+    font-size: 0;
+  }
+
+  .qr-print-card {
+    display: inline-flex !important;
+    width: calc(50% - 3mm) !important;
+    height: 84mm !important;
+    margin: 0 6mm 6mm 0 !important;
+    padding: 3mm !important;
+    vertical-align: top;
+    box-sizing: border-box;
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+    font-size: initial;
+  }
+
+  .qr-print-card:nth-child(2n) {
+    margin-right: 0 !important;
+  }
+
+  .qr-print-body {
+    margin-top: 1mm !important;
+    margin-bottom: 1mm !important;
+  }
+
+  .qr-print-code {
+    margin-top: 1mm !important;
+    margin-bottom: 1mm !important;
+    padding: 1mm !important;
+    box-shadow: none !important;
+  }
+
+  svg[data-print-qr="true"] {
+    display: block !important;
+    width: 34mm !important;
+    height: 34mm !important;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
   }
 }
 

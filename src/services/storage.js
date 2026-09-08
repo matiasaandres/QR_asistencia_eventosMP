@@ -398,10 +398,11 @@ export async function saveStudentsList(eventId, newStudents) {
   const { db, isConfigured } = initFirebase();
 
   if (isConfigured && db) {
-    for (const student of newStudents) {
+    const operations = newStudents.map((student) => {
       const studentRef = doc(db, 'events', eventId, 'students', student.id);
-      await setDoc(studentRef, student, { merge: true });
-    }
+      return (batch) => batch.set(studentRef, student, { merge: true });
+    });
+    await commitInChunks(db, operations);
   }
 
   // Also write locally

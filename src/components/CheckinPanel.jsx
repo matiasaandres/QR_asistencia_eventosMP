@@ -40,6 +40,35 @@ export default function CheckinPanel({
     ? remaining
     : Math.max(0, remaining - selectedCount);
 
+  if (capacity.isDisabled) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-sm">
+        <div className="w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-2xl">
+          <div className="bg-slate-800 p-5 text-white">
+            <div className="flex items-center gap-3">
+              <AlertOctagon className="h-8 w-8" />
+              <div>
+                <h3 className="text-lg font-extrabold">ESTUDIANTE DESHABILITADO</h3>
+                <p className="text-xs text-slate-200">Este QR no permite registrar nuevos ingresos.</p>
+              </div>
+            </div>
+          </div>
+          <div className="space-y-4 p-6">
+            <div>
+              <p className="text-xs font-bold uppercase tracking-wider text-sky-700">{student.course}</p>
+              <h2 className="mt-1 text-xl font-extrabold text-slate-900">{student.name}</h2>
+              <p className="mt-1 font-mono text-xs text-slate-500">{student.id}</p>
+            </div>
+            <p className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm font-semibold text-amber-900">
+              Reactiva al estudiante desde la sección Nómina antes de registrar su ingreso.
+            </p>
+            <button onClick={onClose} className="w-full rounded-xl bg-slate-800 py-2.5 text-sm font-bold text-white hover:bg-slate-700">Cerrar</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   // Handle immediate registration
   const handleRegister = async (countToRegister, extraPerson = null) => {
     if (isSubmitting || (!extraPerson && countToRegister > remaining)) return;

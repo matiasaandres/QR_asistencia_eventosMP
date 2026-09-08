@@ -18,7 +18,9 @@ export function exportToExcel({ event, students, logs }) {
       "Capacidad Autorizada": maxCapacity,
       "Personas Ingresadas": enteredCount,
       "Cupos Restantes": Math.max(0, maxCapacity - enteredCount),
-      "Estado Acceso": hasExtraGuest
+      "Estado Acceso": capacity.isDisabled
+        ? "DESHABILITADO"
+        : hasExtraGuest
         ? "CUPO EXTRA"
         : enteredCount >= maxCapacity
           ? "COMPLETO"
@@ -53,7 +55,7 @@ export function exportToExcel({ event, students, logs }) {
 
   // 3. Estadísticas por Curso
   const courseStats = {};
-  students.forEach((s) => {
+  students.filter((student) => !getCapacityState(student).isAccessBlocked).forEach((s) => {
     const course = s.course || 'Sin Curso';
     if (!courseStats[course]) {
       courseStats[course] = {

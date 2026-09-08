@@ -44,9 +44,10 @@ export default function ManualSearch({
       const isPending = capacity.enteredCount === 0;
 
       let matchesStatus = true;
-      if (statusFilter === 'AVAILABLE') matchesStatus = !isFull;
+      if (statusFilter === 'AVAILABLE') matchesStatus = !isFull && !capacity.isAccessBlocked;
       if (statusFilter === 'FULL') matchesStatus = isFull;
       if (statusFilter === 'PENDING') matchesStatus = isPending;
+      if (statusFilter === 'DISABLED') matchesStatus = capacity.isDisabled;
 
       return matchesSearch && matchesCourse && matchesStatus;
     });
@@ -133,6 +134,16 @@ export default function ManualSearch({
             >
               Cupo completo
             </button>
+            <button
+              onClick={() => setStatusFilter('DISABLED')}
+              className={`px-2.5 py-1 rounded-lg transition-colors ${
+                statusFilter === 'DISABLED'
+                  ? 'bg-slate-700 text-white'
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              }`}
+            >
+              Deshabilitados
+            </button>
           </div>
         </div>
       </div>
@@ -154,11 +165,12 @@ export default function ManualSearch({
             const entered = capacity.enteredCount;
             const remaining = capacity.remaining;
             const isFull = capacity.isFull;
+            const isDisabled = capacity.isDisabled;
 
             return (
               <div
                 key={student.id}
-                className="bg-white rounded-xl p-4 shadow-sm border border-slate-200/90 hover:border-sky-300 transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                className={`rounded-xl p-4 shadow-sm border transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${isDisabled ? 'bg-slate-100 border-slate-300 opacity-75' : 'bg-white border-slate-200/90 hover:border-sky-300'}`}
               >
                 {/* Info */}
                 <div className="space-y-1">
@@ -184,7 +196,7 @@ export default function ManualSearch({
                     <span className={`font-semibold ${
                       isFull ? 'text-rose-600' : 'text-emerald-600'
                     }`}>
-                      {isFull ? 'Cupo Completo' : `${remaining} disponible(s)`}
+                      {isDisabled ? 'Acceso deshabilitado' : isFull ? 'Cupo Completo' : `${remaining} disponible(s)`}
                     </span>
                   </div>
                 </div>
@@ -203,14 +215,17 @@ export default function ManualSearch({
 
                   <button
                     onClick={() => onSelectStudent(student)}
+                    disabled={capacity.isAccessBlocked}
                     className={`flex-1 sm:flex-none px-4 py-2.5 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-all ${
-                      isFull
+                      capacity.isAccessBlocked
+                        ? 'bg-slate-200 text-slate-500 cursor-not-allowed'
+                        : isFull
                         ? 'bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100'
                         : 'bg-sky-600 hover:bg-sky-500 text-white shadow-sm shadow-sky-600/30'
                     }`}
                   >
                     <UserCheck className="w-4 h-4" />
-                    <span>{isFull ? 'Ver Estado' : 'Registrar Ingreso'}</span>
+                    <span>{capacity.isAccessBlocked ? 'Sin acceso' : isFull ? 'Ver Estado' : 'Registrar Ingreso'}</span>
                   </button>
                 </div>
               </div>

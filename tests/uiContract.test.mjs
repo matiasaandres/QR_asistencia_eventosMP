@@ -66,7 +66,7 @@ test('la impresión masiva muestra un botón explícito para descargar todos los
 test('ofrece un ZIP con un PDF individual por alumno y progreso visible', () => {
   assert.match(qrPrinter, /Descargar ZIP: un PDF por alumno/);
   assert.match(qrPrinter, /createStudentQrArchive/);
-  assert.match(qrPrinter, /students,\s*event,/);
+  assert.match(qrPrinter, /students:\s*eligibleStudents,\s*event,/);
   assert.match(qrPrinter, /Creando PDF \$\{archiveProgress\.current\} de \$\{archiveProgress\.total\}/);
   assert.match(qrPrinter, /Comprimiendo ZIP/);
 });
@@ -77,4 +77,12 @@ test('el login ofrece recuperación de QR para apoderados mediante RUT y curso',
   assert.match(loginScreen, /id="guardian-course"/);
   assert.match(loginScreen, /findStudentForGuardian/);
   assert.match(loginScreen, /Generar mi QR/);
+});
+
+test('la nómina permite cambiar cupos globales, individuales y deshabilitar alumnos', () => {
+  assert.match(studentsManager, /id="bulk-capacity"/);
+  assert.match(studentsManager, /Aplicar a todos/);
+  assert.match(studentsManager, /id="student-capacity"/);
+  assert.match(studentsManager, /handleToggleStudent/);
+  assert.match(studentsManager, /DESHABILITADO/);
 });

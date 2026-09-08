@@ -129,6 +129,13 @@ export default function App() {
 
     if (student) {
       const capacity = getCapacityState(student);
+      if (capacity.isAccessBlocked) {
+        sounds.playWarning();
+        alert(capacity.isDisabled
+          ? 'Este estudiante está deshabilitado para el evento.'
+          : 'Este estudiante no está habilitado para el evento.');
+        return;
+      }
       if (capacity.isFull) {
         sounds.playWarning();
       } else {

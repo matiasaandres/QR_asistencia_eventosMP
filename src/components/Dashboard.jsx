@@ -11,6 +11,7 @@ import {
   Sparkles
 } from 'lucide-react';
 import { exportToExcel } from '../services/export';
+import { getCapacityState } from '../services/checkinPolicy';
 
 export default function Dashboard({ 
   event, 
@@ -19,11 +20,12 @@ export default function Dashboard({
 }) {
   // Compute Key Metrics
   const stats = useMemo(() => {
-    const totalStudents = students.length;
+    const activeStudents = students.filter((student) => !getCapacityState(student).isAccessBlocked);
+    const totalStudents = activeStudents.length;
     let familiesEntered = 0;
     let totalPeopleEntered = 0;
 
-    students.forEach((s) => {
+    activeStudents.forEach((s) => {
       const entered = Number(s.enteredCount) || 0;
       if (entered > 0) {
         familiesEntered += 1;
@@ -36,7 +38,7 @@ export default function Dashboard({
 
     // By course breakdown
     const courseMap = {};
-    students.forEach((s) => {
+    activeStudents.forEach((s) => {
       const c = s.course || 'Sin Curso';
       if (!courseMap[c]) {
         courseMap[c] = {

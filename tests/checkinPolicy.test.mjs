@@ -216,3 +216,18 @@ test('el reinicio vuelve a cero y elimina los datos del cupo extraordinario', ()
   assert.equal('lastEntryAt' in reset, false);
   assert.equal('extraGuest' in reset, false);
 });
+
+test('un estudiante deshabilitado conserva su cupo pero no permite ingresos', () => {
+  const disabled = { ...activeStudent, disabled: true };
+  const capacity = getCapacityState(disabled);
+
+  assert.equal(capacity.maxCapacity, 5);
+  assert.equal(capacity.remaining, 0);
+  assert.equal(capacity.isDisabled, true);
+  assert.equal(capacity.isAccessBlocked, true);
+  assert.throws(() => createCheckInPlan({
+    student: disabled,
+    count: 1,
+    timestampIso
+  }), /deshabilitado/);
+});

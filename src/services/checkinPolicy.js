@@ -11,10 +11,12 @@ export function getCapacityState(student = {}) {
   const maxCapacity = normalizeCapacityValue(student.maxCapacity);
   const parsedEntered = Number(student.enteredCount);
   const enteredCount = Number.isFinite(parsedEntered) ? Math.max(0, parsedEntered) : 0;
-  const remaining = Math.max(0, maxCapacity - enteredCount);
   const hasExtraGuest = Boolean(student.extraGuest) || enteredCount > maxCapacity;
   const isRetired = student.status === 'RETIRADO'
     || String(student.course || '').trim().toLowerCase() === 'retirado';
+  const isDisabled = student.disabled === true;
+  const isAccessBlocked = isRetired || isDisabled;
+  const remaining = isAccessBlocked ? 0 : Math.max(0, maxCapacity - enteredCount);
   const isFull = remaining === 0;
 
   return {
@@ -27,8 +29,10 @@ export function getCapacityState(student = {}) {
       && maxCapacity > 0
       && enteredCount === maxCapacity
       && !hasExtraGuest
-      && !isRetired,
-    isRetired
+      && !isAccessBlocked,
+    isRetired,
+    isDisabled,
+    isAccessBlocked
   };
 }
 
@@ -80,6 +84,13 @@ export function createCheckInPlan({
   const capacity = getCapacityState(student);
   const normalizedExtraPerson = normalizeExtraPerson(extraPerson);
 
+  if (capacity.isDisabled) {
+    throw new Error('Este estudiante está deshabilitado para el evento.');
+  }
+  if (capacity.isRetired) {
+    throw new Error('Este estudiante no está habilitado para el evento.');
+  }
+
   if (normalizedExtraPerson) {
     if (count !== 1) {
       throw new Error('El cupo extraordinario solo permite registrar a una persona.');
@@ -94,7 +105,7 @@ export function createCheckInPlan({
       throw new Error('Selecciona o escribe el parentesco con el alumno.');
     }
     if (!capacity.canAddExtra) {
-      if (capacity.isRetired || capacity.maxCapacity === 0) {
+      if (capacity.isAccessBlocked || capacity.maxCapacity === 0) {
         throw new Error('Este alumno no está habilitado para un cupo extraordinario.');
       }
       throw new Error('El cupo extraordinario solo puede usarse una vez, después de completar el cupo normal.');

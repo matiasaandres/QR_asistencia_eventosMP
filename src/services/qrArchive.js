@@ -138,7 +138,10 @@ export async function createStudentQrPdf({ student, event }) {
   pdf.addImage(qrDataUrl, 'PNG', qrX, qrY, qrSize, qrSize, undefined, 'FAST');
 
   const maxCapacity = getCapacityState(student).maxCapacity;
-  const capacityLabel = maxCapacity > 0
+  const capacityState = getCapacityState(student);
+  const capacityLabel = capacityState.isAccessBlocked
+    ? 'Credencial deshabilitada'
+    : maxCapacity > 0
     ? `Válido para hasta ${maxCapacity} personas autorizadas`
     : 'Sin acceso habilitado';
   const badgeY = qrY + qrSize + 12;

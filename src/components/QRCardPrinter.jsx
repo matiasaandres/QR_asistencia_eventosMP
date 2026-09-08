@@ -60,19 +60,23 @@ export default function QRCardPrinter({
   const [filterCourse, setFilterCourse] = useState('ALL');
   const [archiveProgress, setArchiveProgress] = useState(null);
   const [archiveError, setArchiveError] = useState('');
+  const eligibleStudents = useMemo(
+    () => students.filter((student) => !getCapacityState(student).isAccessBlocked),
+    [students]
+  );
 
   // If a single student was clicked, only show that student
   // Otherwise show students (filtered by course if selected)
   const courses = useMemo(() => {
-    const list = Array.from(new Set(students.map((s) => s.course).filter(Boolean)));
+    const list = Array.from(new Set(eligibleStudents.map((s) => s.course).filter(Boolean)));
     return list.sort();
-  }, [students]);
+  }, [eligibleStudents]);
 
   const studentsToPrint = useMemo(() => {
     if (selectedStudent) return [selectedStudent];
-    if (filterCourse === 'ALL') return students;
-    return students.filter((s) => s.course === filterCourse);
-  }, [selectedStudent, students, filterCourse]);
+    if (filterCourse === 'ALL') return eligibleStudents;
+    return eligibleStudents.filter((s) => s.course === filterCourse);
+  }, [selectedStudent, eligibleStudents, filterCourse]);
 
   const handlePrint = async () => {
     if (document.fonts?.ready) {
@@ -109,11 +113,11 @@ export default function QRCardPrinter({
 
   const handleDownloadArchive = async () => {
     setArchiveError('');
-    setArchiveProgress({ phase: 'pdfs', current: 0, total: students.length });
+    setArchiveProgress({ phase: 'pdfs', current: 0, total: eligibleStudents.length });
 
     try {
       const archive = await createStudentQrArchive({
-        students,
+        students: eligibleStudents,
         event,
         onProgress: setArchiveProgress
       });
@@ -168,7 +172,7 @@ export default function QRCardPrinter({
             onChange={(e) => setFilterCourse(e.target.value)}
             className="text-xs font-semibold bg-slate-100 border border-slate-200 text-slate-700 rounded-xl px-3 py-2 focus:outline-none"
           >
-            <option value="ALL">Todos los cursos ({students.length})</option>
+            <option value="ALL">Todos los cursos ({eligibleStudents.length})</option>
             {courses.map((c) => (
               <option key={c} value={c}>{c}</option>
             ))}
@@ -233,7 +237,8 @@ export default function QRCardPrinter({
       {/* Printable Cards Grid */}
       <div className="qr-print-grid max-w-4xl w-full grid grid-cols-1 sm:grid-cols-2 gap-6 print:max-w-none print:w-full">
         {studentsToPrint.map((student) => {
-          const maxCap = getCapacityState(student).maxCapacity;
+          const capacity = getCapacityState(student);
+          const maxCap = capacity.maxCapacity;
 
           return (
             <div
@@ -274,7 +279,7 @@ export default function QRCardPrinter({
                 {/* Capacity badge */}
                 <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-amber-50 border border-amber-200 rounded-full text-xs font-bold text-amber-800">
                   <Users className="w-3.5 h-3.5 text-amber-600" />
-                  <span>Válido para hasta {maxCap} personas autorizadas</span>
+                  <span>{capacity.isAccessBlocked ? 'Credencial deshabilitada' : `Válido para hasta ${maxCap} personas autorizadas`}</span>
                 </div>
               </div>
 

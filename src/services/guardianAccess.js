@@ -20,6 +20,7 @@ export function findStudentForGuardian(students, rut, course) {
 
   return students.find((student) => (
     student.status !== 'RETIRADO'
+    && student.disabled !== true
     && normalizeRut(student.rut) === rutKey
     && normalizeCourseKey(student.course) === courseKey
   )) || null;

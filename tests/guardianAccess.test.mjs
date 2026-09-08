@@ -8,7 +8,8 @@ import {
 
 const students = [
   { id: 'MP-2026-001', rut: '24.617.421-0', course: '6° Básico A', status: 'PENDIENTE' },
-  { id: 'MP-2026-002', rut: '25.111.222-K', course: 'Retirado', status: 'RETIRADO' }
+  { id: 'MP-2026-002', rut: '25.111.222-K', course: 'Retirado', status: 'RETIRADO' },
+  { id: 'MP-2026-003', rut: '26.333.444-5', course: '5° Básico A', status: 'PENDIENTE', disabled: true }
 ];
 
 test('normaliza RUT con puntos, espacios y dígito K', () => {
@@ -25,4 +26,5 @@ test('encuentra solo un estudiante activo cuando coinciden RUT y curso', () => {
   assert.equal(findStudentForGuardian(students, '246174210', '6° Básico A')?.id, 'MP-2026-001');
   assert.equal(findStudentForGuardian(students, '24.617.421-0', '5° Básico A'), null);
   assert.equal(findStudentForGuardian(students, '25.111.222-k', 'Retirado'), null);
+  assert.equal(findStudentForGuardian(students, '26.333.444-5', '5° Básico A'), null);
 });

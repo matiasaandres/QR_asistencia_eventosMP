@@ -12,7 +12,11 @@ import {
   FileSpreadsheet,
   AlertCircle,
   Plus,
-  CheckCircle2
+  CheckCircle2,
+  SlidersHorizontal,
+  UserCheck,
+  UserX,
+  X
 } from 'lucide-react';
 import { getCapacityState, normalizeCapacityValue } from '../services/checkinPolicy';
 import { createStudentCodeGenerator } from '../services/studentCodes';
@@ -33,6 +37,99 @@ export default function StudentsManager({
     maxCapacity: 5
   });
   const [importStatus, setImportStatus] = useState(null);
+  const [bulkCapacity, setBulkCapacity] = useState(5);
+  const [editingStudent, setEditingStudent] = useState(null);
+  const [studentCapacity, setStudentCapacity] = useState(5);
+  const [isSaving, setIsSaving] = useState(false);
+
+  const showStatus = (message) => {
+    setImportStatus(message);
+    setTimeout(() => setImportStatus(null), 4000);
+  };
+
+  const persistStudents = async (updatedStudents, successMessage) => {
+    setIsSaving(true);
+    try {
+      await onSaveStudents(updatedStudents);
+      showStatus(successMessage);
+      return true;
+    } catch (error) {
+      console.error(error);
+      alert(`No fue posible guardar el cambio: ${error.message}`);
+      return false;
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleBulkCapacity = async () => {
+    const nextCapacity = normalizeCapacityValue(bulkCapacity, -1);
+    const editableStudents = students.filter((student) => !getCapacityState(student).isRetired);
+    const highestEntered = editableStudents.reduce(
+      (highest, student) => Math.max(highest, getCapacityState(student).enteredCount),
+      0
+    );
+
+    if (nextCapacity < 1 || nextCapacity > 50) {
+      alert('La cantidad de cupos debe estar entre 1 y 50.');
+      return;
+    }
+    if (nextCapacity < highestEntered) {
+      alert(`No puedes asignar ${nextCapacity} cupos porque ya existe un alumno con ${highestEntered} ingresos registrados.`);
+      return;
+    }
+    if (!window.confirm(`¿Cambiar el cupo a ${nextCapacity} para ${editableStudents.length} estudiantes?`)) return;
+
+    await persistStudents(
+      students.map((student) => (
+        getCapacityState(student).isRetired
+          ? student
+          : { ...student, maxCapacity: nextCapacity }
+      )),
+      `Cupo actualizado a ${nextCapacity} para ${editableStudents.length} estudiantes.`
+    );
+  };
+
+  const openCapacityEditor = (student) => {
+    setEditingStudent(student);
+    setStudentCapacity(getCapacityState(student).maxCapacity);
+  };
+
+  const handleStudentCapacity = async (event) => {
+    event.preventDefault();
+    if (!editingStudent) return;
+    const capacity = getCapacityState(editingStudent);
+    const nextCapacity = normalizeCapacityValue(studentCapacity, -1);
+
+    if (nextCapacity < Math.max(1, capacity.enteredCount) || nextCapacity > 50) {
+      alert(`El cupo debe estar entre ${Math.max(1, capacity.enteredCount)} y 50.`);
+      return;
+    }
+
+    const saved = await persistStudents(
+      students.map((student) => (
+        student.id === editingStudent.id
+          ? { ...student, maxCapacity: nextCapacity }
+          : student
+      )),
+      `Cupo de ${editingStudent.name} actualizado a ${nextCapacity}.`
+    );
+    if (saved) setEditingStudent(null);
+  };
+
+  const handleToggleStudent = async (student) => {
+    const willDisable = student.disabled !== true;
+    if (willDisable && !window.confirm(`¿Deshabilitar a ${student.name}? Su QR dejará de permitir ingresos.`)) return;
+
+    await persistStudents(
+      students.map((current) => (
+        current.id === student.id ? { ...current, disabled: willDisable } : current
+      )),
+      willDisable
+        ? `${student.name} fue deshabilitado.`
+        : `${student.name} fue reactivado.`
+    );
+  };
 
   const filteredStudents = students.filter((s) => {
     const term = searchTerm.toLowerCase();
@@ -183,6 +280,43 @@ export default function StudentsManager({
         </div>
       )}
 
+      {/* Global capacity administration */}
+      <div className="rounded-2xl border border-indigo-200 bg-indigo-50 p-4 shadow-sm">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <h2 className="flex items-center gap-2 text-sm font-extrabold text-indigo-950">
+              <SlidersHorizontal className="h-4 w-4" />
+              Cambiar cupos de todos los estudiantes
+            </h2>
+            <p className="mt-1 text-xs text-indigo-700">
+              Se aplica a estudiantes activos y deshabilitados; no modifica a quienes figuran como retirados.
+            </p>
+          </div>
+          <div className="flex items-end gap-2">
+            <div>
+              <label htmlFor="bulk-capacity" className="mb-1 block text-xs font-bold text-indigo-900">Cupos por alumno</label>
+              <input
+                id="bulk-capacity"
+                type="number"
+                min="1"
+                max="50"
+                value={bulkCapacity}
+                onChange={(event) => setBulkCapacity(event.target.value)}
+                className="w-28 rounded-xl border border-indigo-200 bg-white px-3 py-2 text-sm font-bold outline-none focus:ring-2 focus:ring-indigo-300"
+              />
+            </div>
+            <button
+              type="button"
+              disabled={isSaving}
+              onClick={handleBulkCapacity}
+              className="rounded-xl bg-indigo-700 px-4 py-2 text-xs font-extrabold text-white transition hover:bg-indigo-600 disabled:cursor-wait disabled:opacity-60"
+            >
+              {isSaving ? 'Guardando…' : 'Aplicar a todos'}
+            </button>
+          </div>
+        </div>
+      </div>
+
       {/* Search Bar */}
       <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-200">
         <div className="relative">
@@ -224,9 +358,10 @@ export default function StudentsManager({
                   const maxCap = capacity.maxCapacity;
                   const entered = capacity.enteredCount;
                   const isFull = capacity.isFull;
+                  const isDisabled = capacity.isDisabled;
 
                   return (
-                    <tr key={s.id} className="hover:bg-slate-50/70 transition-colors">
+                    <tr key={s.id} className={`transition-colors ${isDisabled ? 'bg-slate-100/80 opacity-75' : 'hover:bg-slate-50/70'}`}>
                       <td className="py-3 px-4 font-mono font-bold text-slate-700">
                         {s.id}
                       </td>
@@ -243,16 +378,36 @@ export default function StudentsManager({
                       </td>
                       <td className="py-3 px-4 text-center">
                         <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                          isFull
+                          isDisabled
+                            ? 'bg-slate-700 text-white'
+                            : isFull
                             ? 'bg-rose-100 text-rose-800'
                             : entered > 0
                               ? 'bg-amber-100 text-amber-800'
                               : 'bg-slate-100 text-slate-600'
                         }`}>
-                          {isFull ? 'COMPLETO' : entered > 0 ? 'PARCIAL' : 'PENDIENTE'}
+                          {isDisabled ? 'DESHABILITADO' : isFull ? 'COMPLETO' : entered > 0 ? 'PARCIAL' : 'PENDIENTE'}
                         </span>
                       </td>
                       <td className="py-3 px-4 text-right space-x-1.5 whitespace-nowrap">
+                        <button
+                          onClick={() => openCapacityEditor(s)}
+                          disabled={capacity.isRetired || isSaving}
+                          className="px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 disabled:cursor-not-allowed disabled:opacity-40 font-bold rounded-lg transition-colors inline-flex items-center gap-1"
+                          title="Modificar cupos de este estudiante"
+                        >
+                          <Edit3 className="w-3.5 h-3.5" />
+                          <span>Cupos</span>
+                        </button>
+                        <button
+                          onClick={() => handleToggleStudent(s)}
+                          disabled={capacity.isRetired || isSaving}
+                          className={`px-2.5 py-1 font-bold rounded-lg transition-colors inline-flex items-center gap-1 disabled:cursor-not-allowed disabled:opacity-40 ${isDisabled ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100' : 'bg-rose-50 text-rose-700 hover:bg-rose-100'}`}
+                          title={isDisabled ? 'Reactivar estudiante' : 'Deshabilitar estudiante'}
+                        >
+                          {isDisabled ? <UserCheck className="w-3.5 h-3.5" /> : <UserX className="w-3.5 h-3.5" />}
+                          <span>{isDisabled ? 'Activar' : 'Deshabilitar'}</span>
+                        </button>
                         <button
                           onClick={() => onOpenCardPrinter(s)}
                           className="px-2.5 py-1 bg-slate-100 hover:bg-sky-50 hover:text-sky-700 text-slate-600 font-bold rounded-lg transition-colors inline-flex items-center gap-1"
@@ -263,7 +418,8 @@ export default function StudentsManager({
                         </button>
                         <button
                           onClick={() => onSelectStudent(s)}
-                          className="px-2.5 py-1 bg-sky-600 hover:bg-sky-500 text-white font-bold rounded-lg transition-colors"
+                          disabled={capacity.isAccessBlocked}
+                          className="px-2.5 py-1 bg-sky-600 hover:bg-sky-500 disabled:bg-slate-300 disabled:cursor-not-allowed text-white font-bold rounded-lg transition-colors"
                         >
                           Ingreso
                         </button>
@@ -333,6 +489,48 @@ export default function StudentsManager({
                   className="px-5 py-2 bg-sky-600 hover:bg-sky-500 text-white font-bold rounded-xl shadow-md shadow-sky-600/30"
                 >
                   Guardar Estudiante
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: edit individual capacity */}
+      {editingStudent && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+          <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-2xl">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h3 className="text-lg font-extrabold text-slate-900">Modificar cupos</h3>
+                <p className="mt-1 text-xs font-semibold text-slate-500">{editingStudent.name}</p>
+              </div>
+              <button type="button" onClick={() => setEditingStudent(null)} className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <form onSubmit={handleStudentCapacity} className="mt-5 space-y-4">
+              <div>
+                <label htmlFor="student-capacity" className="mb-1.5 block text-xs font-bold text-slate-700">Cantidad máxima de personas</label>
+                <input
+                  id="student-capacity"
+                  type="number"
+                  min={Math.max(1, getCapacityState(editingStudent).enteredCount)}
+                  max="50"
+                  required
+                  autoFocus
+                  value={studentCapacity}
+                  onChange={(event) => setStudentCapacity(event.target.value)}
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm font-bold outline-none focus:border-sky-500 focus:ring-2 focus:ring-sky-100"
+                />
+                <p className="mt-1.5 text-[11px] text-slate-500">
+                  Ya se registraron {getCapacityState(editingStudent).enteredCount} ingresos; el cupo no puede quedar por debajo de esa cantidad.
+                </p>
+              </div>
+              <div className="flex justify-end gap-2">
+                <button type="button" onClick={() => setEditingStudent(null)} className="rounded-xl px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100">Cancelar</button>
+                <button type="submit" disabled={isSaving} className="rounded-xl bg-sky-600 px-4 py-2 text-xs font-extrabold text-white hover:bg-sky-500 disabled:cursor-wait disabled:opacity-60">
+                  {isSaving ? 'Guardando…' : 'Guardar cupos'}
                 </button>
               </div>
             </form>

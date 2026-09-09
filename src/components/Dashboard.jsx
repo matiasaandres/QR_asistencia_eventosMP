@@ -1,10 +1,11 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   Activity,
   BarChart3,
   Clock,
   DoorClosed,
   FileSpreadsheet,
+  FileText,
   Gauge,
   GraduationCap,
   Sparkles,
@@ -42,6 +43,22 @@ function MetricCard({ label, value, detail, icon: Icon, tone = 'sky' }) {
 }
 
 export default function Dashboard({ event, students, logs }) {
+  const [reportBusy, setReportBusy] = useState(false);
+  const [reportError, setReportError] = useState('');
+  const handleDownloadReport = async () => {
+    if (reportBusy) return;
+    setReportBusy(true);
+    setReportError('');
+    try {
+      const { downloadManagementReport } = await import('../services/managementReport.js');
+      await downloadManagementReport({ event, students, logs });
+    } catch (error) {
+      console.error('No se pudo generar el informe PDF', error);
+      setReportError('No se pudo generar el informe PDF. Intenta descargarlo nuevamente.');
+    } finally {
+      setReportBusy(false);
+    }
+  };
   const stats = useMemo(() => {
     const activeStudents = students.filter((student) => !getCapacityState(student).isAccessBlocked);
     const totalStudents = activeStudents.length;
@@ -137,6 +154,15 @@ export default function Dashboard({ event, students, logs }) {
               Estado general del recinto, avance por curso y actividad sincronizada desde todos los accesos.
             </p>
           </div>
+          <div className="flex shrink-0 flex-col gap-2">
+          <button
+            onClick={handleDownloadReport}
+            disabled={reportBusy}
+            aria-busy={reportBusy}
+            className="inline-flex items-center justify-center gap-2 rounded-xl bg-sky-100 px-4 py-2.5 text-xs font-extrabold text-sky-950 shadow-lg transition hover:bg-white disabled:cursor-wait disabled:opacity-60"
+          >
+            <FileText className="h-4 w-4" /> {reportBusy ? 'Generando informe…' : 'Informe PDF · Dirección y UTP'}
+          </button>
           <button
             onClick={() => exportToExcel({ event, students, logs })}
             className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-white px-4 py-2.5 text-xs font-extrabold text-slate-900 shadow-lg transition hover:bg-sky-50 active:scale-95"
@@ -144,8 +170,10 @@ export default function Dashboard({ event, students, logs }) {
           >
             <FileSpreadsheet className="h-4 w-4 text-emerald-600" /> Descargar Excel
           </button>
+          </div>
         </div>
       </section>
+      {reportError && <p role="alert" className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800">{reportError}</p>}
 
       <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <MetricCard label="Alumnos activos" value={stats.totalStudents} detail={`${stats.familiesEntered} familias presentes`} icon={Users} tone="sky" />

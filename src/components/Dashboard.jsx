@@ -208,22 +208,33 @@ export default function Dashboard({ event, students, logs }) {
       <section className="grid grid-cols-1 gap-5 lg:grid-cols-3">
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm lg:col-span-2">
           <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-3">
-            <div><h2 className="flex items-center gap-2 text-base font-extrabold text-slate-950"><GraduationCap className="h-5 w-5 text-sky-600" /> Rendimiento por curso</h2><p className="mt-0.5 text-xs text-slate-500">Familias presentes y uso del cupo autorizado</p></div>
+            <div><h2 className="flex items-center gap-2 text-base font-extrabold text-slate-950"><GraduationCap className="h-5 w-5 text-sky-600" /> Rendimiento por curso</h2><p className="mt-1 text-sm text-slate-600">Consulta cuántas familias llegaron y cuántas personas ingresaron.</p></div>
             <span className="rounded-lg bg-slate-100 px-2.5 py-1 text-[11px] font-bold text-slate-600">{stats.coursesList.length} cursos</span>
           </div>
+          <p className="mt-3 text-xs leading-relaxed text-slate-600">Una familia cuenta como presente cuando ingresa al menos una persona. Los cupos indican el total de personas autorizadas para el curso.</p>
           <div className="mt-4 max-h-[520px] space-y-3 overflow-y-auto pr-1">
+            {stats.coursesList.length === 0 && <p className="py-6 text-center text-sm text-slate-500">Los cursos aparecerán cuando haya alumnos habilitados en la nómina.</p>}
             {stats.coursesList.map((course) => {
               const familiesPct = course.totalStudents > 0 ? Math.round((course.familiesEntered / course.totalStudents) * 100) : 0;
               const capacityPct = course.capacity > 0 ? Math.round((course.peopleEntered / course.capacity) * 100) : 0;
               return (
                 <div key={course.name} className="rounded-xl border border-slate-200 bg-slate-50/70 p-3 transition hover:border-sky-200 hover:bg-sky-50/40">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <span className="text-sm font-extrabold text-slate-900">{course.name}</span>
-                    <div className="flex items-center gap-2 text-[11px] font-bold"><span className="rounded-md bg-white px-2 py-1 text-slate-600 shadow-sm">{course.familiesEntered}/{course.totalStudents} familias</span><span className="rounded-md bg-sky-100 px-2 py-1 text-sky-800">{course.peopleEntered} personas</span></div>
-                  </div>
-                  <div className="mt-3 grid grid-cols-[76px_1fr_38px] items-center gap-2 text-[10px] font-bold text-slate-500">
-                    <span>Asistencia</span><div className="h-2 overflow-hidden rounded-full bg-slate-200"><div className="h-full rounded-full bg-emerald-500" style={{ width: `${clampPercentage(familiesPct)}%` }} /></div><span className="text-right text-emerald-700">{familiesPct}%</span>
-                    <span>Ocupación</span><div className="h-2 overflow-hidden rounded-full bg-slate-200"><div className="h-full rounded-full bg-sky-500" style={{ width: `${clampPercentage(capacityPct)}%` }} /></div><span className="text-right text-sky-700">{capacityPct}%</span>
+                  <h3 className="text-base font-extrabold text-slate-900">{course.name}</h3>
+                  <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <div className="rounded-xl border border-emerald-100 bg-white p-3">
+                      <p className="text-sm font-bold text-slate-700">Familias presentes</p>
+                      <p className="mt-1 text-sm text-slate-600"><strong className="text-2xl font-black text-slate-950">{course.familiesEntered}</strong> de {course.totalStudents} familias</p>
+                      <p className="mt-2 text-xs font-semibold text-emerald-800">{familiesPct}% de las familias ya llegó</p>
+                      <div aria-hidden="true" className="mt-2 h-2 overflow-hidden rounded-full bg-emerald-100"><div className="h-full rounded-full bg-emerald-500" style={{ width: `${clampPercentage(familiesPct)}%` }} /></div>
+                      <p className="mt-2 text-xs text-slate-600">Familias sin ingreso: <strong>{Math.max(0, course.totalStudents - course.familiesEntered)}</strong></p>
+                    </div>
+                    <div className="rounded-xl border border-sky-100 bg-white p-3">
+                      <p className="text-sm font-bold text-slate-700">Personas que ingresaron</p>
+                      <p className="mt-1 text-sm text-slate-600"><strong className="text-2xl font-black text-slate-950">{course.peopleEntered}</strong> de {course.capacity} personas autorizadas</p>
+                      <p className="mt-2 text-xs font-semibold text-sky-800">{capacityPct}% de los cupos utilizados</p>
+                      <div aria-hidden="true" className="mt-2 h-2 overflow-hidden rounded-full bg-sky-100"><div className="h-full rounded-full bg-sky-500" style={{ width: `${clampPercentage(capacityPct)}%` }} /></div>
+                      <p className="mt-2 text-xs text-slate-600">Cupos disponibles: <strong>{Math.max(0, course.capacity - course.peopleEntered)}</strong></p>
+                    </div>
                   </div>
                 </div>
               );

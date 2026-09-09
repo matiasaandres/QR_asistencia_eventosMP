@@ -3,6 +3,7 @@ import { createManagementReportPdf } from '../src/services/managementReport.js';
 
 // Synthetic data only: this sample is never a report of the live event.
 const students = Array.from({ length: 14 }, (_, course) => Array.from({ length: 21 }, (_, index) => ({
+  name: `Alumno ficticio ${course + 1}-${index + 1}`,
   course: `${Math.floor(course / 2) + 1}° Básico ${course % 2 ? 'B' : 'A'}`,
   maxCapacity: 5, enteredCount: index < 16 - course % 5 ? 1 + index % 4 : 0
 }))).flat();

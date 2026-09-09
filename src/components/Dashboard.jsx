@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { exportToExcel } from '../services/export';
 import { getCapacityState } from '../services/checkinPolicy';
+import PendingFamilies from './PendingFamilies.jsx';
 
 const clampPercentage = (value) => Math.min(100, Math.max(0, value));
 
@@ -300,6 +301,8 @@ export default function Dashboard({ event, students, logs }) {
           </div>
         </div>
       </section>
+
+      <PendingFamilies students={students} />
 
       <section className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <div className="rounded-xl border border-slate-200 bg-white p-3 text-center"><p className="text-2xl font-black text-slate-900">{stats.capacityPercentage}%</p><p className="text-[10px] font-bold uppercase text-slate-500">Ocupación total</p></div>

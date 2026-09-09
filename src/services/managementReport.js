@@ -1,4 +1,5 @@
 import { getCapacityState } from './checkinPolicy.js';
+import { getPendingFamilies } from './pendingFamilies.js';
 
 const TIME_ZONE = 'America/Santiago';
 const percent = (value, total) => total > 0 ? Math.round(value / total * 100) : null;
@@ -57,6 +58,7 @@ export function buildManagementReportData({ students = [], logs = [] }) {
   }
   return {
     courses: courseRows, families, present, pending: families - present, people, capacity,
+    pendingFamilies: getPendingFamilies(students),
     available, aboveCapacity, excluded, extraFamilies,
     attendance: percent(present, families), usage: percent(people, capacity),
     average: present > 0 ? (people / present).toFixed(1).replace('.', ',') : 'Sin ingresos',
@@ -204,12 +206,40 @@ export async function createManagementReportPdf({ event, students = [], logs = [
     : data.families ? 'UTP: todas las unidades familiares habilitadas registran al menos un ingreso al corte.' : 'UTP: incorporar una nómina habilitada para analizar la participación por curso.');
   paragraph('Sugerencia de seguimiento: contrastar la participación con el contexto de cada curso y registrar acuerdos de comunicación para futuras actividades. Las diferencias entre cursos, por sí solas, no explican las causas de participación.');
   heading('7. Fuente, alcance y calidad de los datos');
-  paragraph(`Fuente: nómina y bitácora cargadas en el panel en vivo. Se consideran ${number(data.families)} alumnos habilitados y se excluyen ${number(data.excluded)} alumnos retirados o deshabilitados del resumen y del detalle por curso. El informe no contiene nombres ni identificadores personales.`);
+  paragraph(`Fuente: nómina y bitácora cargadas en el panel en vivo. Se consideran ${number(data.families)} alumnos habilitados y se excluyen ${number(data.excluded)} alumnos retirados o deshabilitados del resumen y del detalle por curso. El anexo nominal identifica a los alumnos cuyas familias no registran ingresos, para seguimiento de Dirección y UTP.`);
   paragraph(`La bitácora contiene ${number(data.logCount)} movimientos y ${number(data.logPeople)} ingresos con cantidades válidas. Los gráficos de hora y puerta utilizan esta bitácora, que puede incluir alumnos actualmente excluidos de la nómina habilitada.`);
   if (data.logPeople !== data.people) paragraph(`Diferencia de fuentes: la bitácora registra ${number(data.logPeople)} ingresos y la nómina habilitada acumula ${number(data.people)}. Revisar exclusiones, modificaciones o registros disponibles antes de conciliar ambas cifras.`, { bold: true });
   if (data.invalidCounts) paragraph(`Se omitieron ${data.invalidCounts} movimientos con cantidad inválida de los gráficos operativos.`, { bold: true });
   if (data.undatedPeople) paragraph(`${number(data.undatedPeople)} ingresos no tienen una fecha válida: se incluyen en puertas y se excluyen del gráfico por hora.`, { bold: true });
   paragraph('Porcentajes redondeados al entero más cercano. Sin denominador, el porcentaje se informa como no calculable. Este documento es una fotografía de los datos disponibles al generarlo y no se actualiza después de su descarga.', { size: 9 });
+  page();
+  heading('8. Familias habilitadas sin ingreso');
+  paragraph(`Listado nominal para seguimiento interno: ${number(data.pendingFamilies.length)} alumnos activos con cupo mayor que cero y sin ingresos al corte. Se excluyen retirados, deshabilitados y alumnos sin cupo autorizado.`);
+  paragraph('La familia se identifica por el alumno asociado. No hay un registro separado de apoderados ni una agrupación de hermanos. Mientras el evento siga abierto, este listado indica llegada pendiente, no inasistencia definitiva.', { size: 9 });
+  if (data.pending !== data.pendingFamilies.length) paragraph(`El resumen incluye ${data.pending - data.pendingFamilies.length} alumnos sin ingreso y sin cupo; no se incluyen en este listado de familias autorizadas para ingresar.`, { size: 9 });
+  function pendingHeader() {
+    doc.setFillColor(...ink); doc.rect(18, y, width, 10, 'F');
+    font(9, true, [255, 255, 255]);
+    doc.text('Alumno / familia asociada', 20, y + 6);
+    doc.text('Curso', 111, y + 6);
+    doc.text('Cupos', 175, y + 6);
+    y += 15;
+  }
+  if (!data.pendingFamilies.length) paragraph('No hay familias habilitadas con cupo y sin ingreso registrado.');
+  else {
+    pendingHeader();
+    data.pendingFamilies.forEach((family, index) => {
+      font(9);
+      const nameLines = doc.splitTextToSize(safe(family.name), 85);
+      const courseLines = doc.splitTextToSize(safe(family.course), 57);
+      const height = Math.max(12, Math.max(nameLines.length, courseLines.length) * 4.3 + 5);
+      if (y + height > 270) { page(); heading('Familias sin ingreso (continuación)'); pendingHeader(); }
+      if (index % 2 === 0) { doc.setFillColor(241, 246, 249); doc.rect(18, y - 3.5, width, height, 'F'); }
+      font(9); doc.text(nameLines, 20, y + 1); doc.text(courseLines, 111, y + 1);
+      doc.text(number(family.capacity), 175, y + 1);
+      y += height;
+    });
+  }
   const pages = doc.getNumberOfPages();
   for (let i = 1; i <= pages; i += 1) {
     doc.setPage(i); doc.setDrawColor(210, 220, 229); doc.line(18, 280, 192, 280);

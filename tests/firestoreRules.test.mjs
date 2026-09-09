@@ -47,3 +47,14 @@ test('la eliminación de nómina es recuperable y no permite borrar documentos',
   assert.doesNotMatch(studentsRules, /allow delete/);
   assert.match(studentsRules, /'deleted', 'deletedAt'/);
 });
+
+test('permite eliminar registros individuales del historial', () => {
+  const logsRules = rules.match(/match \/logs\/\{logId\} \{([\s\S]*?)\n      \}/)[1];
+  assert.match(logsRules, /allow delete: if eventIsOpen\(\);/);
+});
+
+test('permite descontar del contador al remover un registro', () => {
+  assert.match(rules, /enteredCount >= resource\.data\.enteredCount - 5/);
+  assert.match(rules, /request\.resource\.data\.status == 'PARCIAL'/);
+  assert.match(rules, /request\.resource\.data\.extraGuest == resource\.data\.extraGuest/);
+});

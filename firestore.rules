@@ -64,17 +64,19 @@ service cloud.firestore {
           request.resource.data.diff(resource.data).affectedKeys()
             .hasOnly(['enteredCount', 'status', 'lastEntryAt', 'extraGuest'])
           && request.resource.data.enteredCount is int
-          && (!('disabled' in resource.data) || resource.data.disabled == false)
-          && (!('deleted' in resource.data) || resource.data.deleted == false)
           && (
             // Normal admission, never above the configured family capacity.
             (
-              request.resource.data.enteredCount >= resource.data.enteredCount
+              (!('disabled' in resource.data) || resource.data.disabled == false)
+              && (!('deleted' in resource.data) || resource.data.deleted == false)
+              && request.resource.data.enteredCount >= resource.data.enteredCount
               && request.resource.data.enteredCount <= resource.data.maxCapacity
             )
             // One identified extraordinary guest after the normal capacity is full.
             || (
-              resource.data.maxCapacity is int
+              (!('disabled' in resource.data) || resource.data.disabled == false)
+              && (!('deleted' in resource.data) || resource.data.deleted == false)
+              && resource.data.maxCapacity is int
               && resource.data.maxCapacity > 0
               && resource.data.enteredCount == resource.data.maxCapacity
               && !('extraGuest' in resource.data)
@@ -99,6 +101,27 @@ service cloud.firestore {
               && request.resource.data.status == 'PENDIENTE'
               && !('lastEntryAt' in request.resource.data)
               && !('extraGuest' in request.resource.data)
+            )
+            // Manual history correction: subtract one removed log (maximum 5
+            // people) and keep the student's status consistent.
+            || (
+              request.resource.data.enteredCount >= 0
+              && request.resource.data.enteredCount < resource.data.enteredCount
+              && request.resource.data.enteredCount >= resource.data.enteredCount - 5
+              && (
+                (request.resource.data.enteredCount == 0
+                  && request.resource.data.status == 'PENDIENTE')
+                || (request.resource.data.enteredCount > 0
+                  && request.resource.data.enteredCount < resource.data.maxCapacity
+                  && request.resource.data.status == 'PARCIAL')
+                || (request.resource.data.enteredCount == resource.data.maxCapacity
+                  && request.resource.data.status == 'COMPLETO')
+              )
+              && (
+                !('extraGuest' in resource.data)
+                || !('extraGuest' in request.resource.data)
+                || request.resource.data.extraGuest == resource.data.extraGuest
+              )
             )
           )
             )

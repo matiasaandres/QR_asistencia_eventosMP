@@ -218,6 +218,84 @@ export function subscribeToLogs(eventId, onUpdate) {
   }
 }
 
+function statusForEnteredCount(enteredCount, maxCapacity) {
+  if (enteredCount <= 0) return 'PENDIENTE';
+  if (enteredCount >= maxCapacity) return 'COMPLETO';
+  return 'PARCIAL';
+}
+
+// Remove one audit entry and adjust its student's counter atomically.
+export async function deleteLogEntry(eventId, log) {
+  const logId = log?.id;
+  if (!logId) throw new Error('El registro no tiene un identificador válido.');
+
+  const { db, isConfigured } = initFirebase();
+  if (isConfigured && db) {
+    const logRef = doc(db, 'events', eventId, 'logs', logId);
+
+    await runTransaction(db, async (transaction) => {
+      const logSnapshot = await transaction.get(logRef);
+      if (!logSnapshot.exists()) {
+        throw new Error('El registro ya no existe en la base de datos.');
+      }
+
+      const storedLog = logSnapshot.data();
+      const storedStudentRef = doc(db, 'events', eventId, 'students', storedLog.studentId);
+      const studentSnapshot = await transaction.get(storedStudentRef);
+
+      if (studentSnapshot.exists()) {
+        const student = studentSnapshot.data();
+        const removedCount = Math.max(1, Number(storedLog.count) || 1);
+        const newEnteredCount = Math.max(0, (Number(student.enteredCount) || 0) - removedCount);
+        const maxCapacity = getCapacityState(student).maxCapacity;
+        const update = {
+          enteredCount: newEnteredCount,
+          status: statusForEnteredCount(newEnteredCount, maxCapacity)
+        };
+        if (storedLog.isExtra === true) update.extraGuest = deleteField();
+        transaction.update(storedStudentRef, update);
+      }
+
+      transaction.delete(logRef);
+    });
+  }
+
+  const storageKey = LOCAL_STORAGE_KEY_LOGS + eventId;
+  try {
+    const stored = localStorage.getItem(storageKey);
+    const localLogs = stored ? JSON.parse(stored) : [];
+    localStorage.setItem(
+      storageKey,
+      JSON.stringify(localLogs.filter((log) => log.id !== logId))
+    );
+
+    const studentsKey = LOCAL_STORAGE_KEY_STUDENTS + eventId;
+    const storedStudents = localStorage.getItem(studentsKey);
+    if (storedStudents && log.studentId) {
+      const removedCount = Math.max(1, Number(log.count) || 1);
+      const localStudents = JSON.parse(storedStudents).map((student) => {
+        if (student.id !== log.studentId) return student;
+        const newEnteredCount = Math.max(0, (Number(student.enteredCount) || 0) - removedCount);
+        const updatedStudent = {
+          ...student,
+          enteredCount: newEnteredCount,
+          status: statusForEnteredCount(newEnteredCount, getCapacityState(student).maxCapacity)
+        };
+        if (log.isExtra === true) delete updatedStudent.extraGuest;
+        return updatedStudent;
+      });
+      localStorage.setItem(studentsKey, JSON.stringify(localStudents));
+    }
+  } catch (error) {
+    console.warn('No fue posible actualizar el historial local después de eliminar:', error);
+  }
+
+  if (localChannel) {
+    localChannel.postMessage({ type: 'LOGS_UPDATED', eventId });
+    localChannel.postMessage({ type: 'STUDENTS_UPDATED', eventId });
+  }
+}
+
 function loadCachedLogs(eventId, onUpdate, mode) {
   try {
     const raw = localStorage.getItem(LOCAL_STORAGE_KEY_LOGS + eventId);

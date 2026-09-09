@@ -23,6 +23,7 @@ import {
   setCurrentDoor, 
   subscribeToStudents, 
   subscribeToLogs, 
+  deleteLogEntry,
   registerCheckIn, 
   saveStudentsList, 
   deleteStudents,
@@ -242,6 +243,7 @@ export default function App() {
             logs={logs}
             event={event}
             students={students}
+            onDeleteLog={(log) => deleteLogEntry(event.id, log)}
           />
         )}
       </main>

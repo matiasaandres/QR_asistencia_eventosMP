@@ -7,17 +7,36 @@ import {
   Calendar, 
   User, 
   Users,
-  FileSpreadsheet
+  FileSpreadsheet,
+  Trash2
 } from 'lucide-react';
 import { exportToExcel } from '../services/export';
 
 export default function HistoryLog({ 
   logs, 
   event, 
-  students 
+  students,
+  onDeleteLog
 }) {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedDoor, setSelectedDoor] = useState('ALL');
+  const [deletingLogId, setDeletingLogId] = useState(null);
+
+  const handleDeleteLog = async (log) => {
+    const description = `${log.studentName || 'este estudiante'} · ${log.formattedTime || 'sin hora'}`;
+    const count = Number(log.count) || 0;
+    if (!window.confirm(`¿Remover el registro de ${description}?\n\nSe eliminará de la base de datos y se descontarán ${count} persona${count === 1 ? '' : 's'} del contador del alumno.`)) return;
+
+    setDeletingLogId(log.id);
+    try {
+      await onDeleteLog(log);
+    } catch (error) {
+      console.error(error);
+      alert(`No fue posible remover el registro: ${error.message}`);
+    } finally {
+      setDeletingLogId(null);
+    }
+  };
 
   const filteredLogs = logs.filter((log) => {
     const term = searchTerm.toLowerCase();
@@ -98,12 +117,13 @@ export default function HistoryLog({
                 <th className="py-3 px-4 text-center">Personas</th>
                 <th className="py-3 px-4 text-center">Acumulado</th>
                 <th className="py-3 px-4">Punto / Puerta</th>
+                <th className="py-3 px-4 text-right">Acción</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {filteredLogs.length === 0 ? (
                 <tr>
-                  <td colSpan="6" className="py-12 text-center text-slate-400">
+                  <td colSpan="7" className="py-12 text-center text-slate-400">
                     No hay registros de ingreso que coincidan con la búsqueda.
                   </td>
                 </tr>
@@ -140,6 +160,18 @@ export default function HistoryLog({
                     </td>
                     <td className="py-3 px-4 text-slate-600 font-medium">
                       {log.doorName}
+                    </td>
+                    <td className="py-3 px-4 text-right">
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteLog(log)}
+                        disabled={deletingLogId === log.id}
+                        className="inline-flex items-center gap-1.5 rounded-lg bg-rose-50 px-2.5 py-1.5 font-bold text-rose-700 transition-colors hover:bg-rose-100 disabled:cursor-wait disabled:opacity-50"
+                        title="Eliminar este registro de la base de datos"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                        <span>{deletingLogId === log.id ? 'Removiendo…' : 'Remover registro'}</span>
+                      </button>
                     </td>
                   </tr>
                 ))

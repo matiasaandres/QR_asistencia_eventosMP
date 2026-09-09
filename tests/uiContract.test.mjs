@@ -26,6 +26,10 @@ const loginScreen = await readFile(
   new URL('../src/components/LoginScreen.jsx', import.meta.url),
   'utf8'
 );
+const historyLog = await readFile(
+  new URL('../src/components/HistoryLog.jsx', import.meta.url),
+  'utf8'
+);
 
 test('seleccionar cantidad no registra automáticamente y muestra confirmación', () => {
   assert.match(checkinPanel, /onClick=\{\(\) => setSelectedCount\(num\)\}/);
@@ -94,4 +98,11 @@ test('la nómina permite eliminar estudiantes y cursos con confirmación', () =>
   assert.match(studentsManager, /handleDeleteCourse/);
   assert.match(studentsManager, /Eliminar curso/);
   assert.match(studentsManager, /La bitácora de ingresos se conserva/);
+});
+
+test('el historial permite remover un registro con confirmación', () => {
+  assert.match(historyLog, /handleDeleteLog/);
+  assert.match(historyLog, /Remover registro/);
+  assert.match(historyLog, /Se eliminará de la base de datos y se descontarán/);
+  assert.match(historyLog, /await onDeleteLog\(log\)/);
 });

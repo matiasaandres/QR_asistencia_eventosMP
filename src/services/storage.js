@@ -91,7 +91,7 @@ export function subscribeToStudents(eventId, onUpdate) {
         const students = hydrateStudentRuts(snapshot.docs.map((d) => ({
           ...d.data(),
           id: d.id
-        })));
+        }))).filter((student) => student.deleted !== true);
         // Cache locally for offline backup
         localStorage.setItem(LOCAL_STORAGE_KEY_STUDENTS + eventId, JSON.stringify(students));
         onUpdate(students, snapshot.metadata.fromCache ? 'offline' : 'cloud');
@@ -412,8 +412,8 @@ export async function saveStudentsList(eventId, newStudents) {
   }
 }
 
-// Permanently remove selected students from the roster while preserving the
-// event log as an audit trail of entries that already occurred.
+// Soft-delete selected students from the active roster. Their records and the
+// event log remain recoverable in Firestore if an operator makes a mistake.
 export async function deleteStudents(eventId, studentIds) {
   const idsToDelete = [...new Set(studentIds.filter(Boolean))];
   if (!idsToDelete.length) return;
@@ -421,9 +421,10 @@ export async function deleteStudents(eventId, studentIds) {
   const { db, isConfigured } = initFirebase();
 
   if (isConfigured && db) {
+    const deletedAt = new Date().toISOString();
     const operations = idsToDelete.map((studentId) => {
       const studentRef = doc(db, 'events', eventId, 'students', studentId);
-      return (batch) => batch.delete(studentRef);
+      return (batch) => batch.update(studentRef, { deleted: true, deletedAt });
     });
     await commitInChunks(db, operations);
   }

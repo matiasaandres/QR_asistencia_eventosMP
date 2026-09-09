@@ -35,12 +35,15 @@ test('el reinicio elimina el registro extraordinario además del contador', () =
 });
 
 test('permite administrar cupos y deshabilitar sin cambiar identidad ni asistencia', () => {
-  assert.match(rules, /hasOnly\(\['maxCapacity', 'disabled'\]\)/);
+  assert.match(rules, /hasOnly\(\['maxCapacity', 'disabled', 'deleted', 'deletedAt'\]\)/);
   assert.match(rules, /maxCapacity >= request\.resource\.data\.enteredCount/);
   assert.match(rules, /maxCapacity <= 50/);
   assert.match(rules, /resource\.data\.disabled == false/);
+  assert.match(rules, /resource\.data\.deleted == false/);
 });
 
-test('permite eliminar estudiantes mientras el evento está abierto', () => {
-  assert.match(rules, /allow delete: if eventIsOpen\(\);/);
+test('la eliminación de nómina es recuperable y no permite borrar documentos', () => {
+  const studentsRules = rules.match(/match \/students\/\{studentId\} \{([\s\S]*?)match \/logs/)[1];
+  assert.doesNotMatch(studentsRules, /allow delete/);
+  assert.match(studentsRules, /'deleted', 'deletedAt'/);
 });

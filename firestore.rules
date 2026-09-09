@@ -22,7 +22,6 @@ service cloud.firestore {
           && request.resource.data.maxCapacity is int
           && request.resource.data.enteredCount == 0
           && request.resource.data.maxCapacity >= 0;
-        allow delete: if eventIsOpen();
         allow update: if eventIsOpen()
           && (
             // One-time roster migration: add a missing RUT without changing
@@ -37,7 +36,7 @@ service cloud.firestore {
             // capacity without rewriting attendance or identity fields.
             || (
               request.resource.data.diff(resource.data).affectedKeys()
-                .hasOnly(['maxCapacity', 'disabled'])
+                .hasOnly(['maxCapacity', 'disabled', 'deleted', 'deletedAt'])
               && request.resource.data.maxCapacity is int
               && (
                 request.resource.data.maxCapacity == resource.data.maxCapacity
@@ -49,6 +48,14 @@ service cloud.firestore {
                 || request.resource.data.disabled is bool
               )
               && (
+                !('deleted' in request.resource.data)
+                || request.resource.data.deleted is bool
+              )
+              && (
+                !('deletedAt' in request.resource.data)
+                || request.resource.data.deletedAt is string
+              )
+              && (
                 resource.data.status != 'RETIRADO'
                 || request.resource.data.maxCapacity == resource.data.maxCapacity
               )
@@ -58,6 +65,7 @@ service cloud.firestore {
             .hasOnly(['enteredCount', 'status', 'lastEntryAt', 'extraGuest'])
           && request.resource.data.enteredCount is int
           && (!('disabled' in resource.data) || resource.data.disabled == false)
+          && (!('deleted' in resource.data) || resource.data.deleted == false)
           && (
             // Normal admission, never above the configured family capacity.
             (

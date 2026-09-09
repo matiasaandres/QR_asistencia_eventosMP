@@ -153,7 +153,7 @@ export default function StudentsManager({
     const historyMessage = entered > 0
       ? ` Tiene ${entered} ingreso${entered === 1 ? '' : 's'} registrado${entered === 1 ? '' : 's'}; la bitácora histórica se conservará.`
       : '';
-    if (!window.confirm(`¿Eliminar definitivamente a ${student.name} de ${student.course}? Su QR dejará de existir.${historyMessage}`)) return;
+    if (!window.confirm(`¿Eliminar de la nómina a ${student.name} de ${student.course}? Su QR dejará de estar disponible.${historyMessage}`)) return;
 
     await deleteRosterStudents([student], `${student.name} fue eliminado de la nómina.`);
   };
@@ -175,7 +175,7 @@ export default function StudentsManager({
     const historyMessage = registeredEntries > 0
       ? ` La bitácora conservará ${registeredEntries} ingreso${registeredEntries === 1 ? '' : 's'} histórico${registeredEntries === 1 ? '' : 's'}.`
       : '';
-    if (!window.confirm(`¿Eliminar definitivamente el curso ${courseToDelete} y sus ${courseStudents.length} estudiante${courseStudents.length === 1 ? '' : 's'}?${historyMessage}`)) return;
+    if (!window.confirm(`¿Eliminar de la nómina el curso ${courseToDelete} y sus ${courseStudents.length} estudiante${courseStudents.length === 1 ? '' : 's'}?${historyMessage}`)) return;
 
     const deleted = await deleteRosterStudents(
       courseStudents,
@@ -197,7 +197,9 @@ export default function StudentsManager({
     e.preventDefault();
     if (!newStudent.name.trim() || !newStudent.course.trim()) return;
 
-    const nextId = `MP-${new Date().getFullYear()}-${String(students.length + 1).padStart(3, '0')}`;
+    // Use a time-based suffix so a newly created student cannot reuse the
+    // document ID of a soft-deleted record that is hidden from this roster.
+    const nextId = `MP-${new Date().getFullYear()}-${Date.now().toString(36).toUpperCase()}`;
     const studentObj = {
       id: nextId,
       name: newStudent.name.trim(),
@@ -522,7 +524,7 @@ export default function StudentsManager({
                           onClick={() => handleDeleteStudent(s)}
                           disabled={isSaving}
                           className="px-2.5 py-1 bg-rose-700 hover:bg-rose-600 disabled:cursor-wait disabled:opacity-50 text-white font-bold rounded-lg transition-colors inline-flex items-center gap-1"
-                          title="Eliminar estudiante definitivamente"
+                          title="Eliminar estudiante de la nómina"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                           <span>Eliminar</span>

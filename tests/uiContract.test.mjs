@@ -86,3 +86,12 @@ test('la nómina permite cambiar cupos globales, individuales y deshabilitar alu
   assert.match(studentsManager, /handleToggleStudent/);
   assert.match(studentsManager, /DESHABILITADO/);
 });
+
+test('la nómina permite eliminar estudiantes y cursos con confirmación', () => {
+  assert.match(studentsManager, /handleDeleteStudent/);
+  assert.match(studentsManager, /¿Eliminar definitivamente a/);
+  assert.match(studentsManager, /id="course-to-delete"/);
+  assert.match(studentsManager, /handleDeleteCourse/);
+  assert.match(studentsManager, /Eliminar curso/);
+  assert.match(studentsManager, /La bitácora de ingresos se conserva/);
+});

@@ -22,6 +22,7 @@ service cloud.firestore {
           && request.resource.data.maxCapacity is int
           && request.resource.data.enteredCount == 0
           && request.resource.data.maxCapacity >= 0;
+        allow delete: if eventIsOpen();
         allow update: if eventIsOpen()
           && (
             // One-time roster migration: add a missing RUT without changing

@@ -25,6 +25,7 @@ import {
   subscribeToLogs, 
   registerCheckIn, 
   saveStudentsList, 
+  deleteStudents,
   resetEventData 
 } from './services/storage';
 
@@ -230,6 +231,7 @@ export default function App() {
           <StudentsManager
             students={students}
             onSaveStudents={(updated) => saveStudentsList(event.id, updated)}
+            onDeleteStudents={(studentIds) => deleteStudents(event.id, studentIds)}
             onOpenCardPrinter={(s) => handleOpenPrinter(s)}
             onSelectStudent={(s) => setCheckinStudent(s)}
           />

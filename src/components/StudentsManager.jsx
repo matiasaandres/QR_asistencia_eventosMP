@@ -26,6 +26,7 @@ const BULK_IMPORT_TEMPLATE_PATH = '/Plantilla_Carga_Masiva_MundoPalabra.xlsx';
 export default function StudentsManager({ 
   students, 
   onSaveStudents, 
+  onDeleteStudents,
   onOpenCardPrinter, 
   onSelectStudent 
 }) {
@@ -41,6 +42,7 @@ export default function StudentsManager({
   const [editingStudent, setEditingStudent] = useState(null);
   const [studentCapacity, setStudentCapacity] = useState(5);
   const [isSaving, setIsSaving] = useState(false);
+  const [courseToDelete, setCourseToDelete] = useState('');
 
   const showStatus = (message) => {
     setImportStatus(message);
@@ -129,6 +131,57 @@ export default function StudentsManager({
         ? `${student.name} fue deshabilitado.`
         : `${student.name} fue reactivado.`
     );
+  };
+
+  const deleteRosterStudents = async (studentsToDelete, successMessage) => {
+    setIsSaving(true);
+    try {
+      await onDeleteStudents(studentsToDelete.map((student) => student.id));
+      showStatus(successMessage);
+      return true;
+    } catch (error) {
+      console.error(error);
+      alert(`No fue posible eliminar: ${error.message}`);
+      return false;
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleDeleteStudent = async (student) => {
+    const entered = getCapacityState(student).enteredCount;
+    const historyMessage = entered > 0
+      ? ` Tiene ${entered} ingreso${entered === 1 ? '' : 's'} registrado${entered === 1 ? '' : 's'}; la bitácora histórica se conservará.`
+      : '';
+    if (!window.confirm(`¿Eliminar definitivamente a ${student.name} de ${student.course}? Su QR dejará de existir.${historyMessage}`)) return;
+
+    await deleteRosterStudents([student], `${student.name} fue eliminado de la nómina.`);
+  };
+
+  const courses = [...new Set(students.map((student) => student.course).filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b, 'es', { numeric: true }));
+
+  const handleDeleteCourse = async () => {
+    const courseStudents = students.filter((student) => student.course === courseToDelete);
+    if (!courseStudents.length) {
+      alert('Selecciona un curso con estudiantes.');
+      return;
+    }
+
+    const registeredEntries = courseStudents.reduce(
+      (total, student) => total + getCapacityState(student).enteredCount,
+      0
+    );
+    const historyMessage = registeredEntries > 0
+      ? ` La bitácora conservará ${registeredEntries} ingreso${registeredEntries === 1 ? '' : 's'} histórico${registeredEntries === 1 ? '' : 's'}.`
+      : '';
+    if (!window.confirm(`¿Eliminar definitivamente el curso ${courseToDelete} y sus ${courseStudents.length} estudiante${courseStudents.length === 1 ? '' : 's'}?${historyMessage}`)) return;
+
+    const deleted = await deleteRosterStudents(
+      courseStudents,
+      `El curso ${courseToDelete} y sus ${courseStudents.length} estudiantes fueron eliminados.`
+    );
+    if (deleted) setCourseToDelete('');
   };
 
   const filteredStudents = students.filter((s) => {
@@ -317,6 +370,48 @@ export default function StudentsManager({
         </div>
       </div>
 
+      {/* Course deletion */}
+      <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4 shadow-sm">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <h2 className="flex items-center gap-2 text-sm font-extrabold text-rose-950">
+              <Trash2 className="h-4 w-4" />
+              Eliminar un curso completo
+            </h2>
+            <p className="mt-1 text-xs text-rose-700">
+              Elimina a todos sus estudiantes y credenciales QR. La bitácora de ingresos se conserva.
+            </p>
+          </div>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+            <div>
+              <label htmlFor="course-to-delete" className="mb-1 block text-xs font-bold text-rose-900">Curso</label>
+              <select
+                id="course-to-delete"
+                value={courseToDelete}
+                onChange={(event) => setCourseToDelete(event.target.value)}
+                className="min-w-48 rounded-xl border border-rose-200 bg-white px-3 py-2 text-sm font-bold outline-none focus:ring-2 focus:ring-rose-300"
+              >
+                <option value="">Seleccionar curso…</option>
+                {courses.map((course) => (
+                  <option key={course} value={course}>
+                    {course} ({students.filter((student) => student.course === course).length})
+                  </option>
+                ))}
+              </select>
+            </div>
+            <button
+              type="button"
+              disabled={!courseToDelete || isSaving}
+              onClick={handleDeleteCourse}
+              className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-rose-700 px-4 py-2 text-xs font-extrabold text-white transition hover:bg-rose-600 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <Trash2 className="h-4 w-4" />
+              Eliminar curso
+            </button>
+          </div>
+        </div>
+      </div>
+
       {/* Search Bar */}
       <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-200">
         <div className="relative">
@@ -422,6 +517,15 @@ export default function StudentsManager({
                           className="px-2.5 py-1 bg-sky-600 hover:bg-sky-500 disabled:bg-slate-300 disabled:cursor-not-allowed text-white font-bold rounded-lg transition-colors"
                         >
                           Ingreso
+                        </button>
+                        <button
+                          onClick={() => handleDeleteStudent(s)}
+                          disabled={isSaving}
+                          className="px-2.5 py-1 bg-rose-700 hover:bg-rose-600 disabled:cursor-wait disabled:opacity-50 text-white font-bold rounded-lg transition-colors inline-flex items-center gap-1"
+                          title="Eliminar estudiante definitivamente"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          <span>Eliminar</span>
                         </button>
                       </td>
                     </tr>

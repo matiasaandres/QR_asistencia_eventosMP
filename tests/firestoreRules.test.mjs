@@ -40,3 +40,7 @@ test('permite administrar cupos y deshabilitar sin cambiar identidad ni asistenc
   assert.match(rules, /maxCapacity <= 50/);
   assert.match(rules, /resource\.data\.disabled == false/);
 });
+
+test('permite eliminar estudiantes mientras el evento está abierto', () => {
+  assert.match(rules, /allow delete: if eventIsOpen\(\);/);
+});

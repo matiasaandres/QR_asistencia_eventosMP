@@ -412,6 +412,40 @@ export async function saveStudentsList(eventId, newStudents) {
   }
 }
 
+// Permanently remove selected students from the roster while preserving the
+// event log as an audit trail of entries that already occurred.
+export async function deleteStudents(eventId, studentIds) {
+  const idsToDelete = [...new Set(studentIds.filter(Boolean))];
+  if (!idsToDelete.length) return;
+
+  const { db, isConfigured } = initFirebase();
+
+  if (isConfigured && db) {
+    const operations = idsToDelete.map((studentId) => {
+      const studentRef = doc(db, 'events', eventId, 'students', studentId);
+      return (batch) => batch.delete(studentRef);
+    });
+    await commitInChunks(db, operations);
+  }
+
+  const storageKey = LOCAL_STORAGE_KEY_STUDENTS + eventId;
+  const deletedIds = new Set(idsToDelete);
+  try {
+    const stored = localStorage.getItem(storageKey);
+    const localStudents = stored ? JSON.parse(stored) : [];
+    localStorage.setItem(
+      storageKey,
+      JSON.stringify(localStudents.filter((student) => !deletedIds.has(student.id)))
+    );
+  } catch (error) {
+    console.warn('No fue posible actualizar la nómina local después de eliminar:', error);
+  }
+
+  if (localChannel) {
+    localChannel.postMessage({ type: 'STUDENTS_UPDATED', eventId });
+  }
+}
+
 const FIRESTORE_BATCH_LIMIT = 450;
 
 async function commitInChunks(db, operations) {

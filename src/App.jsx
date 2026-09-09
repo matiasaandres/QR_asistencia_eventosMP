@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import Navbar from './components/Navbar';
 import ScannerModal from './components/ScannerModal';
 import CheckinPanel from './components/CheckinPanel';
@@ -10,162 +10,173 @@ import QRCardPrinter from './components/QRCardPrinter';
 import SettingsModal from './components/SettingsModal';
 import LoginScreen from './components/LoginScreen';
 import EventsManager from './components/EventsManager';
+import MembersManager from './components/MembersManager';
 import { sounds } from './services/sound';
+import { clearAuthSession, subscribeToAuth } from './services/auth';
+import { canManageOrganization, canOperateAccess } from './services/organizationPolicy';
 import {
-  AUTH_SESSION_KEY,
-  clearAuthSession,
-  getActiveAuthSession
-} from './services/auth';
+  getSavedOrganizationId,
+  saveOrganizationId,
+  subscribeToMembership,
+  subscribeToOrganizations
+} from './services/organizations';
 import { getCapacityState } from './services/checkinPolicy';
-import { 
-  getCurrentEvent, 
-  saveCurrentEvent, 
-  subscribeToEvents,
-  createEvent,
-  updateEvent,
-  archiveEvent,
-  getCurrentDoor, 
-  setCurrentDoor, 
-  subscribeToStudents, 
-  subscribeToLogs, 
-  deleteLogEntry,
-  registerCheckIn, 
-  saveStudentsList, 
-  saveStudentCapacities,
-  deleteStudents,
-  resetEventData 
+import {
+  getCurrentEvent, saveCurrentEvent, subscribeToEvents, createEvent, updateEvent,
+  archiveEvent, getCurrentDoor, setCurrentDoor, subscribeToStudents, subscribeToLogs,
+  deleteLogEntry, registerCheckIn, saveStudentsList, saveStudentCapacities, deleteStudents,
+  resetEventData
 } from './services/storage';
 
+function LoadingScreen({ message = 'Cargando acceso seguro…' }) {
+  return <main className="flex min-h-screen items-center justify-center bg-slate-950 text-sm font-bold text-sky-100">{message}</main>;
+}
+
 export default function App() {
-  const [authSession, setAuthSession] = useState(getActiveAuthSession);
+  const [authUser, setAuthUser] = useState(null);
+  const [authReady, setAuthReady] = useState(false);
+  const [organizations, setOrganizations] = useState([]);
+  const [organization, setOrganization] = useState(null);
+  const [membership, setMembership] = useState(null);
+  const [organizationReady, setOrganizationReady] = useState(false);
   const [activeTab, setActiveTab] = useState('dashboard');
-  const [event, setEvent] = useState(getCurrentEvent());
-  const [events, setEvents] = useState(() => [getCurrentEvent()]);
-  const [currentDoor, setCurrentDoorState] = useState(getCurrentDoor());
+  const [event, setEvent] = useState(null);
+  const [events, setEvents] = useState([]);
+  const [currentDoor, setCurrentDoorState] = useState('Acceso Principal');
   const [students, setStudents] = useState([]);
   const [logs, setLogs] = useState([]);
   const [syncMode, setSyncMode] = useState('local');
-
-  // Modals & Active actions
   const [checkinStudent, setCheckinStudent] = useState(null);
   const [printStudent, setPrintStudent] = useState(null);
   const [showPrinter, setShowPrinter] = useState(false);
-  const [guardianStudent, setGuardianStudent] = useState(null);
   const [showSettings, setShowSettings] = useState(false);
 
+  const role = membership?.role || 'viewer';
+  const canManage = canManageOrganization(role);
+  const canOperate = canOperateAccess(role);
+
+  useEffect(() => subscribeToAuth((user) => {
+    setAuthUser(user);
+    setAuthReady(true);
+    if (!user) {
+      setOrganizations([]);
+      setOrganization(null);
+      setMembership(null);
+    }
+  }), []);
+
   useEffect(() => {
-    const unsubscribe = subscribeToEvents((nextEvents, mode) => {
+    if (!authUser) return undefined;
+    setOrganizationReady(false);
+    return subscribeToOrganizations(authUser.uid, (available) => {
+      setOrganizations(available);
+      setOrganization((current) => {
+        const savedId = getSavedOrganizationId(authUser.uid);
+        const selected = available.find((item) => item.id === current?.id)
+          || available.find((item) => item.id === savedId)
+          || available[0]
+          || null;
+        if (selected) saveOrganizationId(authUser.uid, selected.id);
+        return selected;
+      });
+      setOrganizationReady(true);
+    }, () => setOrganizationReady(true));
+  }, [authUser]);
+
+  useEffect(() => {
+    if (!authUser || !organization) return undefined;
+    setMembership(null);
+    return subscribeToMembership(organization.id, authUser.uid, setMembership, () => setMembership(null));
+  }, [authUser, organization]);
+
+  useEffect(() => {
+    if (!organization) return undefined;
+    const organizationId = organization.id;
+    setEvents([]);
+    setEvent(null);
+    setStudents([]);
+    setLogs([]);
+    setCurrentDoorState(getCurrentDoor(organizationId));
+    return subscribeToEvents(organizationId, (nextEvents, mode) => {
       setEvents(nextEvents);
       if (mode) setSyncMode(mode);
       setEvent((currentEvent) => {
-        const refreshed = nextEvents.find((item) => item.id === currentEvent.id);
-        if (refreshed && !refreshed.archived) {
-          saveCurrentEvent(refreshed);
-          return refreshed;
-        }
-        const fallback = nextEvents.find((item) => !item.archived);
-        return fallback ? saveCurrentEvent(fallback) : currentEvent;
+        const refreshed = nextEvents.find((item) => item.id === currentEvent?.id && !item.archived);
+        if (refreshed) return saveCurrentEvent(organizationId, refreshed);
+        const saved = getCurrentEvent(organizationId);
+        const selected = nextEvents.find((item) => item.id === saved.id && !item.archived)
+          || nextEvents.find((item) => !item.archived)
+          || null;
+        return selected ? saveCurrentEvent(organizationId, selected) : null;
       });
     });
-    return () => unsubscribe?.();
-  }, []);
+  }, [organization]);
 
-  // The roster is also needed on the public login screen so guardians can
-  // recover an existing QR. Attendance logs remain staff-only in the UI.
   useEffect(() => {
-    const unsubStudents = subscribeToStudents(event.id, (data, mode) => {
+    if (!organization || !event) return undefined;
+    return subscribeToStudents(organization.id, event.id, (data, mode) => {
       setStudents(data);
       if (mode) setSyncMode(mode);
     });
-
-    return () => {
-      if (unsubStudents) unsubStudents();
-    };
-  }, [event.id]);
+  }, [organization, event?.id]);
 
   useEffect(() => {
-    if (!authSession) {
-      setLogs([]);
-      return undefined;
-    }
-
-    const unsubLogs = subscribeToLogs(event.id, (data, mode) => {
+    if (!organization || !event || !membership) return undefined;
+    return subscribeToLogs(organization.id, event.id, (data, mode) => {
       setLogs(data);
       if (mode === 'error') setSyncMode('error');
     });
-
-    return () => {
-      if (unsubLogs) unsubLogs();
-    };
-  }, [event.id, authSession]);
+  }, [organization, event?.id, membership]);
 
   useEffect(() => {
-    if (!authSession) return undefined;
+    if (!canManage && (activeTab === 'students' || activeTab === 'events' || activeTab === 'members')) setActiveTab('dashboard');
+    if (!canOperate && (activeTab === 'scan' || activeTab === 'search')) setActiveTab('dashboard');
+  }, [role, activeTab, canManage, canOperate]);
 
-    const remainingTime = authSession.expiresAt - Date.now();
-    if (remainingTime <= 0) {
-      clearAuthSession();
-      setAuthSession(null);
-      return undefined;
-    }
+  const selectableTabs = useMemo(() => ({ canManage, canOperate }), [canManage, canOperate]);
 
-    const expirationTimer = window.setTimeout(() => {
-      clearAuthSession();
-      setAuthSession(null);
-    }, remainingTime);
+  const handleOrganizationChange = (organizationId) => {
+    const selected = organizations.find((item) => item.id === organizationId);
+    if (!selected || !authUser) return;
+    saveOrganizationId(authUser.uid, selected.id);
+    setOrganization(selected);
+  };
 
-    const handleStorage = (event) => {
-      if (event.key === AUTH_SESSION_KEY) {
-        setAuthSession(getActiveAuthSession());
-      }
-    };
-
-    window.addEventListener('storage', handleStorage);
-    return () => {
-      window.clearTimeout(expirationTimer);
-      window.removeEventListener('storage', handleStorage);
-    };
-  }, [authSession]);
-
-  const handleLogout = () => {
-    clearAuthSession();
-    setAuthSession(null);
+  const handleLogout = async () => {
+    await clearAuthSession();
     setCheckinStudent(null);
-    setPrintStudent(null);
     setShowPrinter(false);
     setShowSettings(false);
   };
 
-  // Handle door change
   const handleDoorChange = (newDoor) => {
     setCurrentDoorState(newDoor);
-    setCurrentDoor(newDoor);
+    setCurrentDoor(organization.id, newDoor);
   };
 
-  // Handle Event save
   const handleSaveEvent = async (updatedEvent) => {
-    const normalizedEvent = await updateEvent(updatedEvent);
-    setEvent(normalizedEvent);
-    return normalizedEvent;
+    const normalized = await updateEvent(organization.id, updatedEvent);
+    setEvent(normalized);
+    return normalized;
   };
 
   const handleEventChange = (eventOrId) => {
     const selectedId = typeof eventOrId === 'string' ? eventOrId : eventOrId?.id;
-    const selectedEvent = events.find((item) => item.id === selectedId && !item.archived);
-    if (!selectedEvent) return;
+    const selected = events.find((item) => item.id === selectedId && !item.archived);
+    if (!selected) return;
     setCheckinStudent(null);
     setPrintStudent(null);
     setShowPrinter(false);
     setStudents([]);
     setLogs([]);
-    setEvent(saveCurrentEvent(selectedEvent));
+    setEvent(saveCurrentEvent(organization.id, selected));
   };
 
   const handleCreateEvent = async (eventData, copyRoster) => {
-    const created = await createEvent(eventData, {
-      copyStudents: copyRoster,
-      sourceStudents: students
-    });
+    const created = await createEvent(organization.id, {
+      ...eventData,
+      institution: organization.name
+    }, { copyStudents: copyRoster, sourceStudents: students });
     setEvent(created);
     setStudents([]);
     setLogs([]);
@@ -173,183 +184,59 @@ export default function App() {
   };
 
   const handleArchiveEvent = async (eventId, archived) => {
-    if (eventId === event.id && archived) {
-      throw new Error('Selecciona otro evento antes de archivar el evento actual.');
-    }
-    return archiveEvent(eventId, archived);
+    if (eventId === event?.id && archived) throw new Error('Selecciona otro evento antes de archivar el evento actual.');
+    return archiveEvent(organization.id, eventId, archived);
   };
 
-  // Handle QR scan detection
   const handleScanResult = (decodedText) => {
-    // Look up student by code / ID or exact match
-    const student = students.find((s) => s.id === decodedText || s.id.toLowerCase() === decodedText.toLowerCase());
-
-    if (student) {
-      const capacity = getCapacityState(student);
-      if (capacity.isAccessBlocked) {
-        sounds.playWarning();
-        alert(capacity.isDisabled
-          ? 'Este estudiante está deshabilitado para el evento.'
-          : 'Este estudiante no está habilitado para el evento.');
-        return;
-      }
-      if (capacity.isFull) {
-        sounds.playWarning();
-      } else {
-        sounds.playSuccess();
-      }
-      setCheckinStudent(student);
-    } else {
+    const student = students.find((item) => item.id.toLowerCase() === decodedText.toLowerCase());
+    if (!student) {
       sounds.playWarning();
-      alert(`Código QR escaneado: "${decodedText}"\n\nNo se encontró ningún estudiante asociado a este código.`);
+      alert(`No se encontró ningún estudiante asociado al código “${decodedText}”.`);
+      return;
     }
+    const capacity = getCapacityState(student);
+    if (capacity.isAccessBlocked) {
+      sounds.playWarning();
+      alert(capacity.isDisabled ? 'Este estudiante está deshabilitado para el evento.' : 'Este estudiante no está habilitado para el evento.');
+      return;
+    }
+    capacity.isFull ? sounds.playWarning() : sounds.playSuccess();
+    setCheckinStudent(student);
   };
 
-  // Perform check-in
-  const handleConfirmCheckIn = async ({ studentId, count, doorName, extraPerson }) => {
-    const result = await registerCheckIn({
-      eventId: event.id,
-      studentId,
-      count,
-      doorName,
-      extraPerson
-    });
-    return result;
-  };
+  const handleConfirmCheckIn = ({ studentId, count, doorName, extraPerson }) => registerCheckIn({
+    organizationId: organization.id, eventId: event.id, studentId, count, doorName, extraPerson
+  });
 
-  // Open QR Card Printer
-  const handleOpenPrinter = (student = null) => {
-    setPrintStudent(student);
-    setShowPrinter(true);
-  };
-
-  if (!authSession) {
-    return (
-      <>
-        <LoginScreen
-          onLogin={setAuthSession}
-          students={students}
-          onGuardianQr={setGuardianStudent}
-        />
-        {guardianStudent && (
-          <QRCardPrinter
-            students={[guardianStudent]}
-            selectedStudent={guardianStudent}
-            event={event}
-            onClose={() => setGuardianStudent(null)}
-          />
-        )}
-      </>
-    );
-  }
+  if (!authReady) return <LoadingScreen />;
+  if (!authUser) return <LoginScreen />;
+  if (!organizationReady) return <LoadingScreen message="Cargando organizaciones…" />;
+  if (!organization) return <LoadingScreen message="Tu cuenta no tiene una organización activa." />;
+  if (!membership || !event) return <LoadingScreen message="Preparando el espacio de la escuela…" />;
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col selection:bg-sky-500 selection:text-white">
-      {/* Top Navigation */}
       <Navbar
-        activeTab={activeTab}
-        setActiveTab={setActiveTab}
-        event={event}
-        currentDoor={currentDoor}
-        onDoorChange={handleDoorChange}
-        events={events}
-        onEventChange={handleEventChange}
-        syncMode={syncMode}
-        onOpenSettings={() => setShowSettings(true)}
-        onLogout={handleLogout}
+        activeTab={activeTab} setActiveTab={setActiveTab} event={event}
+        currentDoor={currentDoor} onDoorChange={handleDoorChange} events={events}
+        onEventChange={handleEventChange} syncMode={syncMode}
+        onOpenSettings={() => canManage && setShowSettings(true)} onLogout={handleLogout}
+        organization={organization} organizations={organizations}
+        onOrganizationChange={handleOrganizationChange} role={role} permissions={selectableTabs}
       />
-
-      {/* Main Content Area */}
       <main className="flex-1 pb-16">
-        {activeTab === 'scan' && (
-          <ScannerModal
-            onScanResult={handleScanResult}
-            onSwitchToManualSearch={() => setActiveTab('search')}
-            currentDoor={currentDoor}
-          />
-        )}
-
-        {activeTab === 'search' && (
-          <ManualSearch
-            students={students}
-            onSelectStudent={(s) => setCheckinStudent(s)}
-            onViewQR={(s) => handleOpenPrinter(s)}
-          />
-        )}
-
-        {activeTab === 'dashboard' && (
-          <Dashboard
-            event={event}
-            students={students}
-            logs={logs}
-          />
-        )}
-
-        {activeTab === 'students' && (
-          <StudentsManager
-            students={students}
-            onSaveStudents={(updated) => saveStudentsList(event.id, updated)}
-            onSaveCapacities={(updates) => saveStudentCapacities(event.id, updates)}
-            onDeleteStudents={(studentIds) => deleteStudents(event.id, studentIds)}
-            onOpenCardPrinter={(s) => handleOpenPrinter(s)}
-            onSelectStudent={(s) => setCheckinStudent(s)}
-          />
-        )}
-
-        {activeTab === 'events' && (
-          <EventsManager
-            events={events}
-            currentEvent={event}
-            students={students}
-            onSelectEvent={handleEventChange}
-            onCreateEvent={handleCreateEvent}
-            onArchiveEvent={handleArchiveEvent}
-          />
-        )}
-
-        {activeTab === 'history' && (
-          <HistoryLog
-            logs={logs}
-            event={event}
-            students={students}
-            onDeleteLog={(log) => deleteLogEntry(event.id, log)}
-          />
-        )}
+        {activeTab === 'scan' && canOperate && <ScannerModal onScanResult={handleScanResult} onSwitchToManualSearch={() => setActiveTab('search')} currentDoor={currentDoor} />}
+        {activeTab === 'search' && canOperate && <ManualSearch students={students} onSelectStudent={setCheckinStudent} onViewQR={(student) => { setPrintStudent(student); setShowPrinter(true); }} />}
+        {activeTab === 'dashboard' && <Dashboard event={event} students={students} logs={logs} />}
+        {activeTab === 'students' && canManage && <StudentsManager students={students} onSaveStudents={(updated) => saveStudentsList(organization.id, event.id, updated)} onSaveCapacities={(updates) => saveStudentCapacities(organization.id, event.id, updates)} onDeleteStudents={(ids) => deleteStudents(organization.id, event.id, ids)} onOpenCardPrinter={(student) => { setPrintStudent(student); setShowPrinter(true); }} onSelectStudent={setCheckinStudent} />}
+        {activeTab === 'events' && canManage && <EventsManager events={events} currentEvent={event} students={students} onSelectEvent={handleEventChange} onCreateEvent={handleCreateEvent} onArchiveEvent={handleArchiveEvent} />}
+        {activeTab === 'members' && canManage && <MembersManager organization={organization} />}
+        {activeTab === 'history' && <HistoryLog logs={logs} event={event} students={students} onDeleteLog={canManage ? (log) => deleteLogEntry(organization.id, event.id, log) : undefined} />}
       </main>
-
-      {/* Check-in Action Modal */}
-      {checkinStudent && (
-        <CheckinPanel
-          student={students.find((student) => student.id === checkinStudent.id) || checkinStudent}
-          currentDoor={currentDoor}
-          onConfirmCheckIn={handleConfirmCheckIn}
-          onClose={() => setCheckinStudent(null)}
-        />
-      )}
-
-      {/* QR Cards Printable Modal */}
-      {showPrinter && (
-        <QRCardPrinter
-          students={students}
-          selectedStudent={printStudent}
-          event={event}
-          onClose={() => {
-            setShowPrinter(false);
-            setPrintStudent(null);
-          }}
-        />
-      )}
-
-      {/* Settings Modal */}
-      <SettingsModal
-        isOpen={showSettings}
-        onClose={() => setShowSettings(false)}
-        event={event}
-        onSaveEvent={handleSaveEvent}
-        currentDoor={currentDoor}
-        onDoorChange={handleDoorChange}
-        onResetData={() => resetEventData(event.id)}
-      />
+      {checkinStudent && canOperate && <CheckinPanel student={students.find((item) => item.id === checkinStudent.id) || checkinStudent} currentDoor={currentDoor} onConfirmCheckIn={handleConfirmCheckIn} onClose={() => setCheckinStudent(null)} />}
+      {showPrinter && <QRCardPrinter students={students} selectedStudent={printStudent} event={event} onClose={() => { setShowPrinter(false); setPrintStudent(null); }} />}
+      {canManage && <SettingsModal isOpen={showSettings} onClose={() => setShowSettings(false)} event={event} onSaveEvent={handleSaveEvent} currentDoor={currentDoor} onDoorChange={handleDoorChange} onResetData={() => resetEventData(organization.id, event.id)} />}
     </div>
   );
 }

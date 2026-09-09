@@ -79,12 +79,11 @@ test('ofrece un ZIP con un PDF individual por alumno y progreso visible', () => 
   assert.match(qrPrinter, /Comprimiendo ZIP/);
 });
 
-test('el login ofrece recuperación de QR para apoderados mediante RUT y curso', () => {
-  assert.match(loginScreen, />\s*Apoderados\s*</);
-  assert.match(loginScreen, /id="guardian-rut"/);
-  assert.match(loginScreen, /id="guardian-course"/);
-  assert.match(loginScreen, /findStudentForGuardian/);
-  assert.match(loginScreen, /Generar mi QR/);
+test('el login usa cuentas Firebase y permite registrar una escuela aislada', () => {
+  assert.match(loginScreen, />Nueva escuela</);
+  assert.match(loginScreen, /registerOrganization/);
+  assert.match(loginScreen, /Correo electrónico/);
+  assert.match(loginScreen, /Cada escuela mantiene sus usuarios, eventos y estudiantes separados/);
 });
 
 test('la nómina permite cambiar cupos globales, individuales y deshabilitar alumnos', () => {

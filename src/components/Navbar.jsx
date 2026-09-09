@@ -11,7 +11,9 @@ import {
   HardDrive,
   AlertTriangle,
   LogOut,
-  CalendarDays
+  CalendarDays,
+  Building2,
+  UserCog
 } from 'lucide-react';
 
 export default function Navbar({ 
@@ -24,7 +26,12 @@ export default function Navbar({
   onEventChange,
   syncMode, 
   onOpenSettings,
-  onLogout
+  onLogout,
+  organization,
+  organizations,
+  onOrganizationChange,
+  role,
+  permissions = {}
 }) {
   return (
     <header className="bg-white border-b border-slate-200 sticky top-0 z-40 shadow-sm no-print">
@@ -32,17 +39,13 @@ export default function Navbar({
         <div className="flex items-center justify-between h-16">
           {/* Brand Logo & Name */}
           <div className="flex items-center space-x-3">
-            <div className="w-11 h-11 rounded-xl bg-white border border-slate-200 flex items-center justify-center shadow-sm overflow-hidden">
-              <img
-                src="/logo-mundopalabra.png"
-                alt="Logo de MundoPalabra"
-                className="w-full h-full object-contain"
-              />
+            <div className="w-11 h-11 rounded-xl bg-sky-600 text-white border border-sky-500 flex items-center justify-center shadow-sm overflow-hidden">
+              <Building2 className="h-6 w-6" />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <span className="font-bold text-slate-900 tracking-tight text-lg">MundoPalabra</span>
-                <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-sky-100 text-sky-700">Acceso</span>
+                <span className="font-bold text-slate-900 tracking-tight text-lg">{organization?.name || 'Acceso Escolar'}</span>
+                <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-sky-100 text-sky-700">{role === 'admin' ? 'Administrador' : role === 'operator' ? 'Operador' : 'Consulta'}</span>
               </div>
               <p className="text-xs text-slate-500 truncate max-w-[180px] sm:max-w-xs font-medium">
                 {event?.name || 'Control de Asistencia'}
@@ -52,6 +55,11 @@ export default function Navbar({
 
           {/* Right Info: Door Selector & Cloud Status */}
           <div className="flex items-center space-x-2 sm:space-x-3">
+            {organizations?.length > 1 && (
+              <select aria-label="Organización actual" value={organization?.id || ''} onChange={(event) => onOrganizationChange(event.target.value)} className="hidden xl:block max-w-48 rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-bold text-slate-700">
+                {organizations.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+              </select>
+            )}
             <div className="hidden lg:flex items-center bg-sky-50 border border-sky-200 rounded-lg px-2.5 py-1 text-xs">
               <CalendarDays className="w-3.5 h-3.5 text-sky-600 mr-1.5" />
               <select
@@ -82,7 +90,7 @@ export default function Navbar({
             </div>
 
             {/* Sync status indicator */}
-            <button
+            {permissions.canManage && <button
               onClick={onOpenSettings}
               className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border transition-colors ${
                 syncMode === 'cloud'
@@ -117,16 +125,16 @@ export default function Navbar({
                   <span className="hidden md:inline">{syncMode === 'offline' ? 'Sin conexión' : 'Local'}</span>
                 </>
               )}
-            </button>
+            </button>}
 
             {/* Settings button */}
-            <button
+            {permissions.canManage && <button
               onClick={onOpenSettings}
               className="p-2 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-colors"
               title="Ajustes y Firebase"
             >
               <Settings className="w-5 h-5" />
-            </button>
+            </button>}
 
             <button
               onClick={onLogout}
@@ -170,7 +178,7 @@ export default function Navbar({
       {/* Main Tabs Navigation Bar */}
       <nav className="bg-slate-50 border-t border-slate-200 px-2 sm:px-6">
         <div className="max-w-7xl mx-auto flex space-x-1 sm:space-x-4 overflow-x-auto py-2 scrollbar-none">
-          <button
+          {permissions.canOperate && <button
             onClick={() => setActiveTab('scan')}
             className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-sm font-semibold whitespace-nowrap transition-all ${
               activeTab === 'scan'
@@ -180,9 +188,9 @@ export default function Navbar({
           >
             <QrCode className="w-4 h-4" />
             <span>Escanear QR</span>
-          </button>
+          </button>}
 
-          <button
+          {permissions.canOperate && <button
             onClick={() => setActiveTab('search')}
             className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-sm font-semibold whitespace-nowrap transition-all ${
               activeTab === 'search'
@@ -192,7 +200,7 @@ export default function Navbar({
           >
             <Search className="w-4 h-4" />
             <span>Buscar Estudiante</span>
-          </button>
+          </button>}
 
           <button
             onClick={() => setActiveTab('dashboard')}
@@ -206,7 +214,7 @@ export default function Navbar({
             <span>Panel en Vivo</span>
           </button>
 
-          <button
+          {permissions.canManage && <button
             onClick={() => setActiveTab('students')}
             className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-sm font-semibold whitespace-nowrap transition-all ${
               activeTab === 'students'
@@ -216,9 +224,9 @@ export default function Navbar({
           >
             <Users className="w-4 h-4" />
             <span>Estudiantes y Credenciales</span>
-          </button>
+          </button>}
 
-          <button
+          {permissions.canManage && <button
             onClick={() => setActiveTab('events')}
             className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-sm font-semibold whitespace-nowrap transition-all ${
               activeTab === 'events'
@@ -228,7 +236,15 @@ export default function Navbar({
           >
             <CalendarDays className="w-4 h-4" />
             <span>Eventos</span>
-          </button>
+          </button>}
+
+          {permissions.canManage && <button
+            onClick={() => setActiveTab('members')}
+            className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-sm font-semibold whitespace-nowrap transition-all ${activeTab === 'members' ? 'bg-sky-600 text-white shadow-sm shadow-sky-600/30' : 'text-slate-600 hover:bg-slate-200/70 hover:text-slate-900'}`}
+          >
+            <UserCog className="w-4 h-4" />
+            <span>Usuarios</span>
+          </button>}
 
           <button
             onClick={() => setActiveTab('history')}

@@ -47,7 +47,7 @@ export default function EventsManager({
       const created = await onCreateEvent({
         name: name.trim(),
         date,
-        institution: currentEvent?.institution || 'Colegio MundoPalabra',
+        institution: currentEvent?.institution || 'Institución educativa',
         defaultCapacity: Number(defaultCapacity),
         doors: currentEvent?.doors || ['Acceso Principal']
       }, copyRoster);

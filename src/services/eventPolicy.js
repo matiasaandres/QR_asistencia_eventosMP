@@ -14,7 +14,7 @@ export function normalizeEvent(eventData = {}, fallbackEvent = {}) {
     ...source,
     id: String(source.id || fallback.id || '').trim(),
     name: String(source.name || fallback.name || 'Evento sin nombre').trim(),
-    institution: String(source.institution || fallback.institution || 'Colegio MundoPalabra').trim(),
+    institution: String(source.institution || fallback.institution || 'Institución educativa').trim(),
     date: String(source.date || fallback.date || new Date().toISOString().slice(0, 10)).trim(),
     defaultCapacity: Math.min(50, Math.max(1, defaultCapacity || 5)),
     archived: source.archived === true,

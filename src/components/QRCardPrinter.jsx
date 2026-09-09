@@ -252,7 +252,7 @@ export default function QRCardPrinter({
                     MP
                   </div>
                   <div>
-                    <h3 className="font-extrabold text-sm text-slate-900 tracking-tight">MundoPalabra</h3>
+                    <h3 className="font-extrabold text-sm text-slate-900 tracking-tight">{event?.institution || 'Acceso Escolar'}</h3>
                     <p className="text-[10px] text-slate-500 font-medium">{event?.name || 'Control de Acceso'}</p>
                   </div>
                 </div>

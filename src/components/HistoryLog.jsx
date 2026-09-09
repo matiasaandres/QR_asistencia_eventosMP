@@ -23,6 +23,7 @@ export default function HistoryLog({
   const [deletingLogId, setDeletingLogId] = useState(null);
 
   const handleDeleteLog = async (log) => {
+    if (!onDeleteLog) return;
     const description = `${log.studentName || 'este estudiante'} · ${log.formattedTime || 'sin hora'}`;
     const count = Number(log.count) || 0;
     if (!window.confirm(`¿Remover el registro de ${description}?\n\nSe eliminará de la base de datos y se descontarán ${count} persona${count === 1 ? '' : 's'} del contador del alumno.`)) return;
@@ -162,7 +163,7 @@ export default function HistoryLog({
                       {log.doorName}
                     </td>
                     <td className="py-3 px-4 text-right">
-                      <button
+                      {onDeleteLog && <button
                         type="button"
                         onClick={() => handleDeleteLog(log)}
                         disabled={deletingLogId === log.id}
@@ -171,7 +172,7 @@ export default function HistoryLog({
                       >
                         <Trash2 className="h-3.5 w-3.5" />
                         <span>{deletingLogId === log.id ? 'Removiendo…' : 'Remover registro'}</span>
-                      </button>
+                      </button>}
                     </td>
                   </tr>
                 ))

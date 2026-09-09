@@ -16,6 +16,6 @@ test('bajar el cupo a cuatro conserva cinco ingresos y bloquea nuevos ingresos',
 test('la actualización de cupos escribe solo capacidad, sin contadores ni bitácora', () => {
   const source = readFileSync(new URL('../src/services/storage.js', import.meta.url), 'utf8');
   const update = source.split('export async function saveStudentCapacities')[1].split('export async function saveStudentsList')[0];
-  assert.match(update, /batch\.update\(doc\(db, 'events', eventId, 'students', id\), \{ maxCapacity \}\)/);
+  assert.match(update, /batch\.update\(eventStudentDoc\(db, organizationId, eventId, id\), \{ maxCapacity \}\)/);
   assert.doesNotMatch(update, /enteredCount|extraGuest|lastEntryAt|batch\.set/);
 });

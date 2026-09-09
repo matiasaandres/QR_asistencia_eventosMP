@@ -58,11 +58,11 @@ test('la interfaz permite crear, seleccionar y archivar eventos', async () => {
     readFile(new URL('../src/components/EventsManager.jsx', import.meta.url), 'utf8'),
     readFile(new URL('../src/services/storage.js', import.meta.url), 'utf8')
   ]);
-  assert.match(app, /subscribeToEvents/);
+  assert.match(app, /subscribeToEvents\(organizationId/);
   assert.match(navbar, /aria-label="Evento actual"/);
   assert.match(manager, /Crear un evento nuevo/);
   assert.match(manager, /Copiar la nómina actual/);
   assert.match(manager, /Archivar/);
   assert.match(storage, /export async function createEvent/);
-  assert.match(storage, /eventId === INITIAL_EVENT\.id \? INITIAL_STUDENTS : \[\]/);
+  assert.match(storage, /'organizations', organizationId, 'events'/);
 });

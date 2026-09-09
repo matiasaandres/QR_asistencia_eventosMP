@@ -30,7 +30,7 @@ export default class ErrorBoundary extends React.Component {
               <AlertTriangle className="w-8 h-8 shrink-0" />
               <div>
                 <h1 className="text-lg font-bold">Ocurrió un error al cargar la vista</h1>
-                <p className="text-xs text-slate-400">MundoPalabra Acceso</p>
+                <p className="text-xs text-slate-400">Acceso Escolar</p>
               </div>
             </div>
 

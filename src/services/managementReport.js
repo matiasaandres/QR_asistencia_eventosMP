@@ -246,7 +246,7 @@ export async function createManagementReportPdf({ event, students = [], logs = [
     font(8, false, muted); doc.text('Dirección y UTP | Informe de participación en el evento', 18, 286);
     doc.text(`${i} / ${pages}`, 192, 286, { align: 'right' });
   }
-  doc.setProperties({ title: `Informe de asistencia - ${safe(event?.name || 'Evento')}`, subject: 'Reporte de gestión para Dirección y UTP', author: 'MundoPalabra - Control de Acceso' });
+  doc.setProperties({ title: `Informe de asistencia - ${safe(event?.name || 'Evento')}`, subject: 'Reporte de gestión para Dirección y UTP', author: event?.institution || 'Acceso Escolar' });
   return doc;
 }
 

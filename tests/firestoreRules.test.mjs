@@ -4,60 +4,46 @@ import { readFile } from 'node:fs/promises';
 
 const rules = await readFile(new URL('../firestore.rules', import.meta.url), 'utf8');
 
-test('las reglas aíslan datos por eventos activos sin depender de un identificador fijo', () => {
-  assert.doesNotMatch(rules, /eventId == 'acto-cultural-2026'/);
-  assert.match(rules, /function eventIsOpen\(\)/);
-  assert.match(rules, /documents\/events\/\$\(eventId\)/);
-  assert.match(rules, /data\.archived == false/);
-  assert.match(rules, /allow create: if validEvent\(request\.resource\.data\)/);
-  assert.doesNotMatch(rules, /match \/\{document=\*\*\}/);
+test('aísla los datos por organización y exige membresía activa', () => {
+  assert.match(rules, /match \/organizations\/\{organizationId\}/);
+  assert.match(rules, /function isMember\(\)/);
+  assert.match(rules, /members\/\$\(request\.auth\.uid\)/);
+  assert.match(rules, /function canOperate\(\)/);
+  assert.doesNotMatch(rules, /allow read: if true/);
+  assert.doesNotMatch(rules, /match \/events\/\{eventId\}\/\{document=\*\*\}/);
 });
 
-test('el ingreso normal no puede superar la capacidad configurada', () => {
+test('permite crear la primera organización solamente a su propietario', () => {
+  assert.match(rules, /request\.resource\.data\.ownerUid == request\.auth\.uid/);
+  assert.match(rules, /request\.resource\.data\.memberUids\.size\(\) == 1/);
+  assert.match(rules, /data\.ownerUid in data\.memberUids/);
+});
+
+test('reserva eventos y nóminas para administradores', () => {
+  assert.match(rules, /allow create: if isAdmin\(\) && validEvent/);
+  assert.match(rules, /allow create: if isAdmin\(\)[\s\S]*eventWillBeOpen/);
+  assert.match(rules, /data\.role in \['admin', 'operator', 'viewer'\]/);
+});
+
+test('permite operar accesos sin superar el cupo normal', () => {
   assert.match(rules, /enteredCount <= resource\.data\.maxCapacity/);
-});
-
-test('el extra exige exactamente máximo más uno y datos identificatorios', () => {
-  assert.match(rules, /enteredCount == resource\.data\.maxCapacity \+ 1/);
-  assert.match(rules, /status == 'CUPO_EXTRA'/);
-  assert.match(rules, /extraGuest\.name\.size\(\) >= 2/);
-  assert.match(rules, /extraGuest\.relationship\.size\(\) >= 2/);
-  assert.match(rules, /!\('extraGuest' in resource\.data\)/);
-});
-
-test('la bitácora extraordinaria exige una persona, nombre y parentesco', () => {
-  assert.match(rules, /request\.resource\.data\.isExtra == true/);
-  assert.match(rules, /request\.resource\.data\.count == 1/);
-  assert.match(rules, /guestName\.size\(\) >= 2/);
-  assert.match(rules, /relationship\.size\(\) >= 2/);
-});
-
-test('el reinicio elimina el registro extraordinario además del contador', () => {
-  assert.match(rules, /request\.resource\.data\.enteredCount == 0/);
-  assert.match(rules, /!\('extraGuest' in request\.resource\.data\)/);
-});
-
-test('permite administrar cupos y deshabilitar sin cambiar identidad ni asistencia', () => {
-  assert.match(rules, /hasOnly\(\['maxCapacity', 'disabled', 'deleted', 'deletedAt'\]\)/);
-  assert.match(rules, /request\.resource\.data\.maxCapacity >= 1/);
-  assert.match(rules, /maxCapacity <= 50/);
   assert.match(rules, /resource\.data\.disabled == false/);
   assert.match(rules, /resource\.data\.deleted == false/);
 });
 
-test('la eliminación de nómina es recuperable y no permite borrar documentos', () => {
-  const studentsRules = rules.match(/match \/students\/\{studentId\} \{([\s\S]*?)match \/logs/)[1];
-  assert.doesNotMatch(studentsRules, /allow delete/);
-  assert.match(studentsRules, /'deleted', 'deletedAt'/);
+test('el cupo extraordinario exige identificación y máximo más uno', () => {
+  assert.match(rules, /enteredCount == resource\.data\.maxCapacity \+ 1/);
+  assert.match(rules, /status == 'CUPO_EXTRA'/);
+  assert.match(rules, /extraGuest\.name\.size\(\) >= 2/);
+  assert.match(rules, /extraGuest\.relationship\.size\(\) >= 2/);
 });
 
-test('permite eliminar registros individuales del historial', () => {
-  const logsRules = rules.match(/match \/logs\/\{logId\} \{([\s\S]*?)\n      \}/)[1];
-  assert.match(logsRules, /allow delete: if eventWillBeOpen\(\);/);
-});
-
-test('permite descontar del contador al remover un registro', () => {
+test('solo un administrador puede corregir historial y reiniciar asistencia', () => {
+  assert.match(rules, /isAdmin\(\)[\s\S]*enteredCount == 0/);
   assert.match(rules, /enteredCount >= resource\.data\.enteredCount - 5/);
-  assert.match(rules, /request\.resource\.data\.status == 'PARCIAL'/);
-  assert.match(rules, /request\.resource\.data\.extraGuest == resource\.data\.extraGuest/);
+  assert.match(rules, /allow delete: if isAdmin\(\) && eventWillBeOpen\(\)/);
+});
+
+test('no permite eliminar organizaciones, eventos ni estudiantes', () => {
+  assert.ok((rules.match(/allow delete: if false;/g) || []).length >= 3);
 });

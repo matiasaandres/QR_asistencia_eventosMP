@@ -56,6 +56,7 @@ export async function createStudentQrPdf({ student, event }) {
     compress: true
   });
   const eventName = event?.name || 'Control de Acceso';
+  const institutionName = event?.institution || 'Acceso Escolar';
   const qrDataUrl = await QRCode.toDataURL(String(student.id), {
     width: 700,
     margin: 2,
@@ -69,8 +70,8 @@ export async function createStudentQrPdf({ student, event }) {
   pdf.setProperties({
     title: `${student.name} - ${student.course}`,
     subject: `Código QR de acceso - ${eventName}`,
-    author: 'MundoPalabra',
-    creator: 'MundoPalabra Acceso'
+    author: institutionName,
+    creator: 'Acceso Escolar'
   });
 
   // Reproduce the on-screen credential as a centered printable card.
@@ -89,17 +90,17 @@ export async function createStudentQrPdf({ student, event }) {
   pdf.setLineWidth(0.7);
   pdf.roundedRect(cardX, cardY, cardWidth, cardHeight, 5, 5, 'FD');
 
-  // Header: MP mark, institution/event and course badge.
+  // Header: generic access mark, institution/event and course badge.
   pdf.setFillColor(2, 132, 199);
   pdf.roundedRect(contentLeft, cardY + 10, 14, 14, 2.5, 2.5, 'F');
   pdf.setTextColor(255, 255, 255);
   pdf.setFont('helvetica', 'bold');
   pdf.setFontSize(8.5);
-  pdf.text('MP', contentLeft + 7, cardY + 18.8, { align: 'center' });
+  pdf.text('QR', contentLeft + 7, cardY + 18.8, { align: 'center' });
 
   pdf.setTextColor(15, 23, 42);
   pdf.setFontSize(11.5);
-  pdf.text('MundoPalabra', contentLeft + 18, cardY + 15.5);
+  pdf.text(institutionName, contentLeft + 18, cardY + 15.5, { maxWidth: 79 });
   pdf.setFont('helvetica', 'normal');
   pdf.setFontSize(7.5);
   pdf.setTextColor(100, 116, 139);

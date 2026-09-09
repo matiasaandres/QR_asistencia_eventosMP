@@ -83,7 +83,7 @@ export function exportToExcel({ event, students, logs }) {
   XLSX.utils.book_append_sheet(wb, wsCourses, "Estadísticas por Curso");
 
   // Generate file name with event and date
-  const cleanEventName = (event?.name || 'MundoPalabra_Acceso').replace(/[^a-zA-Z0-9_-]/g, '_');
+  const cleanEventName = (event?.name || 'Acceso_Escolar').replace(/[^a-zA-Z0-9_-]/g, '_');
   const dateStr = new Date().toISOString().slice(0, 10);
   const fileName = `Reporte_${cleanEventName}_${dateStr}.xlsx`;
 

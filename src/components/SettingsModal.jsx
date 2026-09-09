@@ -28,7 +28,8 @@ export default function SettingsModal({
   onSaveEvent, 
   currentDoor, 
   onDoorChange, 
-  onResetData 
+  onResetData,
+  managedCloud = true
 }) {
   const [eventName, setEventName] = useState(event?.name || '');
   const [eventDate, setEventDate] = useState(event?.date || '');
@@ -150,8 +151,8 @@ export default function SettingsModal({
               <Settings className="w-5 h-5 text-sky-400" />
             </div>
             <div>
-              <h2 className="font-extrabold text-lg">Configuración de MundoPalabra Acceso</h2>
-              <p className="text-xs text-slate-400">Ajustes de evento, puerta y sincronización en la nube</p>
+              <h2 className="font-extrabold text-lg">Configuración del evento</h2>
+              <p className="text-xs text-slate-400">Ajustes de evento y puntos de acceso</p>
             </div>
           </div>
           <button
@@ -232,7 +233,7 @@ export default function SettingsModal({
           </form>
 
           {/* Section 2: Firebase Free Cloud Sync */}
-          <div className="space-y-3 bg-slate-50 border border-slate-200 p-4 rounded-2xl">
+          {!managedCloud && <div className="space-y-3 bg-slate-50 border border-slate-200 p-4 rounded-2xl">
             <div className="flex items-center justify-between">
               <h3 className="font-bold text-sm text-slate-900 flex items-center gap-2">
                 <Cloud className="w-4 h-4 text-emerald-600" />
@@ -306,7 +307,7 @@ export default function SettingsModal({
                 <span>Guardar y Conectar Firebase</span>
               </button>
             </div>
-          </div>
+          </div>}
 
           {/* Section 3: Data Reset */}
           <div className="space-y-2 border-t border-slate-200 pt-4">

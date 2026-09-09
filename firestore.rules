@@ -2,191 +2,283 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-    match /events/{eventId} {
-      function validEvent(data) {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function organizationAdmin(organizationId) {
+      return signedIn()
+        && exists(/databases/$(database)/documents/organizations/$(organizationId)/members/$(request.auth.uid))
+        && get(/databases/$(database)/documents/organizations/$(organizationId)/members/$(request.auth.uid)).data.status == 'active'
+        && get(/databases/$(database)/documents/organizations/$(organizationId)/members/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    match /organizations/{organizationId} {
+      function organizationActive() {
+        return exists(/databases/$(database)/documents/organizations/$(organizationId))
+          && get(/databases/$(database)/documents/organizations/$(organizationId)).data.status == 'active';
+      }
+
+      function isMember() {
+        return signedIn()
+          && organizationActive()
+          && exists(/databases/$(database)/documents/organizations/$(organizationId)/members/$(request.auth.uid))
+          && get(/databases/$(database)/documents/organizations/$(organizationId)/members/$(request.auth.uid)).data.status == 'active';
+      }
+
+      function roleIs(role) {
+        return isMember()
+          && get(/databases/$(database)/documents/organizations/$(organizationId)/members/$(request.auth.uid)).data.role == role;
+      }
+
+      function isAdmin() {
+        return roleIs('admin');
+      }
+
+      function canOperate() {
+        return isAdmin() || roleIs('operator');
+      }
+
+      function validOrganization(data) {
         return data.keys().hasOnly([
-            'id', 'name', 'institution', 'date', 'defaultCapacity', 'doors',
-            'archived', 'studentsInitialized', 'initializedAt', 'createdAt',
-            'updatedAt'
+            'id', 'slug', 'name', 'ownerUid', 'memberUids', 'plan', 'status',
+            'createdAt', 'updatedAt', 'logoUrl', 'primaryColor'
           ])
+          && data.id == organizationId
+          && data.slug == organizationId
           && data.name is string
           && data.name.size() >= 2
-          && data.name.size() <= 120
-          && data.institution is string
-          && data.date is string
-          && data.defaultCapacity is int
-          && data.defaultCapacity >= 1
-          && data.defaultCapacity <= 50
-          && data.doors is list
-          && data.doors.size() >= 1
-          && data.doors.size() <= 20
-          && data.archived is bool
-          && data.studentsInitialized == true;
+          && data.name.size() <= 100
+          && data.ownerUid is string
+          && data.memberUids is list
+          && data.memberUids.size() >= 1
+          && data.memberUids.size() <= 100
+          && data.ownerUid in data.memberUids
+          && data.plan in ['pilot', 'event', 'monthly', 'annual']
+          && data.status in ['active', 'suspended'];
       }
 
-      function eventIsOpen() {
-        return exists(/databases/$(database)/documents/events/$(eventId))
-          && (
-            !('archived' in get(/databases/$(database)/documents/events/$(eventId)).data)
-            || get(/databases/$(database)/documents/events/$(eventId)).data.archived == false
-          );
-      }
+      allow list, get: if signedIn() && request.auth.uid in resource.data.memberUids;
+      allow create: if signedIn()
+        && validOrganization(request.resource.data)
+        && request.resource.data.ownerUid == request.auth.uid
+        && request.resource.data.memberUids.size() == 1;
+      allow update: if validOrganization(request.resource.data) && (
+        (isAdmin()
+          && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['name', 'logoUrl', 'primaryColor', 'updatedAt']))
+        || (signedIn()
+          && !(request.auth.uid in resource.data.memberUids)
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['memberUids', 'updatedAt'])
+          && request.resource.data.memberUids == resource.data.memberUids.concat([request.auth.uid])
+          && getAfter(/databases/$(database)/documents/organizations/$(organizationId)/members/$(request.auth.uid)).data.invitationCode is string
+          && get(/databases/$(database)/documents/organizationInvitations/$(getAfter(/databases/$(database)/documents/organizations/$(organizationId)/members/$(request.auth.uid)).data.invitationCode)).data.organizationId == organizationId
+          && get(/databases/$(database)/documents/organizationInvitations/$(getAfter(/databases/$(database)/documents/organizations/$(organizationId)/members/$(request.auth.uid)).data.invitationCode)).data.email == request.auth.token.email)
+      );
+      allow delete: if false;
 
-      function eventWillBeOpen() {
-        return existsAfter(/databases/$(database)/documents/events/$(eventId))
-          && (
-            !('archived' in getAfter(/databases/$(database)/documents/events/$(eventId)).data)
-            || getAfter(/databases/$(database)/documents/events/$(eventId)).data.archived == false
-          );
-      }
+      match /members/{userId} {
+        function validMember(data) {
+          return data.keys().hasOnly([
+              'userId', 'email', 'displayName', 'role', 'status', 'createdAt', 'updatedAt',
+              'invitationCode'
+            ])
+            && data.userId == userId
+            && data.email is string
+            && data.role in ['admin', 'operator', 'viewer']
+            && data.status in ['active', 'disabled'];
+        }
 
-      // Event metadata powers the event selector. Attendance remains isolated
-      // in each event's protected students and logs subcollections.
-      allow read: if true;
-      allow create: if validEvent(request.resource.data);
-      allow update: if request.resource.data.diff(resource.data).affectedKeys()
-          .hasOnly([
-            'name', 'institution', 'date', 'defaultCapacity', 'doors',
-            'archived', 'studentsInitialized', 'initializedAt', 'createdAt',
-            'updatedAt'
-          ])
-        && validEvent(request.resource.data);
-
-      match /students/{studentId} {
-        allow read: if eventIsOpen();
-        allow create: if eventWillBeOpen()
-          && request.resource.data.enteredCount is int
-          && request.resource.data.maxCapacity is int
-          && request.resource.data.enteredCount == 0
-          && request.resource.data.maxCapacity >= 0;
-        allow update: if eventWillBeOpen()
-          && (
-            // One-time roster migration: add a missing RUT without changing
-            // attendance or any other student field.
-            (
-              request.resource.data.diff(resource.data).affectedKeys().hasOnly(['rut'])
-              && !('rut' in resource.data)
-              && request.resource.data.rut is string
-              && request.resource.data.rut.matches('^[0-9.]+-[0-9Kk]$')
-            )
-            // Roster administration: enable/disable students or change their
-            // capacity without rewriting attendance or identity fields.
-            || (
-              request.resource.data.diff(resource.data).affectedKeys()
-                .hasOnly(['maxCapacity', 'disabled', 'deleted', 'deletedAt'])
-              && request.resource.data.maxCapacity is int
-              && (
-                request.resource.data.maxCapacity == resource.data.maxCapacity
-                || request.resource.data.maxCapacity >= 1
-              )
-              && request.resource.data.maxCapacity <= 50
-              && (
-                !('disabled' in request.resource.data)
-                || request.resource.data.disabled is bool
-              )
-              && (
-                !('deleted' in request.resource.data)
-                || request.resource.data.deleted is bool
-              )
-              && (
-                !('deletedAt' in request.resource.data)
-                || request.resource.data.deletedAt is string
-              )
-              && (
-                resource.data.status != 'RETIRADO'
-                || request.resource.data.maxCapacity == resource.data.maxCapacity
-              )
-            )
-            || (
-          request.resource.data.diff(resource.data).affectedKeys()
-            .hasOnly(['enteredCount', 'status', 'lastEntryAt', 'extraGuest'])
-          && request.resource.data.enteredCount is int
-          && (
-            // Normal admission, never above the configured family capacity.
-            (
-              (!('disabled' in resource.data) || resource.data.disabled == false)
-              && (!('deleted' in resource.data) || resource.data.deleted == false)
-              && request.resource.data.enteredCount >= resource.data.enteredCount
-              && request.resource.data.enteredCount <= resource.data.maxCapacity
-            )
-            // One identified extraordinary guest after the normal capacity is full.
-            || (
-              (!('disabled' in resource.data) || resource.data.disabled == false)
-              && (!('deleted' in resource.data) || resource.data.deleted == false)
-              && resource.data.maxCapacity is int
-              && resource.data.maxCapacity > 0
-              && resource.data.enteredCount == resource.data.maxCapacity
-              && !('extraGuest' in resource.data)
-              && request.resource.data.enteredCount == resource.data.maxCapacity + 1
-              && request.resource.data.status == 'CUPO_EXTRA'
-              && request.resource.data.extraGuest is map
-              && request.resource.data.extraGuest.keys()
-                .hasOnly(['name', 'relationship', 'addedAt', 'doorName'])
-              && request.resource.data.extraGuest.name is string
-              && request.resource.data.extraGuest.name.size() >= 2
-              && request.resource.data.extraGuest.name.size() <= 80
-              && request.resource.data.extraGuest.relationship is string
-              && request.resource.data.extraGuest.relationship.size() >= 2
-              && request.resource.data.extraGuest.relationship.size() <= 40
-              && request.resource.data.extraGuest.addedAt is string
-              && request.resource.data.extraGuest.doorName is string
-            )
-            // Attendance reset, including removal of an extraordinary guest.
-            || (
-              resource.data.maxCapacity > 0
-              && request.resource.data.enteredCount == 0
-              && request.resource.data.status == 'PENDIENTE'
-              && !('lastEntryAt' in request.resource.data)
-              && !('extraGuest' in request.resource.data)
-            )
-            // Manual history correction: subtract one removed log (maximum 5
-            // people) and keep the student's status consistent.
-            || (
-              request.resource.data.enteredCount >= 0
-              && request.resource.data.enteredCount < resource.data.enteredCount
-              && request.resource.data.enteredCount >= resource.data.enteredCount - 5
-              && (
-                (request.resource.data.enteredCount == 0
-                  && request.resource.data.status == 'PENDIENTE')
-                || (request.resource.data.enteredCount > 0
-                  && request.resource.data.enteredCount < resource.data.maxCapacity
-                  && request.resource.data.status == 'PARCIAL')
-                || (request.resource.data.enteredCount == resource.data.maxCapacity
-                  && request.resource.data.status == 'COMPLETO')
-              )
-              && (
-                !('extraGuest' in resource.data)
-                || !('extraGuest' in request.resource.data)
-                || request.resource.data.extraGuest == resource.data.extraGuest
-              )
-            )
+        allow read: if isMember();
+        allow create: if validMember(request.resource.data) && (
+          isAdmin()
+          || (
+            signedIn()
+            && userId == request.auth.uid
+            && getAfter(/databases/$(database)/documents/organizations/$(organizationId)).data.ownerUid == request.auth.uid
           )
-            )
-          );
+          || (
+            signedIn()
+            && userId == request.auth.uid
+            && request.resource.data.invitationCode is string
+            && get(/databases/$(database)/documents/organizationInvitations/$(request.resource.data.invitationCode)).data.organizationId == organizationId
+            && get(/databases/$(database)/documents/organizationInvitations/$(request.resource.data.invitationCode)).data.email == request.auth.token.email
+            && get(/databases/$(database)/documents/organizationInvitations/$(request.resource.data.invitationCode)).data.role == request.resource.data.role
+            && get(/databases/$(database)/documents/organizationInvitations/$(request.resource.data.invitationCode)).data.status == 'active'
+            && get(/databases/$(database)/documents/organizationInvitations/$(request.resource.data.invitationCode)).data.expiresAt > request.time
+          )
+        );
+        allow update: if isAdmin()
+          && validMember(request.resource.data)
+          && (userId != request.auth.uid || request.resource.data.role == 'admin');
+        allow delete: if isAdmin() && userId != resource.data.userId;
       }
 
-      match /logs/{logId} {
-        allow read: if eventIsOpen();
-        allow create: if eventWillBeOpen()
-          && request.resource.data.count is int
-          && request.resource.data.count >= 1
-          && request.resource.data.count <= 5
-          && (
-            !('isExtra' in request.resource.data)
-            || request.resource.data.isExtra == false
+      match /events/{eventId} {
+        function validEvent(data) {
+          return data.keys().hasOnly([
+              'id', 'name', 'institution', 'date', 'defaultCapacity', 'doors',
+              'archived', 'studentsInitialized', 'initializedAt', 'createdAt', 'updatedAt'
+            ])
+            && data.id == eventId
+            && data.name is string
+            && data.name.size() >= 2
+            && data.name.size() <= 120
+            && data.institution is string
+            && data.date is string
+            && data.defaultCapacity is int
+            && data.defaultCapacity >= 1
+            && data.defaultCapacity <= 50
+            && data.doors is list
+            && data.doors.size() >= 1
+            && data.doors.size() <= 20
+            && data.archived is bool
+            && data.studentsInitialized == true;
+        }
+
+        function eventIsOpen() {
+          return isMember() && (!('archived' in resource.data) || resource.data.archived == false);
+        }
+
+        function eventWillBeOpen() {
+          return canOperate()
+            && existsAfter(/databases/$(database)/documents/organizations/$(organizationId)/events/$(eventId))
+            && getAfter(/databases/$(database)/documents/organizations/$(organizationId)/events/$(eventId)).data.archived == false;
+        }
+
+        allow read: if isMember();
+        allow create: if isAdmin() && validEvent(request.resource.data);
+        allow update: if isAdmin()
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+              'name', 'institution', 'date', 'defaultCapacity', 'doors', 'archived',
+              'studentsInitialized', 'initializedAt', 'createdAt', 'updatedAt'
+            ])
+          && validEvent(request.resource.data);
+        allow delete: if false;
+
+        match /students/{studentId} {
+          allow read: if isMember();
+          allow create: if isAdmin()
+            && eventWillBeOpen()
+            && request.resource.data.enteredCount is int
+            && request.resource.data.maxCapacity is int
+            && request.resource.data.enteredCount >= 0
+            && request.resource.data.maxCapacity >= 0
+            && request.resource.data.enteredCount <= request.resource.data.maxCapacity + 1;
+          allow update: if eventWillBeOpen() && (
+            (isAdmin()
+              && request.resource.data.diff(resource.data).affectedKeys()
+                .hasOnly(['rut', 'name', 'rawName', 'course', 'maxCapacity', 'disabled', 'deleted', 'deletedAt'])
+              && request.resource.data.maxCapacity is int
+              && request.resource.data.maxCapacity >= 0
+              && request.resource.data.maxCapacity <= 50)
             || (
-              request.resource.data.isExtra == true
-              && request.resource.data.count == 1
-              && request.resource.data.guestName is string
-              && request.resource.data.guestName.size() >= 2
-              && request.resource.data.guestName.size() <= 80
-              && request.resource.data.relationship is string
-              && request.resource.data.relationship.size() >= 2
-              && request.resource.data.relationship.size() <= 40
+              canOperate()
+              && request.resource.data.diff(resource.data).affectedKeys()
+                .hasOnly(['enteredCount', 'status', 'lastEntryAt', 'extraGuest'])
+              && request.resource.data.enteredCount is int
+              && (!('disabled' in resource.data) || resource.data.disabled == false)
+              && (!('deleted' in resource.data) || resource.data.deleted == false)
+              && (
+                (request.resource.data.enteredCount >= resource.data.enteredCount
+                  && request.resource.data.enteredCount <= resource.data.maxCapacity)
+                || (
+                  resource.data.maxCapacity > 0
+                  && resource.data.enteredCount == resource.data.maxCapacity
+                  && !('extraGuest' in resource.data)
+                  && request.resource.data.enteredCount == resource.data.maxCapacity + 1
+                  && request.resource.data.status == 'CUPO_EXTRA'
+                  && request.resource.data.extraGuest is map
+                  && request.resource.data.extraGuest.keys().hasOnly(['name', 'relationship', 'addedAt', 'doorName'])
+                  && request.resource.data.extraGuest.name is string
+                  && request.resource.data.extraGuest.name.size() >= 2
+                  && request.resource.data.extraGuest.name.size() <= 80
+                  && request.resource.data.extraGuest.relationship is string
+                  && request.resource.data.extraGuest.relationship.size() >= 2
+                  && request.resource.data.extraGuest.relationship.size() <= 40
+                )
+                || (isAdmin()
+                  && request.resource.data.enteredCount == 0
+                  && request.resource.data.status == 'PENDIENTE'
+                  && !('lastEntryAt' in request.resource.data)
+                  && !('extraGuest' in request.resource.data))
+                || (isAdmin()
+                  && request.resource.data.enteredCount >= 0
+                  && request.resource.data.enteredCount < resource.data.enteredCount
+                  && request.resource.data.enteredCount >= resource.data.enteredCount - 5)
+              )
             )
           );
-        allow delete: if eventWillBeOpen();
+          allow delete: if false;
+        }
+
+        match /logs/{logId} {
+          allow read: if isMember();
+          allow create: if eventWillBeOpen()
+            && request.resource.data.operatorUid == request.auth.uid
+            && request.resource.data.operatorEmail == request.auth.token.email
+            && request.resource.data.count is int
+            && request.resource.data.count >= 1
+            && request.resource.data.count <= 5
+            && (!('isExtra' in request.resource.data)
+              || request.resource.data.isExtra == false
+              || (request.resource.data.isExtra == true
+                && request.resource.data.count == 1
+                && request.resource.data.guestName is string
+                && request.resource.data.guestName.size() >= 2
+                && request.resource.data.guestName.size() <= 80
+                && request.resource.data.relationship is string
+                && request.resource.data.relationship.size() >= 2
+                && request.resource.data.relationship.size() <= 40));
+          allow update: if false;
+          allow delete: if isAdmin() && eventWillBeOpen();
+        }
       }
+    }
+
+    match /organizationInvitations/{invitationCode} {
+      function validInvitation(data) {
+        return data.keys().hasOnly([
+            'code', 'organizationId', 'organizationName', 'email', 'role', 'status',
+            'createdAt', 'expiresAt', 'usedAt', 'usedBy'
+          ])
+          && data.code == invitationCode
+          && data.organizationId is string
+          && data.organizationName is string
+          && data.email is string
+          && data.role in ['admin', 'operator', 'viewer']
+          && data.status in ['active', 'used', 'cancelled']
+          && data.expiresAt is timestamp;
+      }
+
+      allow list: if false;
+      allow get: if signedIn() && (
+        organizationAdmin(resource.data.organizationId)
+        || (resource.data.status == 'active'
+          && resource.data.expiresAt > request.time
+          && resource.data.email == request.auth.token.email)
+      );
+      allow create: if validInvitation(request.resource.data)
+        && request.resource.data.status == 'active'
+        && organizationAdmin(request.resource.data.organizationId);
+      allow update: if validInvitation(request.resource.data) && (
+        organizationAdmin(resource.data.organizationId)
+        || (signedIn()
+          && resource.data.status == 'active'
+          && resource.data.expiresAt > request.time
+          && resource.data.email == request.auth.token.email
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'usedAt', 'usedBy'])
+          && request.resource.data.status == 'used'
+          && request.resource.data.usedBy == request.auth.uid)
+      );
+      allow delete: if false;
+    }
+
+    // Compatibilidad de migración: solo administradores autenticados de la
+    // organización reservada de Mundo Palabra pueden leer la estructura 1.2.
+    match /events/{eventId}/{legacyDocument=**} {
+      allow read: if organizationAdmin('colegio-mundopalabra');
+      allow write: if false;
     }
   }
 }

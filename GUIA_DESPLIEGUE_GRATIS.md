@@ -62,7 +62,7 @@ Para que dos o más celulares en puertas diferentes trabajen sobre la misma base
 3. En el menú izquierdo, ve a **Compilación > Firestore Database**:
    * Presiona **Crear base de datos**.
    * Ubicación: Elige `nam5 (us-central)` o la más cercana.
-   * Reglas de seguridad: Selecciona **Modo de prueba** (permite lectura y escritura inmediata para el evento).
+   * Reglas de seguridad: selecciona **Modo de producción** y publica el archivo `firestore.rules` incluido en este proyecto.
 4. En el panel principal del proyecto, presiona el icono de Web **`</>`** para registrar una aplicación web:
    * Ponle de nombre `MundoPalabra Web`.
    * Copia el objeto `firebaseConfig` que aparece en pantalla:
@@ -80,6 +80,21 @@ Para que dos o más celulares en puertas diferentes trabajen sobre la misma base
    * Pega este código en el cuadro de Firebase.
    * Presiona **"Guardar y Conectar Firebase"**.
 6. ¡Listo! La barra superior cambiará a **"En vivo (Cloud)"** y todos los dispositivos conectados compartirán la misma base de datos en tiempo real.
+
+### Gestionar varios eventos
+
+1. Inicia sesión como personal y abre la pestaña **Eventos**.
+2. Ingresa nombre, fecha y cupo inicial.
+3. Decide si deseas copiar la nómina del evento actual. Al copiarla se conservan alumnos, cursos y cupos, pero toda la asistencia comienza en cero.
+4. Usa **Crear y seleccionar** para comenzar a trabajar en el evento nuevo.
+5. Cambia de evento desde el selector superior. Cada evento mantiene una nómina, una bitácora y estadísticas independientes.
+6. Los eventos antiguos se pueden archivar sin eliminar sus datos y reactivar más adelante.
+
+Después de actualizar la aplicación, publica también las reglas compatibles con múltiples eventos:
+
+```bash
+firebase deploy --only firestore:rules --project mundopalabra-acceso
+```
 
 ---
 

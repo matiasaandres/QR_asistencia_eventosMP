@@ -31,6 +31,7 @@ export default function SettingsModal({
   onResetData 
 }) {
   const [eventName, setEventName] = useState(event?.name || '');
+  const [eventDate, setEventDate] = useState(event?.date || '');
   const [defaultCap, setDefaultCap] = useState(event?.defaultCapacity || 5);
   const [doorName, setDoorName] = useState(currentDoor);
   const [doorsListStr, setDoorsListStr] = useState((event?.doors || []).join(', '));
@@ -39,10 +40,12 @@ export default function SettingsModal({
   const [firebaseJson, setFirebaseJson] = useState('');
   const [fbStatus, setFbStatus] = useState(null);
   const [isResetting, setIsResetting] = useState(false);
+  const [isSavingGeneral, setIsSavingGeneral] = useState(false);
 
   useEffect(() => {
     if (isOpen) {
       setEventName(event?.name || '');
+      setEventDate(event?.date || '');
       setDefaultCap(event?.defaultCapacity || 5);
       setDoorName(currentDoor);
       setDoorsListStr((event?.doors || []).join(', '));
@@ -60,7 +63,7 @@ export default function SettingsModal({
 
   if (!isOpen) return null;
 
-  const handleSaveGeneral = (e) => {
+  const handleSaveGeneral = async (e) => {
     e.preventDefault();
     const updatedDoors = doorsListStr
       .split(',')
@@ -70,13 +73,21 @@ export default function SettingsModal({
     const updatedEvent = {
       ...event,
       name: eventName.trim() || 'Acto Cultural',
+      date: eventDate,
       defaultCapacity: Number(defaultCap) || 5,
       doors: updatedDoors.length > 0 ? updatedDoors : ['Acceso Principal']
     };
 
-    onSaveEvent(updatedEvent);
-    onDoorChange(doorName);
-    alert("¡Configuración general guardada exitosamente!");
+    setIsSavingGeneral(true);
+    try {
+      await onSaveEvent(updatedEvent);
+      onDoorChange(updatedDoors.includes(doorName) ? doorName : updatedDoors[0] || 'Acceso Principal');
+      alert("¡Configuración general guardada exitosamente!");
+    } catch (error) {
+      alert(`No fue posible guardar el evento: ${error.message}`);
+    } finally {
+      setIsSavingGeneral(false);
+    }
   };
 
   const handleSaveFirebase = () => {
@@ -160,7 +171,7 @@ export default function SettingsModal({
               Datos del Evento
             </h3>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div>
                 <label className="font-bold text-slate-700 block mb-1">Nombre del Evento:</label>
                 <input
@@ -172,11 +183,22 @@ export default function SettingsModal({
               </div>
 
               <div>
+                <label className="font-bold text-slate-700 block mb-1">Fecha:</label>
+                <input
+                  type="date"
+                  required
+                  value={eventDate}
+                  onChange={(e) => setEventDate(e.target.value)}
+                  className="w-full p-2.5 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-sky-500 font-semibold text-slate-800"
+                />
+              </div>
+
+              <div>
                 <label className="font-bold text-slate-700 block mb-1">Cupo Máximo por Alumno:</label>
                 <input
                   type="number"
                   min="1"
-                  max="15"
+                  max="50"
                   value={defaultCap}
                   onChange={(e) => setDefaultCap(e.target.value)}
                   className="w-full p-2.5 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-sky-500 font-semibold text-slate-800"
@@ -200,10 +222,11 @@ export default function SettingsModal({
             <div className="pt-1 flex justify-end">
               <button
                 type="submit"
+                disabled={isSavingGeneral}
                 className="px-4 py-2 bg-sky-600 hover:bg-sky-500 text-white font-bold rounded-xl shadow-sm transition-colors flex items-center gap-1.5"
               >
                 <Save className="w-3.5 h-3.5" />
-                <span>Guardar Ajustes de Evento</span>
+                <span>{isSavingGeneral ? 'Guardando…' : 'Guardar Ajustes de Evento'}</span>
               </button>
             </div>
           </form>

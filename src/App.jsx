@@ -9,6 +9,7 @@ import HistoryLog from './components/HistoryLog';
 import QRCardPrinter from './components/QRCardPrinter';
 import SettingsModal from './components/SettingsModal';
 import LoginScreen from './components/LoginScreen';
+import EventsManager from './components/EventsManager';
 import { sounds } from './services/sound';
 import {
   AUTH_SESSION_KEY,
@@ -19,6 +20,10 @@ import { getCapacityState } from './services/checkinPolicy';
 import { 
   getCurrentEvent, 
   saveCurrentEvent, 
+  subscribeToEvents,
+  createEvent,
+  updateEvent,
+  archiveEvent,
   getCurrentDoor, 
   setCurrentDoor, 
   subscribeToStudents, 
@@ -35,6 +40,7 @@ export default function App() {
   const [authSession, setAuthSession] = useState(getActiveAuthSession);
   const [activeTab, setActiveTab] = useState('dashboard');
   const [event, setEvent] = useState(getCurrentEvent());
+  const [events, setEvents] = useState(() => [getCurrentEvent()]);
   const [currentDoor, setCurrentDoorState] = useState(getCurrentDoor());
   const [students, setStudents] = useState([]);
   const [logs, setLogs] = useState([]);
@@ -46,6 +52,23 @@ export default function App() {
   const [showPrinter, setShowPrinter] = useState(false);
   const [guardianStudent, setGuardianStudent] = useState(null);
   const [showSettings, setShowSettings] = useState(false);
+
+  useEffect(() => {
+    const unsubscribe = subscribeToEvents((nextEvents, mode) => {
+      setEvents(nextEvents);
+      if (mode) setSyncMode(mode);
+      setEvent((currentEvent) => {
+        const refreshed = nextEvents.find((item) => item.id === currentEvent.id);
+        if (refreshed && !refreshed.archived) {
+          saveCurrentEvent(refreshed);
+          return refreshed;
+        }
+        const fallback = nextEvents.find((item) => !item.archived);
+        return fallback ? saveCurrentEvent(fallback) : currentEvent;
+      });
+    });
+    return () => unsubscribe?.();
+  }, []);
 
   // The roster is also needed on the public login screen so guardians can
   // recover an existing QR. Attendance logs remain staff-only in the UI.
@@ -120,9 +143,40 @@ export default function App() {
   };
 
   // Handle Event save
-  const handleSaveEvent = (updatedEvent) => {
-    const normalizedEvent = saveCurrentEvent(updatedEvent);
+  const handleSaveEvent = async (updatedEvent) => {
+    const normalizedEvent = await updateEvent(updatedEvent);
     setEvent(normalizedEvent);
+    return normalizedEvent;
+  };
+
+  const handleEventChange = (eventOrId) => {
+    const selectedId = typeof eventOrId === 'string' ? eventOrId : eventOrId?.id;
+    const selectedEvent = events.find((item) => item.id === selectedId && !item.archived);
+    if (!selectedEvent) return;
+    setCheckinStudent(null);
+    setPrintStudent(null);
+    setShowPrinter(false);
+    setStudents([]);
+    setLogs([]);
+    setEvent(saveCurrentEvent(selectedEvent));
+  };
+
+  const handleCreateEvent = async (eventData, copyRoster) => {
+    const created = await createEvent(eventData, {
+      copyStudents: copyRoster,
+      sourceStudents: students
+    });
+    setEvent(created);
+    setStudents([]);
+    setLogs([]);
+    return created;
+  };
+
+  const handleArchiveEvent = async (eventId, archived) => {
+    if (eventId === event.id && archived) {
+      throw new Error('Selecciona otro evento antes de archivar el evento actual.');
+    }
+    return archiveEvent(eventId, archived);
   };
 
   // Handle QR scan detection
@@ -198,6 +252,8 @@ export default function App() {
         event={event}
         currentDoor={currentDoor}
         onDoorChange={handleDoorChange}
+        events={events}
+        onEventChange={handleEventChange}
         syncMode={syncMode}
         onOpenSettings={() => setShowSettings(true)}
         onLogout={handleLogout}
@@ -237,6 +293,17 @@ export default function App() {
             onDeleteStudents={(studentIds) => deleteStudents(event.id, studentIds)}
             onOpenCardPrinter={(s) => handleOpenPrinter(s)}
             onSelectStudent={(s) => setCheckinStudent(s)}
+          />
+        )}
+
+        {activeTab === 'events' && (
+          <EventsManager
+            events={events}
+            currentEvent={event}
+            students={students}
+            onSelectEvent={handleEventChange}
+            onCreateEvent={handleCreateEvent}
+            onArchiveEvent={handleArchiveEvent}
           />
         )}
 

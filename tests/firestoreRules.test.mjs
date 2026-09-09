@@ -4,9 +4,12 @@ import { readFile } from 'node:fs/promises';
 
 const rules = await readFile(new URL('../firestore.rules', import.meta.url), 'utf8');
 
-test('las reglas limitan el acceso al evento y a una fecha de cierre', () => {
-  assert.match(rules, /eventId == 'acto-cultural-2026'/);
-  assert.match(rules, /request\.time < timestamp\.date\(2026, 10, 1\)/);
+test('las reglas aíslan datos por eventos activos sin depender de un identificador fijo', () => {
+  assert.doesNotMatch(rules, /eventId == 'acto-cultural-2026'/);
+  assert.match(rules, /function eventIsOpen\(\)/);
+  assert.match(rules, /documents\/events\/\$\(eventId\)/);
+  assert.match(rules, /data\.archived == false/);
+  assert.match(rules, /allow create: if validEvent\(request\.resource\.data\)/);
   assert.doesNotMatch(rules, /match \/\{document=\*\*\}/);
 });
 
@@ -50,7 +53,7 @@ test('la eliminación de nómina es recuperable y no permite borrar documentos',
 
 test('permite eliminar registros individuales del historial', () => {
   const logsRules = rules.match(/match \/logs\/\{logId\} \{([\s\S]*?)\n      \}/)[1];
-  assert.match(logsRules, /allow delete: if eventIsOpen\(\);/);
+  assert.match(logsRules, /allow delete: if eventWillBeOpen\(\);/);
 });
 
 test('permite descontar del contador al remover un registro', () => {

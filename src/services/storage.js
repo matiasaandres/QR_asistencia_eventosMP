@@ -2,11 +2,15 @@ import { initFirebase } from './firebase';
 import { INITIAL_STUDENTS, INITIAL_EVENT } from '../mock/sampleStudents';
 import {
   createCheckInPlan,
-  ensureRequiredDoors,
   getCapacityState,
   normalizeExtraPerson,
   resetStudentAttendance
 } from './checkinPolicy';
+import {
+  createEventId,
+  normalizeEvent,
+  prepareStudentsForEvent
+} from './eventPolicy';
 import {
   collection,
   doc,
@@ -23,6 +27,7 @@ import {
 const LOCAL_STORAGE_KEY_STUDENTS = 'mp_students_data_';
 const LOCAL_STORAGE_KEY_LOGS = 'mp_logs_data_';
 const LOCAL_STORAGE_KEY_EVENT = 'mp_current_event';
+const LOCAL_STORAGE_KEY_EVENTS = 'mp_events_catalog';
 const LOCAL_STORAGE_KEY_DOOR = 'mp_current_door';
 const initialStudentsById = new Map(INITIAL_STUDENTS.map((student) => [student.id, student]));
 const rutBackfillsInProgress = new Set();
@@ -54,18 +59,155 @@ export function setCurrentDoor(doorName) {
 export function getCurrentEvent() {
   try {
     const raw = localStorage.getItem(LOCAL_STORAGE_KEY_EVENT);
-    const currentEvent = ensureRequiredDoors(raw ? JSON.parse(raw) : INITIAL_EVENT, INITIAL_EVENT);
+    const currentEvent = normalizeEvent(raw ? JSON.parse(raw) : INITIAL_EVENT, INITIAL_EVENT);
     localStorage.setItem(LOCAL_STORAGE_KEY_EVENT, JSON.stringify(currentEvent));
     return currentEvent;
   } catch (e) {
-    return ensureRequiredDoors(INITIAL_EVENT, INITIAL_EVENT);
+    return normalizeEvent(INITIAL_EVENT, INITIAL_EVENT);
   }
 }
 
 export function saveCurrentEvent(eventData) {
-  const normalizedEvent = ensureRequiredDoors(eventData, INITIAL_EVENT);
+  const normalizedEvent = normalizeEvent(eventData, INITIAL_EVENT);
   localStorage.setItem(LOCAL_STORAGE_KEY_EVENT, JSON.stringify(normalizedEvent));
   return normalizedEvent;
+}
+
+function sortEvents(events) {
+  return [...events].sort((left, right) => {
+    if (left.archived !== right.archived) return left.archived ? 1 : -1;
+    return String(right.date || '').localeCompare(String(left.date || ''))
+      || String(left.name || '').localeCompare(String(right.name || ''), 'es');
+  });
+}
+
+function saveLocalEvents(events) {
+  const normalized = sortEvents(events.map((event) => normalizeEvent(event, INITIAL_EVENT)));
+  localStorage.setItem(LOCAL_STORAGE_KEY_EVENTS, JSON.stringify(normalized));
+  if (localChannel) localChannel.postMessage({ type: 'EVENTS_UPDATED' });
+  return normalized;
+}
+
+function getLocalEvents() {
+  try {
+    const raw = localStorage.getItem(LOCAL_STORAGE_KEY_EVENTS);
+    if (raw) {
+      const events = JSON.parse(raw);
+      if (Array.isArray(events) && events.length) {
+        return sortEvents(events.map((event) => normalizeEvent(event, INITIAL_EVENT)));
+      }
+    }
+  } catch (error) {
+    console.warn('No fue posible leer el catálogo local de eventos:', error);
+  }
+
+  return saveLocalEvents([getCurrentEvent()]);
+}
+
+export function subscribeToEvents(onUpdate) {
+  const { db, isConfigured } = initFirebase();
+
+  if (isConfigured && db) {
+    return onSnapshot(
+      collection(db, 'events'),
+      { includeMetadataChanges: true },
+      (snapshot) => {
+        const events = sortEvents(snapshot.docs.map((eventDoc) => normalizeEvent({
+          ...eventDoc.data(),
+          id: eventDoc.id
+        }, INITIAL_EVENT)));
+        const nextEvents = events.length ? events : [normalizeEvent(INITIAL_EVENT, INITIAL_EVENT)];
+        saveLocalEvents(nextEvents);
+        onUpdate(nextEvents, snapshot.metadata.fromCache ? 'offline' : 'cloud');
+      },
+      (error) => {
+        console.warn('Firestore events subscription error:', error);
+        onUpdate(getLocalEvents(), 'error');
+      }
+    );
+  }
+
+  const load = () => onUpdate(getLocalEvents(), 'local');
+  const handleMessage = (message) => {
+    if (message.data?.type === 'EVENTS_UPDATED') load();
+  };
+  const handleStorage = (storageEvent) => {
+    if (storageEvent.key === LOCAL_STORAGE_KEY_EVENTS) load();
+  };
+
+  load();
+  if (localChannel) localChannel.addEventListener('message', handleMessage);
+  window.addEventListener('storage', handleStorage);
+  return () => {
+    if (localChannel) localChannel.removeEventListener('message', handleMessage);
+    window.removeEventListener('storage', handleStorage);
+  };
+}
+
+export async function updateEvent(eventData) {
+  const current = normalizeEvent(eventData, INITIAL_EVENT);
+  if (!current.id) throw new Error('El evento no tiene un identificador válido.');
+
+  const updatedEvent = {
+    ...current,
+    updatedAt: new Date().toISOString()
+  };
+  const { db, isConfigured } = initFirebase();
+  if (isConfigured && db) {
+    await setDoc(doc(db, 'events', updatedEvent.id), updatedEvent, { merge: true });
+  }
+
+  const events = getLocalEvents();
+  const nextEvents = events.some((event) => event.id === updatedEvent.id)
+    ? events.map((event) => event.id === updatedEvent.id ? updatedEvent : event)
+    : [...events, updatedEvent];
+  saveLocalEvents(nextEvents);
+  return saveCurrentEvent(updatedEvent);
+}
+
+export async function createEvent(eventData, { copyStudents = false, sourceStudents = [] } = {}) {
+  const now = new Date();
+  const id = createEventId(eventData?.name, eventData?.date, now.getTime());
+  const students = copyStudents ? prepareStudentsForEvent(sourceStudents) : [];
+  const newEvent = normalizeEvent({
+    ...eventData,
+    id,
+    archived: false,
+    studentsInitialized: true,
+    createdAt: now.toISOString(),
+    updatedAt: now.toISOString()
+  }, INITIAL_EVENT);
+  const { db, isConfigured } = initFirebase();
+
+  if (isConfigured && db) {
+    await setDoc(doc(db, 'events', id), newEvent);
+    await commitInChunks(db, students.map((student) => (batch) => {
+      batch.set(doc(db, 'events', id, 'students', student.id), student);
+    }));
+  }
+
+  localStorage.setItem(LOCAL_STORAGE_KEY_STUDENTS + id, JSON.stringify(students));
+  localStorage.setItem(LOCAL_STORAGE_KEY_LOGS + id, JSON.stringify([]));
+  saveLocalEvents([...getLocalEvents(), newEvent]);
+  if (localChannel) {
+    localChannel.postMessage({ type: 'STUDENTS_UPDATED', eventId: id });
+    localChannel.postMessage({ type: 'LOGS_UPDATED', eventId: id });
+  }
+  return saveCurrentEvent(newEvent);
+}
+
+export async function archiveEvent(eventId, archived = true) {
+  if (!eventId) throw new Error('Selecciona un evento válido.');
+  const updatedAt = new Date().toISOString();
+  const { db, isConfigured } = initFirebase();
+  if (isConfigured && db) {
+    await setDoc(doc(db, 'events', eventId), { archived, updatedAt }, { merge: true });
+  }
+  const events = getLocalEvents().map((event) => (
+    event.id === eventId ? { ...event, archived, updatedAt } : event
+  ));
+  saveLocalEvents(events);
+  return events.find((event) => event.id === eventId);
 }
 
 // Subscribe to Students list (real-time via Firestore OR LocalStorage)
@@ -80,12 +222,14 @@ export function subscribeToStudents(eventId, onUpdate) {
       { includeMetadataChanges: true },
       (snapshot) => {
         if (snapshot.empty) {
-          // Seed once, atomically. The transaction marker prevents two devices
-          // from re-seeding and overwriting attendance at the same time.
-          initializeRemoteStudents(db, eventId).catch((error) => {
-            console.error("Error initializing remote students:", error);
-            loadCachedStudents(eventId, onUpdate, 'error');
-          });
+          // Only the original legacy event receives the bundled roster. New
+          // events remain empty unless the administrator chooses to copy it.
+          initializeRemoteStudents(db, eventId)
+            .then(() => onUpdate([], snapshot.metadata.fromCache ? 'offline' : 'cloud'))
+            .catch((error) => {
+              console.error("Error initializing remote students:", error);
+              loadCachedStudents(eventId, onUpdate, 'error');
+            });
           return;
         }
         const students = hydrateStudentRuts(snapshot.docs.map((d) => ({
@@ -128,12 +272,22 @@ const CURRENT_DATA_VERSION = 'v3_251_students';
 function fallbackToLocalStudents(eventId, onUpdate) {
   const loadLocal = () => {
     try {
-      const currentVersion = localStorage.getItem(DATA_VERSION_KEY);
+      const versionKey = `${DATA_VERSION_KEY}_${eventId}`;
+      const currentVersion = localStorage.getItem(versionKey)
+        || (eventId === INITIAL_EVENT.id ? localStorage.getItem(DATA_VERSION_KEY) : null);
       const raw = localStorage.getItem(LOCAL_STORAGE_KEY_STUDENTS + eventId);
 
-      if (!raw || currentVersion !== CURRENT_DATA_VERSION) {
+      if (!raw) {
+        const initialRoster = eventId === INITIAL_EVENT.id ? INITIAL_STUDENTS : [];
+        localStorage.setItem(LOCAL_STORAGE_KEY_STUDENTS + eventId, JSON.stringify(initialRoster));
+        localStorage.setItem(versionKey, CURRENT_DATA_VERSION);
+        onUpdate(initialRoster, 'local');
+        return;
+      }
+
+      if (eventId === INITIAL_EVENT.id && currentVersion !== CURRENT_DATA_VERSION) {
         localStorage.setItem(LOCAL_STORAGE_KEY_STUDENTS + eventId, JSON.stringify(INITIAL_STUDENTS));
-        localStorage.setItem(DATA_VERSION_KEY, CURRENT_DATA_VERSION);
+        localStorage.setItem(versionKey, CURRENT_DATA_VERSION);
         onUpdate(INITIAL_STUDENTS, 'local');
         return;
       }
@@ -171,6 +325,7 @@ function fallbackToLocalStudents(eventId, onUpdate) {
 }
 
 async function initializeRemoteStudents(db, eventId) {
+  if (eventId !== INITIAL_EVENT.id) return;
   const eventRef = doc(db, 'events', eventId);
 
   await runTransaction(db, async (transaction) => {

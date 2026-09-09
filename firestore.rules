@@ -3,26 +3,63 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     match /events/{eventId} {
-      function isCurrentEvent() {
-        return eventId == 'acto-cultural-2026';
+      function validEvent(data) {
+        return data.keys().hasOnly([
+            'id', 'name', 'institution', 'date', 'defaultCapacity', 'doors',
+            'archived', 'studentsInitialized', 'initializedAt', 'createdAt',
+            'updatedAt'
+          ])
+          && data.name is string
+          && data.name.size() >= 2
+          && data.name.size() <= 120
+          && data.institution is string
+          && data.date is string
+          && data.defaultCapacity is int
+          && data.defaultCapacity >= 1
+          && data.defaultCapacity <= 50
+          && data.doors is list
+          && data.doors.size() >= 1
+          && data.doors.size() <= 20
+          && data.archived is bool
+          && data.studentsInitialized == true;
       }
 
       function eventIsOpen() {
-        return isCurrentEvent() && request.time < timestamp.date(2026, 10, 1);
+        return exists(/databases/$(database)/documents/events/$(eventId))
+          && (
+            !('archived' in get(/databases/$(database)/documents/events/$(eventId)).data)
+            || get(/databases/$(database)/documents/events/$(eventId)).data.archived == false
+          );
       }
 
-      allow read: if eventIsOpen();
-      allow create: if eventIsOpen()
-        && request.resource.data.studentsInitialized == true;
+      function eventWillBeOpen() {
+        return existsAfter(/databases/$(database)/documents/events/$(eventId))
+          && (
+            !('archived' in getAfter(/databases/$(database)/documents/events/$(eventId)).data)
+            || getAfter(/databases/$(database)/documents/events/$(eventId)).data.archived == false
+          );
+      }
+
+      // Event metadata powers the event selector. Attendance remains isolated
+      // in each event's protected students and logs subcollections.
+      allow read: if true;
+      allow create: if validEvent(request.resource.data);
+      allow update: if request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly([
+            'name', 'institution', 'date', 'defaultCapacity', 'doors',
+            'archived', 'studentsInitialized', 'initializedAt', 'createdAt',
+            'updatedAt'
+          ])
+        && validEvent(request.resource.data);
 
       match /students/{studentId} {
         allow read: if eventIsOpen();
-        allow create: if eventIsOpen()
+        allow create: if eventWillBeOpen()
           && request.resource.data.enteredCount is int
           && request.resource.data.maxCapacity is int
           && request.resource.data.enteredCount == 0
           && request.resource.data.maxCapacity >= 0;
-        allow update: if eventIsOpen()
+        allow update: if eventWillBeOpen()
           && (
             // One-time roster migration: add a missing RUT without changing
             // attendance or any other student field.
@@ -130,7 +167,7 @@ service cloud.firestore {
 
       match /logs/{logId} {
         allow read: if eventIsOpen();
-        allow create: if eventIsOpen()
+        allow create: if eventWillBeOpen()
           && request.resource.data.count is int
           && request.resource.data.count >= 1
           && request.resource.data.count <= 5
@@ -148,7 +185,7 @@ service cloud.firestore {
               && request.resource.data.relationship.size() <= 40
             )
           );
-        allow delete: if eventIsOpen();
+        allow delete: if eventWillBeOpen();
       }
     }
   }

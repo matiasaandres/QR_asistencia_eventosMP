@@ -10,7 +10,8 @@ import {
   Cloud,
   HardDrive,
   AlertTriangle,
-  LogOut
+  LogOut,
+  CalendarDays
 } from 'lucide-react';
 
 export default function Navbar({ 
@@ -19,6 +20,8 @@ export default function Navbar({
   event, 
   currentDoor, 
   onDoorChange, 
+  events,
+  onEventChange,
   syncMode, 
   onOpenSettings,
   onLogout
@@ -49,6 +52,20 @@ export default function Navbar({
 
           {/* Right Info: Door Selector & Cloud Status */}
           <div className="flex items-center space-x-2 sm:space-x-3">
+            <div className="hidden lg:flex items-center bg-sky-50 border border-sky-200 rounded-lg px-2.5 py-1 text-xs">
+              <CalendarDays className="w-3.5 h-3.5 text-sky-600 mr-1.5" />
+              <select
+                aria-label="Evento actual"
+                value={event?.id || ''}
+                onChange={(changeEvent) => onEventChange(changeEvent.target.value)}
+                className="max-w-52 bg-transparent font-bold text-sky-900 focus:outline-none cursor-pointer"
+              >
+                {(events || []).filter((item) => !item.archived).map((item) => (
+                  <option key={item.id} value={item.id}>{item.name}</option>
+                ))}
+              </select>
+            </div>
+
             {/* Door selector pill */}
             <div className="hidden sm:flex items-center bg-slate-100 border border-slate-200 rounded-lg px-2.5 py-1 text-xs">
               <DoorClosed className="w-3.5 h-3.5 text-slate-500 mr-1.5" />
@@ -124,7 +141,7 @@ export default function Navbar({
 
         {/* Mobile Door selector bar */}
         <div className="sm:hidden pb-2.5 pt-1 flex items-center justify-between border-t border-slate-100">
-          <div className="flex items-center text-xs text-slate-600">
+          <div className="flex min-w-0 items-center text-xs text-slate-600">
             <DoorClosed className="w-3.5 h-3.5 text-sky-600 mr-1" />
             <span className="font-semibold mr-1">Puerta:</span>
             <select
@@ -137,6 +154,16 @@ export default function Navbar({
               ))}
             </select>
           </div>
+          <select
+            aria-label="Evento actual móvil"
+            value={event?.id || ''}
+            onChange={(changeEvent) => onEventChange(changeEvent.target.value)}
+            className="ml-2 max-w-[45%] truncate rounded border border-sky-200 bg-sky-50 px-2 py-0.5 text-xs font-bold text-sky-900"
+          >
+            {(events || []).filter((item) => !item.archived).map((item) => (
+              <option key={item.id} value={item.id}>{item.name}</option>
+            ))}
+          </select>
         </div>
       </div>
 
@@ -189,6 +216,18 @@ export default function Navbar({
           >
             <Users className="w-4 h-4" />
             <span>Estudiantes y Credenciales</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('events')}
+            className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-sm font-semibold whitespace-nowrap transition-all ${
+              activeTab === 'events'
+                ? 'bg-sky-600 text-white shadow-sm shadow-sky-600/30'
+                : 'text-slate-600 hover:bg-slate-200/70 hover:text-slate-900'
+            }`}
+          >
+            <CalendarDays className="w-4 h-4" />
+            <span>Eventos</span>
           </button>
 
           <button

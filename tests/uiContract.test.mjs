@@ -30,6 +30,10 @@ const historyLog = await readFile(
   new URL('../src/components/HistoryLog.jsx', import.meta.url),
   'utf8'
 );
+const dashboard = await readFile(
+  new URL('../src/components/Dashboard.jsx', import.meta.url),
+  'utf8'
+);
 
 test('seleccionar cantidad no registra automáticamente y muestra confirmación', () => {
   assert.match(checkinPanel, /onClick=\{\(\) => setSelectedCount\(num\)\}/);
@@ -105,4 +109,14 @@ test('el historial permite remover un registro con confirmación', () => {
   assert.match(historyLog, /Remover registro/);
   assert.match(historyLog, /Se eliminará de la base de datos y se descontarán/);
   assert.match(historyLog, /await onDeleteLog\(log\)/);
+});
+
+test('el panel en vivo incorpora estadísticas y gráficos operativos', () => {
+  assert.match(dashboard, /Actividad por hora/);
+  assert.match(dashboard, /Rendimiento por curso/);
+  assert.match(dashboard, /Flujo por puerta/);
+  assert.match(dashboard, /Avance de familias/);
+  assert.match(dashboard, /capacityPercentage/);
+  assert.match(dashboard, /conic-gradient/);
+  assert.match(dashboard, /activityByHour/);
 });

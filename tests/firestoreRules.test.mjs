@@ -36,7 +36,7 @@ test('el reinicio elimina el registro extraordinario además del contador', () =
 
 test('permite administrar cupos y deshabilitar sin cambiar identidad ni asistencia', () => {
   assert.match(rules, /hasOnly\(\['maxCapacity', 'disabled', 'deleted', 'deletedAt'\]\)/);
-  assert.match(rules, /maxCapacity >= request\.resource\.data\.enteredCount/);
+  assert.match(rules, /request\.resource\.data\.maxCapacity >= 1/);
   assert.match(rules, /maxCapacity <= 50/);
   assert.match(rules, /resource\.data\.disabled == false/);
   assert.match(rules, /resource\.data\.deleted == false/);

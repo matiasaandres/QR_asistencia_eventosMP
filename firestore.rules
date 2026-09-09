@@ -40,7 +40,7 @@ service cloud.firestore {
               && request.resource.data.maxCapacity is int
               && (
                 request.resource.data.maxCapacity == resource.data.maxCapacity
-                || request.resource.data.maxCapacity >= request.resource.data.enteredCount
+                || request.resource.data.maxCapacity >= 1
               )
               && request.resource.data.maxCapacity <= 50
               && (

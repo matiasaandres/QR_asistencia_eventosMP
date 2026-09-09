@@ -26,6 +26,7 @@ const BULK_IMPORT_TEMPLATE_PATH = '/Plantilla_Carga_Masiva_MundoPalabra.xlsx';
 export default function StudentsManager({ 
   students, 
   onSaveStudents, 
+  onSaveCapacities,
   onDeleteStudents,
   onOpenCardPrinter, 
   onSelectStudent 
@@ -35,12 +36,12 @@ export default function StudentsManager({
   const [newStudent, setNewStudent] = useState({
     name: '',
     course: '',
-    maxCapacity: 5
+    maxCapacity: 4
   });
   const [importStatus, setImportStatus] = useState(null);
-  const [bulkCapacity, setBulkCapacity] = useState(5);
+  const [bulkCapacity, setBulkCapacity] = useState(4);
   const [editingStudent, setEditingStudent] = useState(null);
-  const [studentCapacity, setStudentCapacity] = useState(5);
+  const [studentCapacity, setStudentCapacity] = useState(4);
   const [isSaving, setIsSaving] = useState(false);
   const [courseToDelete, setCourseToDelete] = useState('');
 
@@ -49,10 +50,10 @@ export default function StudentsManager({
     setTimeout(() => setImportStatus(null), 4000);
   };
 
-  const persistStudents = async (updatedStudents, successMessage) => {
+  const persistStudents = async (updatedStudents, successMessage, save = onSaveStudents) => {
     setIsSaving(true);
     try {
-      await onSaveStudents(updatedStudents);
+      await save(updatedStudents);
       showStatus(successMessage);
       return true;
     } catch (error) {
@@ -67,28 +68,18 @@ export default function StudentsManager({
   const handleBulkCapacity = async () => {
     const nextCapacity = normalizeCapacityValue(bulkCapacity, -1);
     const editableStudents = students.filter((student) => !getCapacityState(student).isRetired);
-    const highestEntered = editableStudents.reduce(
-      (highest, student) => Math.max(highest, getCapacityState(student).enteredCount),
-      0
-    );
+    const aboveNewCapacity = editableStudents.filter((student) => getCapacityState(student).enteredCount > nextCapacity).length;
 
     if (nextCapacity < 1 || nextCapacity > 50) {
       alert('La cantidad de cupos debe estar entre 1 y 50.');
       return;
     }
-    if (nextCapacity < highestEntered) {
-      alert(`No puedes asignar ${nextCapacity} cupos porque ya existe un alumno con ${highestEntered} ingresos registrados.`);
-      return;
-    }
-    if (!window.confirm(`¿Cambiar el cupo a ${nextCapacity} para ${editableStudents.length} estudiantes?`)) return;
+    if (!window.confirm(`¿Cambiar el cupo a ${nextCapacity} para ${editableStudents.length} estudiantes? Se conservarán todos los ingresos registrados. ${aboveNewCapacity} alumnos ya superan el nuevo cupo y quedarán sin saldo para nuevos ingresos.`)) return;
 
     await persistStudents(
-      students.map((student) => (
-        getCapacityState(student).isRetired
-          ? student
-          : { ...student, maxCapacity: nextCapacity }
-      )),
-      `Cupo actualizado a ${nextCapacity} para ${editableStudents.length} estudiantes.`
+      editableStudents.map((student) => ({ id: student.id, maxCapacity: nextCapacity })),
+      `Cupo actualizado a ${nextCapacity} para ${editableStudents.length} estudiantes. Se conservaron los ingresos registrados.`,
+      onSaveCapacities
     );
   };
 
@@ -100,21 +91,17 @@ export default function StudentsManager({
   const handleStudentCapacity = async (event) => {
     event.preventDefault();
     if (!editingStudent) return;
-    const capacity = getCapacityState(editingStudent);
     const nextCapacity = normalizeCapacityValue(studentCapacity, -1);
 
-    if (nextCapacity < Math.max(1, capacity.enteredCount) || nextCapacity > 50) {
-      alert(`El cupo debe estar entre ${Math.max(1, capacity.enteredCount)} y 50.`);
+    if (nextCapacity < 1 || nextCapacity > 50) {
+      alert('El cupo debe estar entre 1 y 50.');
       return;
     }
 
     const saved = await persistStudents(
-      students.map((student) => (
-        student.id === editingStudent.id
-          ? { ...student, maxCapacity: nextCapacity }
-          : student
-      )),
-      `Cupo de ${editingStudent.name} actualizado a ${nextCapacity}.`
+      [{ id: editingStudent.id, maxCapacity: nextCapacity }],
+      `Cupo de ${editingStudent.name} actualizado a ${nextCapacity}.`,
+      onSaveCapacities
     );
     if (saved) setEditingStudent(null);
   };
@@ -210,7 +197,7 @@ export default function StudentsManager({
     };
 
     onSaveStudents([...students, studentObj]);
-    setNewStudent({ name: '', course: '', maxCapacity: 5 });
+    setNewStudent({ name: '', course: '', maxCapacity: 4 });
     setShowAddModal(false);
   };
 
@@ -237,7 +224,7 @@ export default function StudentsManager({
           const name = row['Nombre'] || row['Estudiante'] || row['Alumno'] || row['Nombre Estudiante'] || `Estudiante ${idx + 1}`;
           const course = row['Curso'] || row['Nivel'] || 'General';
           const rawCapacity = row['Capacidad'] ?? row['Cupos'] ?? row['Maximo'];
-          const maxCap = normalizeCapacityValue(rawCapacity);
+          const maxCap = normalizeCapacityValue(rawCapacity, 4);
 
           return {
             id: generateStudentCode(),
@@ -621,7 +608,7 @@ export default function StudentsManager({
                 <input
                   id="student-capacity"
                   type="number"
-                  min={Math.max(1, getCapacityState(editingStudent).enteredCount)}
+                  min="1"
                   max="50"
                   required
                   autoFocus
@@ -630,7 +617,7 @@ export default function StudentsManager({
                   className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm font-bold outline-none focus:border-sky-500 focus:ring-2 focus:ring-sky-100"
                 />
                 <p className="mt-1.5 text-[11px] text-slate-500">
-                  Ya se registraron {getCapacityState(editingStudent).enteredCount} ingresos; el cupo no puede quedar por debajo de esa cantidad.
+                  Ya se registraron {getCapacityState(editingStudent).enteredCount} ingresos. Si reduces el cupo por debajo de esa cantidad, se conserva el historial y no queda saldo para nuevos ingresos.
                 </p>
               </div>
               <div className="flex justify-end gap-2">

@@ -472,6 +472,25 @@ export async function registerCheckIn({
 }
 
 // Bulk update / Import students
+// Patch capacity only so a simultaneous check-in is never overwritten.
+export async function saveStudentCapacities(eventId, updates) {
+  if (updates.some(({ id, maxCapacity }) => !id || !Number.isInteger(maxCapacity) || maxCapacity < 1 || maxCapacity > 50)) {
+    throw new Error('El cupo debe ser un entero entre 1 y 50.');
+  }
+  const { db, isConfigured } = initFirebase();
+  if (isConfigured && db) {
+    await commitInChunks(db, updates.map(({ id, maxCapacity }) => (batch) =>
+      batch.update(doc(db, 'events', eventId, 'students', id), { maxCapacity })));
+  }
+  const key = LOCAL_STORAGE_KEY_STUDENTS + eventId;
+  const capacities = new Map(updates.map(({ id, maxCapacity }) => [id, maxCapacity]));
+  const current = JSON.parse(localStorage.getItem(key) || '[]');
+  localStorage.setItem(key, JSON.stringify(current.map((student) =>
+    capacities.has(student.id) && !getCapacityState(student).isRetired
+      ? { ...student, maxCapacity: capacities.get(student.id) } : student)));
+  if (localChannel) localChannel.postMessage({ type: 'STUDENTS_UPDATED', eventId });
+}
+
 export async function saveStudentsList(eventId, newStudents) {
   const { db, isConfigured } = initFirebase();
 

@@ -45,6 +45,7 @@ export default function StudentsManager({
   students, 
   onSaveStudents, 
   onSaveCapacities,
+  onSaveFamily,
   onDeleteStudents,
   onOpenCardPrinter, 
   onSelectStudent 
@@ -54,12 +55,14 @@ export default function StudentsManager({
   const [newStudent, setNewStudent] = useState({
     name: '',
     course: '',
+    familyId: '',
     maxCapacity: 4
   });
   const [importStatus, setImportStatus] = useState(null);
   const [bulkCapacity, setBulkCapacity] = useState(4);
   const [editingStudent, setEditingStudent] = useState(null);
   const [studentCapacity, setStudentCapacity] = useState(4);
+  const [studentFamilyId, setStudentFamilyId] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [courseToDelete, setCourseToDelete] = useState('');
   const [courseFilter, setCourseFilter] = useState('ALL');
@@ -107,6 +110,7 @@ export default function StudentsManager({
   const openCapacityEditor = (student) => {
     setEditingStudent(student);
     setStudentCapacity(getCapacityState(student).maxCapacity);
+    setStudentFamilyId(student.familyId || '');
   };
 
   const handleStudentCapacity = async (event) => {
@@ -119,12 +123,18 @@ export default function StudentsManager({
       return;
     }
 
-    const saved = await persistStudents(
-      [{ id: editingStudent.id, maxCapacity: nextCapacity }],
-      `Cupo de ${editingStudent.name} actualizado a ${nextCapacity}.`,
-      onSaveCapacities
-    );
-    if (saved) setEditingStudent(null);
+    setIsSaving(true);
+    try {
+      await onSaveFamily(editingStudent.id, studentFamilyId);
+      await onSaveCapacities([{ id: editingStudent.id, maxCapacity: nextCapacity }]);
+      showStatus(`Familia y cupo de ${editingStudent.name} actualizados.`);
+      setEditingStudent(null);
+    } catch (error) {
+      console.error(error);
+      alert(`No fue posible guardar el cambio: ${error.message}`);
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const handleToggleStudent = async (student) => {
@@ -194,7 +204,7 @@ export default function StudentsManager({
 
   const filteredStudents = students.filter((student) => {
     const term = searchTerm.trim().toLocaleLowerCase('es');
-    const matchesSearch = !term || [student.name, student.course, student.id]
+    const matchesSearch = !term || [student.name, student.course, student.id, student.familyId]
       .some((value) => String(value || '').toLocaleLowerCase('es').includes(term));
     const matchesCourse = courseFilter === 'ALL' || student.course === courseFilter;
     const capacity = getCapacityState(student);
@@ -233,13 +243,14 @@ export default function StudentsManager({
       id: nextId,
       name: newStudent.name.trim(),
       course: newStudent.course.trim(),
+      ...(newStudent.familyId.trim() ? { familyId: newStudent.familyId.trim().toLocaleUpperCase('es') } : {}),
       maxCapacity: Math.max(1, normalizeCapacityValue(newStudent.maxCapacity)),
       enteredCount: 0,
       status: 'PENDIENTE'
     };
 
     onSaveStudents([...students, studentObj]);
-    setNewStudent({ name: '', course: '', maxCapacity: 4 });
+    setNewStudent({ name: '', course: '', familyId: '', maxCapacity: 4 });
     setShowAddModal(false);
   };
 
@@ -266,12 +277,14 @@ export default function StudentsManager({
           const name = row['Nombre'] || row['Estudiante'] || row['Alumno'] || row['Nombre Estudiante'] || `Estudiante ${idx + 1}`;
           const course = row['Curso'] || row['Nivel'] || 'General';
           const rawCapacity = row['Capacidad'] ?? row['Cupos'] ?? row['Maximo'];
+          const familyId = row['Familia'] ?? row['Código Familia'] ?? row['Codigo Familia'] ?? '';
           const maxCap = normalizeCapacityValue(rawCapacity, 4);
 
           return {
             id: generateStudentCode(),
             name: String(name),
             course: String(course),
+            ...(String(familyId).trim() ? { familyId: String(familyId).trim().toLocaleUpperCase('es') } : {}),
             maxCapacity: maxCap,
             enteredCount: 0,
             status: maxCap === 0 ? 'RETIRADO' : 'PENDIENTE'
@@ -545,6 +558,7 @@ export default function StudentsManager({
                 <th className="py-3 px-4">Código</th>
                 <th className="py-3 px-4">Estudiante</th>
                 <th className="py-3 px-4">Curso</th>
+                <th className="py-3 px-4">Familia</th>
                 <th className="py-3 px-4 text-center">Ingresados / Cupo</th>
                 <th className="py-3 px-4 text-center">Estado</th>
                 <th className="py-3 px-4 text-right">Acciones</th>
@@ -553,7 +567,7 @@ export default function StudentsManager({
             <tbody className="divide-y divide-slate-100">
               {filteredStudents.length === 0 ? (
                 <tr>
-                  <td colSpan="6" className="py-8 text-center text-slate-400">
+                  <td colSpan="7" className="py-8 text-center text-slate-400">
                     No se encontraron estudiantes.
                   </td>
                 </tr>
@@ -577,6 +591,9 @@ export default function StudentsManager({
                         <span className="bg-sky-50 text-sky-800 border border-sky-200 font-semibold px-2 py-0.5 rounded-md">
                           {s.course}
                         </span>
+                      </td>
+                      <td className="py-3 px-4 font-mono text-[11px] font-bold text-violet-700">
+                        {s.familyId || 'Individual'}
                       </td>
                       <td className="py-3 px-4 text-center font-semibold text-slate-700">
                         {entered} de {maxCap}
@@ -682,6 +699,18 @@ export default function StudentsManager({
                 />
               </div>
 
+              <div>
+                <label className="font-bold text-slate-700 block mb-1">Código de familia (opcional):</label>
+                <input
+                  type="text"
+                  value={newStudent.familyId}
+                  onChange={(e) => setNewStudent({ ...newStudent, familyId: e.target.value })}
+                  placeholder="Ej: FAM-PEREZ-01"
+                  className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-sky-500"
+                />
+                <p className="mt-1 text-[11px] text-slate-500">Usa el mismo código para hermanos que compartirán el cupo.</p>
+              </div>
+
               <div className="flex items-center justify-end gap-2 pt-3">
                 <button
                   type="button"
@@ -708,7 +737,7 @@ export default function StudentsManager({
           <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-2xl">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <h3 className="text-lg font-extrabold text-slate-900">Modificar cupos</h3>
+                <h3 className="text-lg font-extrabold text-slate-900">Familia y cupos</h3>
                 <p className="mt-1 text-xs font-semibold text-slate-500">{editingStudent.name}</p>
               </div>
               <button type="button" onClick={() => setEditingStudent(null)} className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100">
@@ -716,6 +745,18 @@ export default function StudentsManager({
               </button>
             </div>
             <form onSubmit={handleStudentCapacity} className="mt-5 space-y-4">
+              <div>
+                <label htmlFor="student-family" className="mb-1.5 block text-xs font-bold text-slate-700">Código de familia</label>
+                <input
+                  id="student-family"
+                  type="text"
+                  value={studentFamilyId}
+                  onChange={(event) => setStudentFamilyId(event.target.value)}
+                  placeholder="Vacío = cupo individual"
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm font-bold uppercase outline-none focus:border-sky-500 focus:ring-2 focus:ring-sky-100"
+                />
+                <p className="mt-1.5 text-[11px] text-slate-500">Los alumnos con el mismo código comparten ingresos y cupo en este evento.</p>
+              </div>
               <div>
                 <label htmlFor="student-capacity" className="mb-1.5 block text-xs font-bold text-slate-700">Cantidad máxima de personas</label>
                 <input

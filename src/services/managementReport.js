@@ -1,5 +1,6 @@
 import { getCapacityState } from './checkinPolicy.js';
 import { getPendingFamilies } from './pendingFamilies.js';
+import { getUniqueCapacityStudents } from './familyPolicy.js';
 
 const TIME_ZONE = 'America/Santiago';
 const percent = (value, total) => total > 0 ? Math.round(value / total * 100) : null;
@@ -15,9 +16,12 @@ export function buildManagementReportData({ students = [], logs = [] }) {
   let extraFamilies = 0;
   let available = 0;
   let aboveCapacity = 0;
-  for (const student of students) {
+  excluded = students.filter((student) => getCapacityState(student).isAccessBlocked).length;
+  const activeCapacityGroups = getUniqueCapacityStudents(
+    students.filter((student) => !getCapacityState(student).isAccessBlocked)
+  );
+  for (const student of activeCapacityGroups) {
     const state = getCapacityState(student);
-    if (state.isAccessBlocked) { excluded += 1; continue; }
     const name = String(student.course || 'Sin curso');
     const course = courses.get(name) || { name, families: 0, present: 0, people: 0, capacity: 0, available: 0 };
     course.families += 1;

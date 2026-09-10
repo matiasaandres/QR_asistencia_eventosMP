@@ -1,7 +1,9 @@
 import { getCapacityState } from './checkinPolicy.js';
+import { getUniqueCapacityStudents } from './familyPolicy.js';
 
 export function getPendingFamilies(students = []) {
-  return students.flatMap((student) => {
+  const active = students.filter((student) => !getCapacityState(student).isAccessBlocked);
+  return getUniqueCapacityStudents(active).flatMap((student) => {
     const state = getCapacityState(student);
     if (state.isAccessBlocked || state.maxCapacity <= 0 || state.enteredCount !== 0) return [];
     return [{ id: student.id, name: String(student.name || 'Alumno sin nombre'),

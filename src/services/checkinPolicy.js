@@ -8,10 +8,10 @@ export function normalizeCapacityValue(value, fallback = DEFAULT_CAPACITY) {
 }
 
 export function getCapacityState(student = {}) {
-  const maxCapacity = normalizeCapacityValue(student.maxCapacity);
-  const parsedEntered = Number(student.enteredCount);
+  const maxCapacity = normalizeCapacityValue(student.familyMaxCapacity ?? student.maxCapacity);
+  const parsedEntered = Number(student.familyEnteredCount ?? student.enteredCount);
   const enteredCount = Number.isFinite(parsedEntered) ? Math.max(0, parsedEntered) : 0;
-  const hasExtraGuest = Boolean(student.extraGuest) || enteredCount > maxCapacity;
+  const hasExtraGuest = Boolean(student.familyExtraGuest ?? student.extraGuest) || enteredCount > maxCapacity;
   const isRetired = student.status === 'RETIRADO'
     || String(student.course || '').trim().toLowerCase() === 'retirado';
   const isDisabled = student.disabled === true;

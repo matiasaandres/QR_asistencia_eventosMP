@@ -196,7 +196,7 @@ service cloud.firestore {
               && request.resource.data.enteredCount <= request.resource.data.maxCapacity + 1)
             || (isAdmin()
               && request.resource.data.diff(resource.data).affectedKeys()
-                .hasOnly(['rut', 'name', 'rawName', 'course', 'maxCapacity', 'disabled', 'deleted', 'deletedAt'])
+                .hasOnly(['rut', 'name', 'rawName', 'course', 'maxCapacity', 'disabled', 'deleted', 'deletedAt', 'familyId', 'familyOwnerId', 'enteredCount', 'status'])
               && request.resource.data.maxCapacity is int
               && request.resource.data.maxCapacity >= 0
               && request.resource.data.maxCapacity <= 50)
@@ -205,7 +205,7 @@ service cloud.firestore {
               && request.resource.data.diff(resource.data).affectedKeys()
                 .hasOnly(['enteredCount', 'status', 'lastEntryAt', 'extraGuest'])
               && request.resource.data.enteredCount is int
-              && (!('disabled' in resource.data) || resource.data.disabled == false)
+              && (!('disabled' in resource.data) || resource.data.disabled == false || 'familyId' in resource.data)
               && (!('deleted' in resource.data) || resource.data.deleted == false)
               && (
                 (request.resource.data.enteredCount >= resource.data.enteredCount
@@ -304,9 +304,14 @@ service cloud.firestore {
 
     // Compatibilidad de migración: solo administradores autenticados de la
     // organización reservada de Mundo Palabra pueden leer la estructura 1.2.
-    match /events/{eventId}/{legacyDocument=**} {
+    match /events/{eventId} {
       allow read: if organizationAdmin('colegio-mundopalabra');
       allow write: if false;
+
+      match /{legacyDocument=**} {
+        allow read: if organizationAdmin('colegio-mundopalabra');
+        allow write: if false;
+      }
     }
   }
 }

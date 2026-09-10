@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { exportToExcel } from '../services/export';
 import { getCapacityState } from '../services/checkinPolicy';
+import { getUniqueCapacityStudents } from '../services/familyPolicy';
 import PendingFamilies from './PendingFamilies.jsx';
 import OrganizationLogo from './OrganizationLogo.jsx';
 
@@ -68,6 +69,8 @@ export default function Dashboard({ event, students, logs, organization }) {
   const stats = useMemo(() => {
     const activeStudents = students.filter((student) => !getCapacityState(student).isAccessBlocked);
     const totalStudents = activeStudents.length;
+    const capacityGroups = getUniqueCapacityStudents(activeStudents);
+    const totalFamilies = capacityGroups.length;
     let familiesEntered = 0;
     let totalPeopleEntered = 0;
     let totalCapacity = 0;
@@ -75,7 +78,7 @@ export default function Dashboard({ event, students, logs, organization }) {
     let partialFamilies = 0;
     const courseMap = {};
 
-    activeStudents.forEach((student) => {
+    capacityGroups.forEach((student) => {
       const capacity = getCapacityState(student);
       const courseName = student.course || 'Sin curso';
       totalCapacity += capacity.maxCapacity;
@@ -93,8 +96,8 @@ export default function Dashboard({ event, students, logs, organization }) {
       if (capacity.enteredCount > 0) courseMap[courseName].familiesEntered += 1;
     });
 
-    const familiesPending = Math.max(0, totalStudents - familiesEntered);
-    const attendancePercentage = totalStudents > 0 ? Math.round((familiesEntered / totalStudents) * 100) : 0;
+    const familiesPending = Math.max(0, totalFamilies - familiesEntered);
+    const attendancePercentage = totalFamilies > 0 ? Math.round((familiesEntered / totalFamilies) * 100) : 0;
     const capacityPercentage = totalCapacity > 0 ? Math.round((totalPeopleEntered / totalCapacity) * 100) : 0;
 
     const doorMap = {};
@@ -119,6 +122,7 @@ export default function Dashboard({ event, students, logs, organization }) {
 
     return {
       totalStudents,
+      totalFamilies,
       familiesEntered,
       familiesPending,
       totalPeopleEntered,
@@ -138,8 +142,8 @@ export default function Dashboard({ event, students, logs, organization }) {
 
   const peakHourlyPeople = Math.max(1, ...stats.activityByHour.map((hour) => hour.people));
   const peakDoorPeople = Math.max(1, ...stats.doorsList.map((door) => door.people));
-  const completeStop = (stats.completeFamilies / Math.max(1, stats.totalStudents)) * 100;
-  const partialStop = ((stats.completeFamilies + stats.partialFamilies) / Math.max(1, stats.totalStudents)) * 100;
+  const completeStop = (stats.completeFamilies / Math.max(1, stats.totalFamilies)) * 100;
+  const partialStop = ((stats.completeFamilies + stats.partialFamilies) / Math.max(1, stats.totalFamilies)) * 100;
   const familyDonut = { background: `conic-gradient(#10b981 0 ${completeStop}%, #38bdf8 0 ${partialStop}%, #e2e8f0 0 100%)` };
   const leadingCourse = stats.coursesList.reduce((best, course) => {
     const attendance = course.totalStudents > 0 ? Math.round(course.familiesEntered / course.totalStudents * 100) : 0;
@@ -216,7 +220,7 @@ export default function Dashboard({ event, students, logs, organization }) {
             <div className="relative h-40 w-40 shrink-0 rounded-full p-4" style={familyDonut} aria-label={`Avance de familias: ${stats.attendancePercentage}%`}>
               <div className="flex h-full w-full flex-col items-center justify-center rounded-full bg-white shadow-inner">
                 <span className="text-4xl font-black text-slate-950">{stats.familiesEntered}</span>
-                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">de {stats.totalStudents}</span>
+                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">de {stats.totalFamilies}</span>
               </div>
             </div>
             <div className="w-full space-y-3 text-xs">

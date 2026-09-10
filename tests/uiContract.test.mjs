@@ -38,6 +38,10 @@ const masterDashboard = await readFile(
   new URL('../src/components/MasterDashboard.jsx', import.meta.url),
   'utf8'
 );
+const organizationsService = await readFile(
+  new URL('../src/services/organizations.js', import.meta.url),
+  'utf8'
+);
 
 test('seleccionar cantidad no registra automáticamente y muestra confirmación', () => {
   assert.match(checkinPanel, /onClick=\{\(\) => setSelectedCount\(num\)\}/);
@@ -100,6 +104,8 @@ test('la cuenta maestra administra escuelas y recupera Mundo Palabra', () => {
   assert.match(masterDashboard, /onMigrateLegacy/);
   assert.match(masterDashboard, /Importar respaldo completo/);
   assert.match(masterDashboard, /Asignar cuenta escolar/);
+  assert.match(masterDashboard, /Respaldo completo aplicado/);
+  assert.match(organizationsService, /deleteDocuments\(db, previousLogs\.docs\)/);
 });
 
 test('la nómina permite cambiar cupos globales, individuales y deshabilitar alumnos', () => {

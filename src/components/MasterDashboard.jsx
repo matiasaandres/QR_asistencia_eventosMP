@@ -71,7 +71,7 @@ export default function MasterDashboard({ organizations, user, onCreate, onAssig
       const studentRows = XLSX.utils.sheet_to_json(studentSheet, { defval: '', raw: false });
       const logRows = XLSX.utils.sheet_to_json(logSheet, { defval: '', raw: false });
       const result = await onImportReport({ organizationId: organization.id, studentRows, logRows });
-      setMessage(`Respaldo importado: ${result.students} alumnos, ${result.logs} ingresos y ${result.people} personas.`);
+      setMessage(`Respaldo completo aplicado: ${result.students} alumnos, ${result.logs} ingresos y ${result.people} personas. Se reemplazaron ${result.replacedLogs} registros anteriores.`);
     } catch (importError) {
       setError(importError.message || 'No fue posible importar el respaldo.');
     } finally {

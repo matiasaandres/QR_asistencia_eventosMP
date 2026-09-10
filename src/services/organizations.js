@@ -208,6 +208,14 @@ async function copyDocuments(db, sourceDocuments, destinationCollection, transfo
   }
 }
 
+async function deleteDocuments(db, sourceDocuments) {
+  for (let start = 0; start < sourceDocuments.length; start += 400) {
+    const batch = writeBatch(db);
+    sourceDocuments.slice(start, start + 400).forEach((source) => batch.delete(source.ref));
+    await batch.commit();
+  }
+}
+
 export async function migrateLegacyMundoPalabra({ organizationId, user }) {
   if (organizationId !== 'colegio-mundopalabra') {
     throw new Error('La recuperación anterior solo corresponde a Colegio MundoPalabra.');
@@ -339,13 +347,16 @@ export async function importMundoPalabraReport({ organizationId, user, studentRo
     createdAt: now,
     updatedAt: now
   }));
+  const previousLogs = await getDocs(collection(eventRef, 'logs'));
+  await deleteDocuments(db, previousLogs.docs);
   await copyDocuments(db, students.map((student) => ({ id: student.id, data: () => student })), collection(eventRef, 'students'));
   await copyDocuments(db, normalizedLogs.map((log) => ({ id: log.id, data: () => { const { id, ...data } = log; return data; } })), collection(eventRef, 'logs'));
   return {
     eventId,
     students: students.length,
     logs: normalizedLogs.length,
-    people: normalizedLogs.reduce((total, log) => total + log.count, 0)
+    people: normalizedLogs.reduce((total, log) => total + log.count, 0),
+    replacedLogs: previousLogs.size
   };
 }
 

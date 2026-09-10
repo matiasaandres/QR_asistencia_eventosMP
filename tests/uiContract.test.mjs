@@ -174,3 +174,12 @@ test('la sección de seguridad explica detalladamente cada rol', () => {
   assert.match(membersManager, /Buenas prácticas de seguridad/);
   assert.match(membersManager, /PERMISSION_MATRIX/);
 });
+
+test('la administración escolar permite deshabilitar, reactivar y eliminar accesos de usuarios', () => {
+  assert.match(membersManager, /updateOrganizationMemberStatus/);
+  assert.match(membersManager, /removeOrganizationMember/);
+  assert.match(membersManager, /'Deshabilitar'/);
+  assert.match(membersManager, /'Reactivar'/);
+  assert.match(membersManager, /Eliminar acceso/);
+  assert.match(membersManager, /isOwner \|\| isSelf/);
+});

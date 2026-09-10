@@ -47,6 +47,13 @@ test('solo un administrador puede corregir historial y reiniciar asistencia', ()
   assert.match(rules, /allow delete: if isAdmin\(\) && eventWillBeOpen\(\)/);
 });
 
+test('los administradores pueden deshabilitar o eliminar miembros sin afectar al propietario ni a su propia cuenta', () => {
+  assert.match(rules, /hasOnly\(\['name', 'logoUrl', 'primaryColor', 'memberUids', 'updatedAt'\]\)/);
+  assert.match(rules, /data\.status in \['active', 'disabled'\]/);
+  assert.match(rules, /userId != request\.auth\.uid/);
+  assert.match(rules, /userId != get\(\/databases\/\$\(database\)\/documents\/organizations\/\$\(organizationId\)\)\.data\.ownerUid/);
+});
+
 test('no permite eliminar organizaciones, eventos ni estudiantes', () => {
   assert.ok((rules.match(/allow delete: if false;/g) || []).length >= 3);
 });

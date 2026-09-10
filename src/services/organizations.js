@@ -1,6 +1,6 @@
 import { deleteApp, initializeApp } from 'firebase/app';
 import { createUserWithEmailAndPassword, deleteUser, getAuth, signInWithEmailAndPassword, signOut } from 'firebase/auth';
-import { collection, deleteField, doc, getDoc, getDocs, onSnapshot, query, setDoc, Timestamp, updateDoc, where, writeBatch } from 'firebase/firestore';
+import { arrayRemove, arrayUnion, collection, deleteField, doc, getDoc, getDocs, onSnapshot, query, setDoc, Timestamp, updateDoc, where, writeBatch } from 'firebase/firestore';
 import { getSavedFirebaseConfig, initFirebase } from './firebase';
 import { createOrganizationId, isPlatformAdmin, normalizeOrganization } from './organizationPolicy';
 import { createEventId, normalizeEvent } from './eventPolicy';
@@ -447,6 +447,46 @@ export function subscribeToMembers(organizationId, onUpdate, onError) {
     (snapshot) => onUpdate(snapshot.docs.map((item) => ({ ...item.data(), id: item.id }))),
     (error) => onError?.(error)
   );
+}
+
+export async function updateOrganizationMemberStatus({ organizationId, userId, status }) {
+  if (!['active', 'disabled'].includes(status)) throw new Error('Estado de usuario no válido.');
+  const { app, db } = initFirebase();
+  if (!app || !db) throw new Error('No fue posible conectar con la escuela.');
+  const currentUserId = getAuth(app).currentUser?.uid;
+  if (currentUserId === userId) throw new Error('No puedes cambiar el estado de tu propia cuenta.');
+  const organizationRef = doc(db, 'organizations', organizationId);
+  const organizationSnapshot = await getDoc(organizationRef);
+  if (!organizationSnapshot.exists()) throw new Error('La escuela no existe.');
+  if (organizationSnapshot.data().ownerUid === userId) throw new Error('La cuenta propietaria de la escuela no puede deshabilitarse.');
+
+  const now = new Date().toISOString();
+  const batch = writeBatch(db);
+  batch.update(doc(organizationRef, 'members', userId), { status, updatedAt: now });
+  batch.update(organizationRef, {
+    memberUids: status === 'active' ? arrayUnion(userId) : arrayRemove(userId),
+    updatedAt: now
+  });
+  await batch.commit();
+}
+
+export async function removeOrganizationMember({ organizationId, userId }) {
+  const { app, db } = initFirebase();
+  if (!app || !db) throw new Error('No fue posible conectar con la escuela.');
+  const currentUserId = getAuth(app).currentUser?.uid;
+  if (currentUserId === userId) throw new Error('No puedes eliminar tu propio acceso.');
+  const organizationRef = doc(db, 'organizations', organizationId);
+  const organizationSnapshot = await getDoc(organizationRef);
+  if (!organizationSnapshot.exists()) throw new Error('La escuela no existe.');
+  if (organizationSnapshot.data().ownerUid === userId) throw new Error('La cuenta propietaria de la escuela no puede eliminarse.');
+
+  const batch = writeBatch(db);
+  batch.delete(doc(organizationRef, 'members', userId));
+  batch.update(organizationRef, {
+    memberUids: arrayRemove(userId),
+    updatedAt: new Date().toISOString()
+  });
+  await batch.commit();
 }
 
 function createInvitationCode() {

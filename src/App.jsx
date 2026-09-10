@@ -257,7 +257,7 @@ export default function App() {
         {activeTab === 'dashboard' && <Dashboard event={event} students={students} logs={logs} organization={organization} />}
         {activeTab === 'students' && canManage && <StudentsManager students={students} onSaveStudents={(updated) => saveStudentsList(organization.id, event.id, updated)} onSaveCapacities={(updates) => saveStudentCapacities(organization.id, event.id, updates)} onDeleteStudents={(ids) => deleteStudents(organization.id, event.id, ids)} onOpenCardPrinter={(student) => { setPrintStudent(student); setShowPrinter(true); }} onSelectStudent={setCheckinStudent} />}
         {activeTab === 'events' && canManage && <EventsManager events={events} currentEvent={event} students={students} onSelectEvent={handleEventChange} onCreateEvent={handleCreateEvent} onArchiveEvent={handleArchiveEvent} />}
-        {activeTab === 'members' && canManage && <MembersManager organization={organization} />}
+        {activeTab === 'members' && canManage && <MembersManager organization={organization} currentUserId={authUser.uid} />}
         {activeTab === 'history' && <HistoryLog logs={logs} event={event} students={students} organization={organization} onDeleteLog={canManage ? (log) => deleteLogEntry(organization.id, event.id, log) : undefined} />}
       </main>
       {checkinStudent && canOperate && <CheckinPanel student={students.find((item) => item.id === checkinStudent.id) || checkinStudent} currentDoor={currentDoor} onConfirmCheckIn={handleConfirmCheckIn} onClose={() => setCheckinStudent(null)} />}

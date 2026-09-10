@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { AlertTriangle, CheckCircle2, Copy, Eye, KeyRound, MailPlus, ScanLine, Shield, ShieldCheck, UserCog, XCircle } from 'lucide-react';
-import { createInvitation, subscribeToMembers } from '../services/organizations';
+import { AlertTriangle, CheckCircle2, Copy, Eye, KeyRound, MailPlus, ScanLine, Shield, ShieldCheck, Trash2, UserCheck, UserCog, UserX, XCircle } from 'lucide-react';
+import { createInvitation, removeOrganizationMember, subscribeToMembers, updateOrganizationMemberStatus } from '../services/organizations';
 
 const ROLE_LABELS = { admin: 'Administrador', operator: 'Operador de acceso', viewer: 'Solo consulta' };
 
@@ -22,7 +22,7 @@ const ROLE_DETAILS = [
       'Crea, selecciona y archiva eventos; define fecha, cupo inicial, puertas y cursos participantes.',
       'Configura el nombre, logo y color institucional de la escuela.',
       'Corrige la bitácora eliminando registros incorrectos y puede reiniciar toda la asistencia del evento.',
-      'Crea invitaciones para Administradores, Operadores o usuarios de Solo consulta y revisa los miembros activos.'
+      'Crea invitaciones, revisa usuarios activos o deshabilitados, reactiva cuentas y elimina accesos de la escuela.'
     ],
     restricted: [
       'No administra otras escuelas ni funciones globales de la plataforma; esas acciones pertenecen exclusivamente a la cuenta maestra.',
@@ -91,12 +91,13 @@ const PERMISSION_MATRIX = [
   ['Crear invitaciones y consultar miembros', true, false, false]
 ];
 
-export default function MembersManager({ organization }) {
+export default function MembersManager({ organization, currentUserId }) {
   const [members, setMembers] = useState([]);
   const [email, setEmail] = useState('');
   const [role, setRole] = useState('operator');
   const [result, setResult] = useState(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [busyMemberId, setBusyMemberId] = useState('');
 
   useEffect(() => subscribeToMembers(organization.id, setMembers), [organization.id]);
 
@@ -112,6 +113,33 @@ export default function MembersManager({ organization }) {
       alert(`No fue posible crear la invitación: ${error.message}`);
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const handleMemberStatus = async (member) => {
+    const nextStatus = member.status === 'disabled' ? 'active' : 'disabled';
+    const action = nextStatus === 'disabled' ? 'deshabilitar' : 'reactivar';
+    if (!window.confirm(`¿${action[0].toUpperCase()}${action.slice(1)} a ${member.displayName || member.email}?${nextStatus === 'disabled' ? '\n\nPerderá inmediatamente el acceso a esta escuela, pero su cuenta y registro se conservarán.' : '\n\nRecuperará el acceso con el mismo rol que tenía asignado.'}`)) return;
+    setBusyMemberId(member.id);
+    try {
+      await updateOrganizationMemberStatus({ organizationId: organization.id, userId: member.id, status: nextStatus });
+    } catch (error) {
+      alert(`No fue posible ${action} al usuario: ${error.message}`);
+    } finally {
+      setBusyMemberId('');
+    }
+  };
+
+  const handleRemoveMember = async (member) => {
+    const name = member.displayName || member.email;
+    if (!window.confirm(`¿Eliminar el acceso de ${name}?\n\nLa persona dejará de pertenecer a esta escuela y desaparecerá de esta lista. Su cuenta general no se elimina y podrá volver a incorporarse mediante una nueva invitación.`)) return;
+    setBusyMemberId(member.id);
+    try {
+      await removeOrganizationMember({ organizationId: organization.id, userId: member.id });
+    } catch (error) {
+      alert(`No fue posible eliminar el acceso: ${error.message}`);
+    } finally {
+      setBusyMemberId('');
     }
   };
 
@@ -177,14 +205,24 @@ export default function MembersManager({ organization }) {
       )}
 
       <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-        <div className="border-b border-slate-200 px-5 py-4"><h2 className="flex items-center gap-2 font-extrabold text-slate-900"><UserCog className="h-5 w-5 text-sky-600" /> Miembros activos ({members.length})</h2></div>
+        <div className="border-b border-slate-200 px-5 py-4"><h2 className="flex items-center gap-2 font-extrabold text-slate-900"><UserCog className="h-5 w-5 text-sky-600" /> Usuarios de la escuela ({members.length})</h2><p className="mt-1 text-xs text-slate-500">Deshabilitar conserva la cuenta y su rol. Eliminar quita completamente su acceso a esta escuela.</p></div>
         <div className="divide-y divide-slate-100">
-          {members.map((member) => (
-            <div key={member.id} className="flex items-center justify-between gap-3 px-5 py-4">
-              <div><p className="font-bold text-slate-900">{member.displayName || member.email}</p><p className="text-xs text-slate-500">{member.email}</p></div>
-              <span className="inline-flex items-center gap-1 rounded-full bg-sky-100 px-2.5 py-1 text-xs font-bold text-sky-800"><Shield className="h-3.5 w-3.5" /> {ROLE_LABELS[member.role] || member.role}</span>
-            </div>
-          ))}
+          {members.map((member) => {
+            const isOwner = member.id === organization.ownerUid;
+            const isSelf = member.id === currentUserId;
+            const isDisabled = member.status === 'disabled';
+            const isProtected = isOwner || isSelf;
+            return <div key={member.id} className={`flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:justify-between ${isDisabled ? 'bg-slate-50 opacity-75' : ''}`}>
+              <div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><p className="truncate font-bold text-slate-900">{member.displayName || member.email}</p>{isOwner && <span className="rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-extrabold text-violet-800">Propietario</span>}{isSelf && <span className="rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-extrabold text-slate-700">Tu cuenta</span>}</div><p className="truncate text-xs text-slate-500">{member.email}</p></div>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="inline-flex items-center gap-1 rounded-full bg-sky-100 px-2.5 py-1 text-xs font-bold text-sky-800"><Shield className="h-3.5 w-3.5" /> {ROLE_LABELS[member.role] || member.role}</span>
+                <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-bold ${isDisabled ? 'bg-rose-100 text-rose-800' : 'bg-emerald-100 text-emerald-800'}`}>{isDisabled ? <UserX className="h-3.5 w-3.5" /> : <UserCheck className="h-3.5 w-3.5" />}{isDisabled ? 'Deshabilitado' : 'Activo'}</span>
+                <button type="button" disabled={isProtected || busyMemberId === member.id} onClick={() => handleMemberStatus(member)} className={`inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-bold disabled:cursor-not-allowed disabled:opacity-40 ${isDisabled ? 'bg-emerald-100 text-emerald-800 hover:bg-emerald-200' : 'bg-amber-100 text-amber-900 hover:bg-amber-200'}`} title={isProtected ? 'La cuenta propietaria o tu propia cuenta no puede modificarse desde aquí' : ''}>{isDisabled ? <UserCheck className="h-3.5 w-3.5" /> : <UserX className="h-3.5 w-3.5" />}{isDisabled ? 'Reactivar' : 'Deshabilitar'}</button>
+                <button type="button" disabled={isProtected || busyMemberId === member.id} onClick={() => handleRemoveMember(member)} className="inline-flex items-center gap-1 rounded-lg bg-rose-50 px-3 py-1.5 text-xs font-bold text-rose-700 hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-40" title={isProtected ? 'La cuenta propietaria o tu propia cuenta no puede eliminarse' : ''}><Trash2 className="h-3.5 w-3.5" /> Eliminar acceso</button>
+              </div>
+            </div>;
+          })}
+          {!members.length && <p className="p-6 text-center text-sm text-slate-500">No hay usuarios registrados en esta escuela.</p>}
         </div>
       </section>
     </div>

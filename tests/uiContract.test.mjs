@@ -26,6 +26,10 @@ const loginScreen = await readFile(
   new URL('../src/components/LoginScreen.jsx', import.meta.url),
   'utf8'
 );
+const authService = await readFile(
+  new URL('../src/services/auth.js', import.meta.url),
+  'utf8'
+);
 const historyLog = await readFile(
   new URL('../src/components/HistoryLog.jsx', import.meta.url),
   'utf8'
@@ -97,9 +101,16 @@ test('la descarga individual genera solo la credencial seleccionada', () => {
   assert.match(qrPrinter, /Descargar credencial PDF/);
 });
 
-test('el login solo permite ingresar con una cuenta existente', () => {
+test('el login permite cuentas existentes, invitaciones y recuperar la contraseña', () => {
   assert.doesNotMatch(loginScreen, />Nueva escuela</);
-  assert.doesNotMatch(loginScreen, /registerOrganization|joinOrganization/);
+  assert.doesNotMatch(loginScreen, /registerOrganization/);
+  assert.match(loginScreen, /Tengo un código de invitación/);
+  assert.match(loginScreen, /joinOrganization/);
+  assert.match(loginScreen, /¿Olvidaste tu contraseña\?/);
+  assert.match(loginScreen, /requestPasswordReset/);
+  assert.match(authService, /sendPasswordResetEmail/);
+  assert.match(authService, /auth\/email-already-in-use/);
+  assert.match(authService, /signInWithEmailAndPassword\(auth, normalizedEmail, password\)/);
   assert.match(loginScreen, /Correo electrónico/);
   assert.match(loginScreen, /cuentas escolares son creadas por la administración/);
   assert.match(loginScreen, /Acceso Maestro/);

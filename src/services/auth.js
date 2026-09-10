@@ -1,8 +1,10 @@
 import {
   browserLocalPersistence,
   createUserWithEmailAndPassword,
+  deleteUser,
   getAuth,
   onAuthStateChanged,
+  sendPasswordResetEmail,
   setPersistence,
   signInWithEmailAndPassword,
   signOut as firebaseSignOut,
@@ -76,6 +78,14 @@ export async function authenticate(email, password) {
   return credential.user;
 }
 
+export async function requestPasswordReset(email) {
+  const { auth, ready } = requireFirebase();
+  await ready;
+  const normalizedEmail = String(email || '').trim().toLowerCase();
+  if (!normalizedEmail) throw new Error('Ingresa el correo de tu cuenta.');
+  await sendPasswordResetEmail(auth, normalizedEmail);
+}
+
 export async function registerOrganization({ schoolName, email, password }) {
   const { auth, db, ready } = requireFirebase();
   await ready;
@@ -143,15 +153,28 @@ export async function joinOrganization({ invitationCode, email, password }) {
   const { auth, db, ready } = requireFirebase();
   await ready;
   const normalizedCode = invitationCode.trim().toUpperCase();
-  const credential = await createUserWithEmailAndPassword(auth, email.trim(), password);
-  const user = credential.user;
+  const normalizedEmail = email.trim().toLowerCase();
+  if (!normalizedCode) throw new Error('Ingresa el código de invitación.');
+
+  let user;
+  let createdAccount = false;
+  try {
+    const credential = await createUserWithEmailAndPassword(auth, normalizedEmail, password);
+    user = credential.user;
+    createdAccount = true;
+  } catch (error) {
+    if (error?.code !== 'auth/email-already-in-use') throw error;
+    const credential = await signInWithEmailAndPassword(auth, normalizedEmail, password);
+    user = credential.user;
+  }
+
   try {
     const invitationRef = doc(db, 'organizationInvitations', normalizedCode);
     const invitationSnapshot = await getDoc(invitationRef);
     if (!invitationSnapshot.exists()) throw new Error('La invitación no existe.');
     const invitation = invitationSnapshot.data();
     if (invitation.status !== 'active') throw new Error('La invitación ya fue utilizada.');
-    if (invitation.email !== user.email.toLowerCase()) throw new Error('La invitación corresponde a otro correo.');
+    if (String(invitation.email || '').toLowerCase() !== user.email.toLowerCase()) throw new Error('La invitación corresponde a otro correo.');
     if (invitation.expiresAt?.toMillis?.() <= Date.now()) throw new Error('La invitación está vencida.');
 
     const organizationRef = doc(db, 'organizations', invitation.organizationId);
@@ -163,7 +186,7 @@ export async function joinOrganization({ invitationCode, email, password }) {
     batch.set(doc(organizationRef, 'members', user.uid), {
       userId: user.uid,
       email: user.email,
-      displayName: user.email.split('@')[0],
+      displayName: user.displayName || user.email.split('@')[0],
       role: invitation.role,
       status: 'active',
       invitationCode: normalizedCode,
@@ -177,8 +200,11 @@ export async function joinOrganization({ invitationCode, email, password }) {
     await batch.commit();
     return user;
   } catch (error) {
-    try { await user.delete(); } catch (cleanupError) {
-      console.warn('No fue posible revertir la cuenta incompleta:', cleanupError);
+    try {
+      if (createdAccount) await deleteUser(user);
+      else await firebaseSignOut(auth);
+    } catch (cleanupError) {
+      console.warn('No fue posible cerrar el intento de invitación incompleto:', cleanupError);
     }
     throw error;
   }

@@ -1,6 +1,6 @@
 import { deleteApp, initializeApp } from 'firebase/app';
 import { createUserWithEmailAndPassword, deleteUser, getAuth, signInWithEmailAndPassword, signOut } from 'firebase/auth';
-import { collection, doc, getDoc, getDocs, onSnapshot, query, setDoc, Timestamp, updateDoc, where, writeBatch } from 'firebase/firestore';
+import { collection, deleteField, doc, getDoc, getDocs, onSnapshot, query, setDoc, Timestamp, updateDoc, where, writeBatch } from 'firebase/firestore';
 import { getSavedFirebaseConfig, initFirebase } from './firebase';
 import { createOrganizationId, isPlatformAdmin, normalizeOrganization } from './organizationPolicy';
 import { createEventId, normalizeEvent } from './eventPolicy';
@@ -216,6 +216,36 @@ async function deleteDocuments(db, sourceDocuments) {
   }
 }
 
+async function replaceStudentAttendanceSnapshot(db, eventRef, students) {
+  const destination = collection(eventRef, 'students');
+  const existingSnapshot = await getDocs(destination);
+  const existingById = new Map(existingSnapshot.docs.map((item) => [item.id, item]));
+
+  for (let start = 0; start < students.length; start += 400) {
+    const batch = writeBatch(db);
+    students.slice(start, start + 400).forEach((student) => {
+      const existing = existingById.get(student.id);
+      if (existing) batch.update(existing.ref, { maxCapacity: student.maxCapacity });
+      else batch.set(doc(destination, student.id), student);
+    });
+    await batch.commit();
+  }
+
+  const existingStudents = students.filter((student) => existingById.has(student.id));
+  for (let start = 0; start < existingStudents.length; start += 400) {
+    const batch = writeBatch(db);
+    existingStudents.slice(start, start + 400).forEach((student) => {
+      batch.update(existingById.get(student.id).ref, {
+        enteredCount: student.enteredCount,
+        status: student.status,
+        lastEntryAt: student.lastEntryAt || deleteField(),
+        extraGuest: student.extraGuest || deleteField()
+      });
+    });
+    await batch.commit();
+  }
+}
+
 export async function migrateLegacyMundoPalabra({ organizationId, user }) {
   if (organizationId !== 'colegio-mundopalabra') {
     throw new Error('La recuperación anterior solo corresponde a Colegio MundoPalabra.');
@@ -349,7 +379,7 @@ export async function importMundoPalabraReport({ organizationId, user, studentRo
   }));
   const previousLogs = await getDocs(collection(eventRef, 'logs'));
   await deleteDocuments(db, previousLogs.docs);
-  await copyDocuments(db, students.map((student) => ({ id: student.id, data: () => student })), collection(eventRef, 'students'));
+  await replaceStudentAttendanceSnapshot(db, eventRef, students);
   await copyDocuments(db, normalizedLogs.map((log) => ({ id: log.id, data: () => { const { id, ...data } = log; return data; } })), collection(eventRef, 'logs'));
   return {
     eventId,

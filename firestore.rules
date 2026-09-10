@@ -177,7 +177,16 @@ service cloud.firestore {
             && request.resource.data.maxCapacity >= 0
             && request.resource.data.enteredCount <= request.resource.data.maxCapacity + 1;
           allow update: if eventWillBeOpen() && (
-            (isAdmin()
+            (platformAdmin()
+              && request.resource.data.diff(resource.data).affectedKeys()
+                .hasOnly(['maxCapacity', 'enteredCount', 'status', 'lastEntryAt', 'extraGuest'])
+              && request.resource.data.enteredCount is int
+              && request.resource.data.maxCapacity is int
+              && request.resource.data.enteredCount >= 0
+              && request.resource.data.maxCapacity >= 0
+              && request.resource.data.maxCapacity <= 50
+              && request.resource.data.enteredCount <= request.resource.data.maxCapacity + 1)
+            || (isAdmin()
               && request.resource.data.diff(resource.data).affectedKeys()
                 .hasOnly(['rut', 'name', 'rawName', 'course', 'maxCapacity', 'disabled', 'deleted', 'deletedAt'])
               && request.resource.data.maxCapacity is int

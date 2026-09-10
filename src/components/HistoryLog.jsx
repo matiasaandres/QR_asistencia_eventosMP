@@ -16,6 +16,7 @@ export default function HistoryLog({
   logs, 
   event, 
   students,
+  organization,
   onDeleteLog
 }) {
   const [searchTerm, setSearchTerm] = useState('');
@@ -72,7 +73,7 @@ export default function HistoryLog({
         </div>
 
         <button
-          onClick={() => exportToExcel({ event, students, logs })}
+          onClick={() => exportToExcel({ event, students, logs, organization })}
           className="flex items-center justify-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-sm transition-colors"
         >
           <FileSpreadsheet className="w-4 h-4" />

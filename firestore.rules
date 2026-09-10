@@ -54,6 +54,10 @@ service cloud.firestore {
           && data.name is string
           && data.name.size() >= 2
           && data.name.size() <= 100
+          && data.logoUrl is string
+          && data.logoUrl.size() <= 700000
+          && data.primaryColor is string
+          && data.primaryColor.matches('^#[0-9A-Fa-f]{6}$')
           && data.ownerUid is string
           && data.memberUids is list
           && data.memberUids.size() >= 1

@@ -24,6 +24,8 @@ export function normalizeOrganization(data = {}) {
     id: String(data.id || data.slug || '').trim(),
     slug: String(data.slug || data.id || '').trim(),
     name: String(data.name || 'Organización sin nombre').trim(),
+    logoUrl: String(data.logoUrl || '').trim(),
+    primaryColor: /^#[0-9a-f]{6}$/i.test(String(data.primaryColor || '')) ? data.primaryColor : '#0284c7',
     ownerUid,
     memberUids,
     plan: ORGANIZATION_PLANS.includes(data.plan) ? data.plan : 'pilot',

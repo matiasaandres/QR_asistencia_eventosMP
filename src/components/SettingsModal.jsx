@@ -13,18 +13,48 @@ import {
   ExternalLink,
   HelpCircle,
   ShieldCheck,
-  AlertTriangle
+  AlertTriangle,
+  ImagePlus,
+  Palette,
+  Trash2
 } from 'lucide-react';
-import { 
+import {
   getSavedFirebaseConfig, 
   saveFirebaseConfig, 
   resetFirebase 
 } from '../services/firebase';
 
+function optimizeLogo(file) {
+  return new Promise((resolve, reject) => {
+    if (!file?.type?.startsWith('image/')) return reject(new Error('Selecciona un archivo de imagen.'));
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('No fue posible leer la imagen.'));
+    reader.onload = () => {
+      const image = new Image();
+      image.onerror = () => reject(new Error('El archivo no contiene una imagen válida.'));
+      image.onload = () => {
+        const maxSide = 520;
+        const scale = Math.min(1, maxSide / Math.max(image.width, image.height));
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, Math.round(image.width * scale));
+        canvas.height = Math.max(1, Math.round(image.height * scale));
+        const context = canvas.getContext('2d');
+        context.clearRect(0, 0, canvas.width, canvas.height);
+        context.drawImage(image, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL('image/png'));
+      };
+      image.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
 export default function SettingsModal({ 
   isOpen, 
   onClose, 
   event, 
+  organization,
+  onSaveOrganization,
   onSaveEvent, 
   currentDoor, 
   onDoorChange, 
@@ -36,6 +66,11 @@ export default function SettingsModal({
   const [defaultCap, setDefaultCap] = useState(event?.defaultCapacity || 5);
   const [doorName, setDoorName] = useState(currentDoor);
   const [doorsListStr, setDoorsListStr] = useState((event?.doors || []).join(', '));
+  const [schoolName, setSchoolName] = useState(organization?.name || '');
+  const [logoUrl, setLogoUrl] = useState(organization?.logoUrl || '');
+  const [primaryColor, setPrimaryColor] = useState(organization?.primaryColor || '#0284c7');
+  const [isSavingBrand, setIsSavingBrand] = useState(false);
+  const [brandError, setBrandError] = useState('');
 
   // Firebase Config State
   const [firebaseJson, setFirebaseJson] = useState('');
@@ -50,6 +85,10 @@ export default function SettingsModal({
       setDefaultCap(event?.defaultCapacity || 5);
       setDoorName(currentDoor);
       setDoorsListStr((event?.doors || []).join(', '));
+      setSchoolName(organization?.name || '');
+      setLogoUrl(organization?.logoUrl || '');
+      setPrimaryColor(organization?.primaryColor || '#0284c7');
+      setBrandError('');
 
       const existingConfig = getSavedFirebaseConfig();
       if (existingConfig) {
@@ -60,7 +99,7 @@ export default function SettingsModal({
         setFbStatus('LOCAL_ONLY');
       }
     }
-  }, [isOpen, event, currentDoor]);
+  }, [isOpen, event, currentDoor, organization]);
 
   if (!isOpen) return null;
 
@@ -125,6 +164,32 @@ export default function SettingsModal({
     }
   };
 
+  const handleLogoChange = async (changeEvent) => {
+    const file = changeEvent.target.files?.[0];
+    if (!file) return;
+    setBrandError('');
+    try {
+      setLogoUrl(await optimizeLogo(file));
+    } catch (error) {
+      setBrandError(error.message);
+    } finally {
+      changeEvent.target.value = '';
+    }
+  };
+
+  const handleSaveBrand = async (submitEvent) => {
+    submitEvent.preventDefault();
+    setBrandError('');
+    setIsSavingBrand(true);
+    try {
+      await onSaveOrganization({ name: schoolName, logoUrl, primaryColor });
+    } catch (error) {
+      setBrandError(error.message || 'No fue posible guardar la identidad de la escuela.');
+    } finally {
+      setIsSavingBrand(false);
+    }
+  };
+
   const handleResetDataClick = async () => {
     if (confirm("¿Estás seguro de que deseas reiniciar todos los ingresos del evento? Los estudiantes volverán a tener 0 personas registradas.")) {
       setIsResetting(true);
@@ -151,8 +216,8 @@ export default function SettingsModal({
               <Settings className="w-5 h-5 text-sky-400" />
             </div>
             <div>
-              <h2 className="font-extrabold text-lg">Configuración del evento</h2>
-              <p className="text-xs text-slate-400">Ajustes de evento y puntos de acceso</p>
+              <h2 className="font-extrabold text-lg">Configuración de la escuela</h2>
+              <p className="text-xs text-slate-400">Identidad institucional, evento y accesos</p>
             </div>
           </div>
           <button
@@ -164,6 +229,38 @@ export default function SettingsModal({
         </div>
 
         <div className="p-6 space-y-6 max-h-[75vh] overflow-y-auto text-xs">
+          <form onSubmit={handleSaveBrand} className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+            <div className="flex items-center gap-2 border-b border-slate-100 bg-slate-50 px-4 py-3">
+              <School className="h-4 w-4 text-sky-600" />
+              <div><h3 className="text-sm font-extrabold text-slate-900">Identidad institucional</h3><p className="text-[11px] text-slate-500">Se aplicará en la app, credenciales e informes PDF.</p></div>
+            </div>
+            <div className="grid gap-5 p-4 sm:grid-cols-[150px_1fr]">
+              <div className="space-y-2">
+                <div className="flex h-32 w-full items-center justify-center overflow-hidden rounded-2xl border-2 border-dashed border-slate-200 bg-slate-50">
+                  {logoUrl ? <img src={logoUrl} alt="Vista previa del logo" className="h-full w-full object-contain p-3" /> : <ImagePlus className="h-9 w-9 text-slate-300" />}
+                </div>
+                <label className="flex cursor-pointer items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 font-bold text-slate-700 hover:border-sky-300 hover:text-sky-700">
+                  <ImagePlus className="h-3.5 w-3.5" /> Elegir logo
+                  <input type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" onChange={handleLogoChange} className="sr-only" />
+                </label>
+                {logoUrl && <button type="button" onClick={() => setLogoUrl('')} className="flex w-full items-center justify-center gap-1 text-[11px] font-bold text-rose-600"><Trash2 className="h-3 w-3" /> Quitar logo</button>}
+              </div>
+              <div className="space-y-4">
+                <label className="block font-bold text-slate-700">Nombre de la escuela
+                  <input required minLength="2" maxLength="100" value={schoolName} onChange={(e) => setSchoolName(e.target.value)} className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50 p-2.5 text-sm font-semibold outline-none focus:border-sky-500 focus:bg-white focus:ring-2 focus:ring-sky-100" />
+                </label>
+                <label className="block font-bold text-slate-700">Color institucional
+                  <span className="mt-1.5 flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 p-2">
+                    <input type="color" value={primaryColor} onChange={(e) => setPrimaryColor(e.target.value)} className="h-9 w-12 cursor-pointer rounded-lg border-0 bg-transparent p-0" />
+                    <Palette className="h-4 w-4 text-slate-400" /><span className="font-mono text-xs uppercase text-slate-600">{primaryColor}</span>
+                  </span>
+                </label>
+                <p className="text-[11px] leading-relaxed text-slate-500">Recomendado: imagen PNG o SVG cuadrada, con fondo transparente. La aplicación la optimiza automáticamente.</p>
+                {brandError && <p role="alert" className="rounded-lg bg-rose-50 px-3 py-2 font-semibold text-rose-700">{brandError}</p>}
+                <button disabled={isSavingBrand} className="flex items-center gap-1.5 rounded-xl px-4 py-2.5 font-extrabold text-white shadow-sm disabled:opacity-60" style={{ backgroundColor: primaryColor }}><Save className="h-3.5 w-3.5" /> {isSavingBrand ? 'Guardando…' : 'Guardar identidad'}</button>
+              </div>
+            </div>
+          </form>
           
           {/* Section 1: Event Info */}
           <form onSubmit={handleSaveGeneral} className="space-y-4 bg-slate-50 border border-slate-200 p-4 rounded-2xl">

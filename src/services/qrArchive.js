@@ -43,7 +43,7 @@ function addCenteredWrappedText(pdf, text, y, maxWidth, fontSize, lineHeight = 1
   return y + (lines.length * fontSize * 0.3528 * lineHeight);
 }
 
-export async function createStudentQrPdf({ student, event }) {
+export async function createStudentQrPdf({ student, event, organization }) {
   if (!student?.id || !student?.name || !student?.course) {
     throw new Error('El alumno debe tener código, nombre y curso para generar su PDF.');
   }
@@ -56,7 +56,7 @@ export async function createStudentQrPdf({ student, event }) {
     compress: true
   });
   const eventName = event?.name || 'Control de Acceso';
-  const institutionName = event?.institution || 'Acceso Escolar';
+  const institutionName = organization?.name || event?.institution || 'Acceso Escolar';
   const qrDataUrl = await QRCode.toDataURL(String(student.id), {
     width: 700,
     margin: 2,
@@ -90,13 +90,17 @@ export async function createStudentQrPdf({ student, event }) {
   pdf.setLineWidth(0.7);
   pdf.roundedRect(cardX, cardY, cardWidth, cardHeight, 5, 5, 'FD');
 
-  // Header: generic access mark, institution/event and course badge.
-  pdf.setFillColor(2, 132, 199);
-  pdf.roundedRect(contentLeft, cardY + 10, 14, 14, 2.5, 2.5, 'F');
-  pdf.setTextColor(255, 255, 255);
-  pdf.setFont('helvetica', 'bold');
-  pdf.setFontSize(8.5);
-  pdf.text('QR', contentLeft + 7, cardY + 18.8, { align: 'center' });
+  // Institutional identity in the credential header.
+  if (organization?.logoUrl?.startsWith('data:image/')) {
+    pdf.addImage(organization.logoUrl, 'PNG', contentLeft, cardY + 8, 18, 18, undefined, 'FAST');
+  } else {
+    pdf.setFillColor(2, 132, 199);
+    pdf.roundedRect(contentLeft, cardY + 10, 14, 14, 2.5, 2.5, 'F');
+    pdf.setTextColor(255, 255, 255);
+    pdf.setFont('helvetica', 'bold');
+    pdf.setFontSize(8.5);
+    pdf.text('QR', contentLeft + 7, cardY + 18.8, { align: 'center' });
+  }
 
   pdf.setTextColor(15, 23, 42);
   pdf.setFontSize(11.5);
@@ -173,7 +177,7 @@ export async function createStudentQrPdf({ student, event }) {
   return new Uint8Array(pdf.output('arraybuffer'));
 }
 
-export async function createStudentQrArchive({ students, event, onProgress }) {
+export async function createStudentQrArchive({ students, event, organization, onProgress }) {
   if (!Array.isArray(students) || students.length === 0) {
     throw new Error('No hay estudiantes disponibles para generar el archivo ZIP.');
   }
@@ -199,7 +203,7 @@ export async function createStudentQrArchive({ students, event, onProgress }) {
     }
 
     usedPaths.add(fullPath.toLocaleLowerCase('es'));
-    const pdfBytes = await createStudentQrPdf({ student, event });
+    const pdfBytes = await createStudentQrPdf({ student, event, organization });
     zip.folder(folderName).file(uniqueFileName, pdfBytes, { binary: true });
     onProgress?.({ phase: 'pdfs', current: index + 1, total: orderedStudents.length });
 

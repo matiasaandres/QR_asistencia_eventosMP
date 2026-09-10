@@ -1,8 +1,16 @@
 import * as XLSX from 'xlsx';
 import { getCapacityState } from './checkinPolicy';
 
-export function exportToExcel({ event, students, logs }) {
+export function exportToExcel({ event, students, logs, organization }) {
   const wb = XLSX.utils.book_new();
+
+  const wsOverview = XLSX.utils.aoa_to_sheet([
+    ['Escuela', organization?.name || event?.institution || 'Acceso Escolar'],
+    ['Evento', event?.name || 'Evento'],
+    ['Fecha del evento', event?.date || ''],
+    ['Generado', new Date().toLocaleString('es-CL')]
+  ]);
+  XLSX.utils.book_append_sheet(wb, wsOverview, 'Información');
 
   // 1. Resumen por Estudiante
   const studentsData = students.map((s) => {

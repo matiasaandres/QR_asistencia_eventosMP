@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
-import { Building2, CheckCircle2, ExternalLink, LogOut, Plus, ShieldCheck, XCircle } from 'lucide-react';
+import { CheckCircle2, ExternalLink, LogOut, Plus, ShieldCheck, XCircle } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import OrganizationLogo from './OrganizationLogo.jsx';
 
 const PLAN_LABELS = { pilot: 'Piloto', event: 'Por evento', monthly: 'Mensual', annual: 'Anual' };
 
@@ -147,7 +148,7 @@ export default function MasterDashboard({ organizations, user, onCreate, onAssig
             {organizations.map((organization) => (
               <article key={organization.id} className="p-4">
                 <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
-                  <Building2 className="hidden h-6 w-6 text-sky-600 sm:block" />
+                  <OrganizationLogo organization={organization} className="hidden h-11 w-11 rounded-xl border sm:flex" iconClassName="h-6 w-6" />
                   <div className="min-w-0 flex-1"><h3 className="font-extrabold text-slate-950">{organization.name}</h3><p className="truncate text-xs text-slate-500">{organization.contactEmail || 'Cuenta escolar pendiente de asignar'} · {PLAN_LABELS[organization.plan] || organization.plan}</p></div>
                   <span className={`inline-flex w-fit items-center gap-1 rounded-full px-2.5 py-1 text-xs font-bold ${organization.status === 'active' ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'}`}>{organization.status === 'active' ? <CheckCircle2 className="h-3.5 w-3.5" /> : <XCircle className="h-3.5 w-3.5" />}{organization.status === 'active' ? 'Activa' : 'Suspendida'}</span>
                   <div className="flex flex-wrap gap-2">

@@ -42,6 +42,8 @@ const organizationsService = await readFile(
   new URL('../src/services/organizations.js', import.meta.url),
   'utf8'
 );
+const settingsModal = await readFile(new URL('../src/components/SettingsModal.jsx', import.meta.url), 'utf8');
+const app = await readFile(new URL('../src/App.jsx', import.meta.url), 'utf8');
 
 test('seleccionar cantidad no registra automáticamente y muestra confirmación', () => {
   assert.match(checkinPanel, /onClick=\{\(\) => setSelectedCount\(num\)\}/);
@@ -143,4 +145,13 @@ test('el panel en vivo incorpora estadísticas y gráficos operativos', () => {
   assert.match(dashboard, /capacityPercentage/);
   assert.match(dashboard, /conic-gradient/);
   assert.match(dashboard, /activityByHour/);
+});
+
+test('cada escuela puede aplicar su logo e identidad en la app y los informes', () => {
+  assert.match(settingsModal, /Identidad institucional/);
+  assert.match(settingsModal, /accept="image\/png,image\/jpeg,image\/webp,image\/svg\+xml"/);
+  assert.match(settingsModal, /onSaveOrganization/);
+  assert.match(organizationsService, /updateOrganizationBrand/);
+  assert.match(app, /organization=\{organization\}/);
+  assert.match(dashboard, /OrganizationLogo/);
 });

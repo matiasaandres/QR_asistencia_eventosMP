@@ -25,6 +25,7 @@ import {
   restoreMundoPalabraStudentStates,
   subscribeToAllOrganizations,
   updateOrganizationStatus,
+  updateOrganizationBrand,
   subscribeToMembership,
   subscribeToOrganizations
 } from './services/organizations';
@@ -180,6 +181,8 @@ export default function App() {
     return normalized;
   };
 
+  const handleSaveOrganizationBrand = (brand) => updateOrganizationBrand(organization.id, brand);
+
   const handleEventChange = (eventOrId) => {
     const selectedId = typeof eventOrId === 'string' ? eventOrId : eventOrId?.id;
     const selected = events.find((item) => item.id === selectedId && !item.archived);
@@ -251,15 +254,15 @@ export default function App() {
       <main className="flex-1 pb-16">
         {activeTab === 'scan' && canOperate && <ScannerModal onScanResult={handleScanResult} onSwitchToManualSearch={() => setActiveTab('search')} currentDoor={currentDoor} />}
         {activeTab === 'search' && canOperate && <ManualSearch students={students} onSelectStudent={setCheckinStudent} onViewQR={(student) => { setPrintStudent(student); setShowPrinter(true); }} />}
-        {activeTab === 'dashboard' && <Dashboard event={event} students={students} logs={logs} />}
+        {activeTab === 'dashboard' && <Dashboard event={event} students={students} logs={logs} organization={organization} />}
         {activeTab === 'students' && canManage && <StudentsManager students={students} onSaveStudents={(updated) => saveStudentsList(organization.id, event.id, updated)} onSaveCapacities={(updates) => saveStudentCapacities(organization.id, event.id, updates)} onDeleteStudents={(ids) => deleteStudents(organization.id, event.id, ids)} onOpenCardPrinter={(student) => { setPrintStudent(student); setShowPrinter(true); }} onSelectStudent={setCheckinStudent} />}
         {activeTab === 'events' && canManage && <EventsManager events={events} currentEvent={event} students={students} onSelectEvent={handleEventChange} onCreateEvent={handleCreateEvent} onArchiveEvent={handleArchiveEvent} />}
         {activeTab === 'members' && canManage && <MembersManager organization={organization} />}
-        {activeTab === 'history' && <HistoryLog logs={logs} event={event} students={students} onDeleteLog={canManage ? (log) => deleteLogEntry(organization.id, event.id, log) : undefined} />}
+        {activeTab === 'history' && <HistoryLog logs={logs} event={event} students={students} organization={organization} onDeleteLog={canManage ? (log) => deleteLogEntry(organization.id, event.id, log) : undefined} />}
       </main>
       {checkinStudent && canOperate && <CheckinPanel student={students.find((item) => item.id === checkinStudent.id) || checkinStudent} currentDoor={currentDoor} onConfirmCheckIn={handleConfirmCheckIn} onClose={() => setCheckinStudent(null)} />}
-      {showPrinter && <QRCardPrinter students={students} selectedStudent={printStudent} event={event} onClose={() => { setShowPrinter(false); setPrintStudent(null); }} />}
-      {canManage && <SettingsModal isOpen={showSettings} onClose={() => setShowSettings(false)} event={event} onSaveEvent={handleSaveEvent} currentDoor={currentDoor} onDoorChange={handleDoorChange} onResetData={() => resetEventData(organization.id, event.id)} />}
+      {showPrinter && <QRCardPrinter students={students} selectedStudent={printStudent} event={event} organization={organization} onClose={() => { setShowPrinter(false); setPrintStudent(null); }} />}
+      {canManage && <SettingsModal isOpen={showSettings} onClose={() => setShowSettings(false)} event={event} organization={organization} onSaveOrganization={handleSaveOrganizationBrand} onSaveEvent={handleSaveEvent} currentDoor={currentDoor} onDoorChange={handleDoorChange} onResetData={() => resetEventData(organization.id, event.id)} />}
     </div>
   );
 }

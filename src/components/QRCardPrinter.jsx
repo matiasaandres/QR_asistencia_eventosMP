@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import QRCode from 'qrcode';
 import { getCapacityState } from '../services/checkinPolicy';
 import { createStudentQrArchive } from '../services/qrArchive';
+import OrganizationLogo from './OrganizationLogo.jsx';
 import { 
   Printer, 
   Download, 
@@ -55,6 +56,7 @@ export default function QRCardPrinter({
   students, 
   selectedStudent = null, 
   event, 
+  organization,
   onClose 
 }) {
   const [filterCourse, setFilterCourse] = useState('ALL');
@@ -119,6 +121,7 @@ export default function QRCardPrinter({
       const archive = await createStudentQrArchive({
         students: eligibleStudents,
         event,
+        organization,
         onProgress: setArchiveProgress
       });
       const blob = new Blob([archive.bytes], { type: 'application/zip' });
@@ -248,16 +251,14 @@ export default function QRCardPrinter({
               {/* Header */}
               <div className="flex items-center justify-between border-b border-slate-200 pb-3">
                 <div className="flex items-center gap-2">
-                  <div className="w-8 h-8 rounded-lg bg-sky-600 flex items-center justify-center text-white font-bold text-xs shadow-sm">
-                    MP
-                  </div>
+                  <OrganizationLogo organization={organization} className="h-9 w-9 rounded-lg border shadow-sm" iconClassName="h-5 w-5" />
                   <div>
-                    <h3 className="font-extrabold text-sm text-slate-900 tracking-tight">{event?.institution || 'Acceso Escolar'}</h3>
+                    <h3 className="font-extrabold text-sm text-slate-900 tracking-tight">{organization?.name || event?.institution || 'Acceso Escolar'}</h3>
                     <p className="text-[10px] text-slate-500 font-medium">{event?.name || 'Control de Acceso'}</p>
                   </div>
                 </div>
 
-                <span className="text-[11px] font-bold text-sky-800 bg-sky-50 border border-sky-200 px-2 py-0.5 rounded-full">
+                <span className="text-[11px] font-bold bg-slate-50 border border-slate-200 px-2 py-0.5 rounded-full" style={{ color: organization?.primaryColor || '#075985' }}>
                   {student.course}
                 </span>
               </div>

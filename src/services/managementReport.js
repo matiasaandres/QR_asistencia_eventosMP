@@ -69,7 +69,7 @@ export function buildManagementReportData({ students = [], logs = [] }) {
 }
 
 // Vector text and charts keep the report searchable and sharp when printed.
-export async function createManagementReportPdf({ event, students = [], logs = [], generatedAt = new Date(), demo = false }) {
+export async function createManagementReportPdf({ event, organization, students = [], logs = [], generatedAt = new Date(), demo = false }) {
   const { jsPDF } = await import('jspdf');
   const data = buildManagementReportData({ students, logs });
   const doc = new jsPDF({ unit: 'mm', format: 'a4', compress: true });
@@ -86,8 +86,14 @@ export async function createManagementReportPdf({ event, students = [], logs = [
   function page() {
     if (y) doc.addPage();
     doc.setFillColor(...ink); doc.rect(0, 0, 210, 21, 'F');
-    font(10, true, [255, 255, 255]); doc.text('INFORME DE ASISTENCIA AL EVENTO', 18, 10);
-    font(8, false, [218, 230, 240]); doc.text(demo ? 'DEMOSTRACIÓN - DATOS FICTICIOS' : 'DIRECCIÓN Y UNIDAD TÉCNICO-PEDAGÓGICA', 18, 16);
+    let headerX = 18;
+    if (organization?.logoUrl?.startsWith('data:image/')) {
+      doc.setFillColor(255, 255, 255); doc.roundedRect(18, 2.5, 16, 16, 2, 2, 'F');
+      try { doc.addImage(organization.logoUrl, 'PNG', 19, 3.5, 14, 14, undefined, 'FAST'); headerX = 39; } catch (error) { /* El informe sigue disponible aunque el logo esté dañado. */ }
+    }
+    font(10, true, [255, 255, 255]); doc.text('INFORME DE ASISTENCIA AL EVENTO', headerX, 9);
+    font(7.5, false, [218, 230, 240]); doc.text(safe(organization?.name || event?.institution || 'Acceso Escolar'), headerX, 14);
+    font(7, false, [218, 230, 240]); doc.text(demo ? 'DEMOSTRACIÓN - DATOS FICTICIOS' : 'DIRECCIÓN Y UNIDAD TÉCNICO-PEDAGÓGICA', headerX, 18);
     y = 32;
   }
   function ensure(height) { if (y + height > 273) page(); }
@@ -246,7 +252,7 @@ export async function createManagementReportPdf({ event, students = [], logs = [
     font(8, false, muted); doc.text('Dirección y UTP | Informe de participación en el evento', 18, 286);
     doc.text(`${i} / ${pages}`, 192, 286, { align: 'right' });
   }
-  doc.setProperties({ title: `Informe de asistencia - ${safe(event?.name || 'Evento')}`, subject: 'Reporte de gestión para Dirección y UTP', author: event?.institution || 'Acceso Escolar' });
+  doc.setProperties({ title: `Informe de asistencia - ${safe(event?.name || 'Evento')}`, subject: 'Reporte de gestión para Dirección y UTP', author: organization?.name || event?.institution || 'Acceso Escolar' });
   return doc;
 }
 

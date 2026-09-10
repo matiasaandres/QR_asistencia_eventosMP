@@ -141,6 +141,24 @@ export async function updateOrganizationStatus(organizationId, status) {
   });
 }
 
+export async function updateOrganizationBrand(organizationId, { name, logoUrl, primaryColor }) {
+  const { db } = initFirebase();
+  if (!db || !organizationId) throw new Error('No fue posible conectar con la escuela.');
+  const cleanName = String(name || '').trim();
+  const cleanLogo = String(logoUrl || '').trim();
+  const cleanColor = String(primaryColor || '').trim();
+  if (cleanName.length < 2 || cleanName.length > 100) throw new Error('El nombre debe tener entre 2 y 100 caracteres.');
+  if (cleanLogo && !cleanLogo.startsWith('data:image/')) throw new Error('El logo seleccionado no es una imagen válida.');
+  if (cleanLogo.length > 700000) throw new Error('El logo es demasiado pesado. Selecciona una imagen más liviana.');
+  if (!/^#[0-9a-f]{6}$/i.test(cleanColor)) throw new Error('El color institucional no es válido.');
+  await updateDoc(doc(db, 'organizations', organizationId), {
+    name: cleanName,
+    logoUrl: cleanLogo,
+    primaryColor: cleanColor,
+    updatedAt: new Date().toISOString()
+  });
+}
+
 export async function assignSchoolAdministrator({ organizationId, adminEmail, password, masterUser }) {
   const { db } = initFirebase();
   if (!db || !isPlatformAdmin(masterUser)) throw new Error('Solo la cuenta maestra puede asignar cuentas escolares.');

@@ -2,7 +2,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { getCapacityState, createCheckInPlan } from '../src/services/checkinPolicy.js';
 import { prepareStudentsForEvent } from '../src/services/eventPolicy.js';
-import { getUniqueCapacityStudents, hydrateFamilyCapacities, stripFamilyCapacityProjection } from '../src/services/familyPolicy.js';
+import {
+  createFamilyCodeGenerator,
+  getUniqueCapacityStudents,
+  hydrateFamilyCapacities,
+  stripFamilyCapacityProjection
+} from '../src/services/familyPolicy.js';
 
 const siblings = [
   {
@@ -14,6 +19,15 @@ const siblings = [
     familyOwnerId: 'MP-001', maxCapacity: 4, enteredCount: 0, status: 'PENDIENTE'
   }
 ];
+
+test('genera códigos familiares consecutivos sin permitir que el usuario los defina', () => {
+  const generate = createFamilyCodeGenerator([
+    { familyId: 'FAM-2026-001' },
+    { familyId: 'fam-2026-003' }
+  ], 2026);
+  assert.equal(generate(), 'FAM-2026-002');
+  assert.equal(generate(), 'FAM-2026-004');
+});
 
 test('los hermanos muestran y consumen el mismo cupo familiar', () => {
   const hydrated = hydrateFamilyCapacities(siblings);

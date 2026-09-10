@@ -20,8 +20,10 @@ import {
 } from 'lucide-react';
 import { getCapacityState, normalizeCapacityValue } from '../services/checkinPolicy';
 import { createStudentCodeGenerator } from '../services/studentCodes';
+import { createFamilyCodeGenerator } from '../services/familyPolicy';
 
 const BULK_IMPORT_TEMPLATE_PATH = '/Plantilla_Carga_Masiva_MundoPalabra.xlsx';
+const NEW_FAMILY_VALUE = '__NEW_FAMILY__';
 
 const ROSTER_STATUS = {
   RETIRED: { label: 'RETIRADO', className: 'bg-slate-200 text-slate-700' },
@@ -55,19 +57,34 @@ export default function StudentsManager({
   const [newStudent, setNewStudent] = useState({
     name: '',
     course: '',
-    familyId: '',
+    familySelection: '',
     maxCapacity: 4
   });
   const [importStatus, setImportStatus] = useState(null);
   const [bulkCapacity, setBulkCapacity] = useState(4);
   const [editingStudent, setEditingStudent] = useState(null);
   const [studentCapacity, setStudentCapacity] = useState(4);
-  const [studentFamilyId, setStudentFamilyId] = useState('');
+  const [studentFamilySelection, setStudentFamilySelection] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [courseToDelete, setCourseToDelete] = useState('');
   const [courseFilter, setCourseFilter] = useState('ALL');
   const [capacityFilter, setCapacityFilter] = useState('ALL');
   const [statusFilter, setStatusFilter] = useState('ALL');
+
+  const familyOptions = [...new Set(students.map((student) => student.familyId).filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b, 'es', { numeric: true }))
+    .map((familyId) => ({
+      id: familyId,
+      members: students
+        .filter((student) => student.familyId === familyId)
+        .map((student) => student.name)
+        .sort((a, b) => a.localeCompare(b, 'es'))
+    }));
+
+  const familyLabel = (familyId) => {
+    const family = familyOptions.find((option) => option.id === familyId);
+    return family ? family.members.join(' / ') : 'Cupo individual';
+  };
 
   const showStatus = (message) => {
     setImportStatus(message);
@@ -110,7 +127,7 @@ export default function StudentsManager({
   const openCapacityEditor = (student) => {
     setEditingStudent(student);
     setStudentCapacity(getCapacityState(student).maxCapacity);
-    setStudentFamilyId(student.familyId || '');
+    setStudentFamilySelection(student.familyId || '');
   };
 
   const handleStudentCapacity = async (event) => {
@@ -125,7 +142,10 @@ export default function StudentsManager({
 
     setIsSaving(true);
     try {
-      await onSaveFamily(editingStudent.id, studentFamilyId);
+      const familyId = studentFamilySelection === NEW_FAMILY_VALUE
+        ? createFamilyCodeGenerator(students)()
+        : studentFamilySelection;
+      await onSaveFamily(editingStudent.id, familyId);
       await onSaveCapacities([{ id: editingStudent.id, maxCapacity: nextCapacity }]);
       showStatus(`Familia y cupo de ${editingStudent.name} actualizados.`);
       setEditingStudent(null);
@@ -239,18 +259,21 @@ export default function StudentsManager({
     // Use a time-based suffix so a newly created student cannot reuse the
     // document ID of a soft-deleted record that is hidden from this roster.
     const nextId = `MP-${new Date().getFullYear()}-${Date.now().toString(36).toUpperCase()}`;
+    const familyId = newStudent.familySelection === NEW_FAMILY_VALUE
+      ? createFamilyCodeGenerator(students)()
+      : newStudent.familySelection;
     const studentObj = {
       id: nextId,
       name: newStudent.name.trim(),
       course: newStudent.course.trim(),
-      ...(newStudent.familyId.trim() ? { familyId: newStudent.familyId.trim().toLocaleUpperCase('es') } : {}),
+      ...(familyId ? { familyId } : {}),
       maxCapacity: Math.max(1, normalizeCapacityValue(newStudent.maxCapacity)),
       enteredCount: 0,
       status: 'PENDIENTE'
     };
 
     onSaveStudents([...students, studentObj]);
-    setNewStudent({ name: '', course: '', familyId: '', maxCapacity: 4 });
+    setNewStudent({ name: '', course: '', familySelection: '', maxCapacity: 4 });
     setShowAddModal(false);
   };
 
@@ -273,18 +296,24 @@ export default function StudentsManager({
         }
 
         const generateStudentCode = createStudentCodeGenerator(students);
+        const generateFamilyCode = createFamilyCodeGenerator(students);
+        const importedFamilies = new Map();
         const newEntries = importRows.map((row, idx) => {
           const name = row['Nombre'] || row['Estudiante'] || row['Alumno'] || row['Nombre Estudiante'] || `Estudiante ${idx + 1}`;
           const course = row['Curso'] || row['Nivel'] || 'General';
           const rawCapacity = row['Capacidad'] ?? row['Cupos'] ?? row['Maximo'];
           const familyId = row['Familia'] ?? row['Código Familia'] ?? row['Codigo Familia'] ?? '';
           const maxCap = normalizeCapacityValue(rawCapacity, 4);
+          const familyGroup = String(familyId).trim().toLocaleUpperCase('es');
+          if (familyGroup && !importedFamilies.has(familyGroup)) {
+            importedFamilies.set(familyGroup, generateFamilyCode());
+          }
 
           return {
             id: generateStudentCode(),
             name: String(name),
             course: String(course),
-            ...(String(familyId).trim() ? { familyId: String(familyId).trim().toLocaleUpperCase('es') } : {}),
+            ...(familyGroup ? { familyId: importedFamilies.get(familyGroup) } : {}),
             maxCapacity: maxCap,
             enteredCount: 0,
             status: maxCap === 0 ? 'RETIRADO' : 'PENDIENTE'
@@ -593,7 +622,7 @@ export default function StudentsManager({
                         </span>
                       </td>
                       <td className="py-3 px-4 font-mono text-[11px] font-bold text-violet-700">
-                        {s.familyId || 'Individual'}
+                        {s.familyId ? familyLabel(s.familyId) : 'Individual'}
                       </td>
                       <td className="py-3 px-4 text-center font-semibold text-slate-700">
                         {entered} de {maxCap}
@@ -700,15 +729,19 @@ export default function StudentsManager({
               </div>
 
               <div>
-                <label className="font-bold text-slate-700 block mb-1">Código de familia (opcional):</label>
-                <input
-                  type="text"
-                  value={newStudent.familyId}
-                  onChange={(e) => setNewStudent({ ...newStudent, familyId: e.target.value })}
-                  placeholder="Ej: FAM-PEREZ-01"
+                <label className="font-bold text-slate-700 block mb-1">Familia:</label>
+                <select
+                  value={newStudent.familySelection}
+                  onChange={(e) => setNewStudent({ ...newStudent, familySelection: e.target.value })}
                   className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-sky-500"
-                />
-                <p className="mt-1 text-[11px] text-slate-500">Usa el mismo código para hermanos que compartirán el cupo.</p>
+                >
+                  <option value="">Cupo individual</option>
+                  <option value={NEW_FAMILY_VALUE}>Crear una nueva familia automáticamente</option>
+                  {familyOptions.map((family) => (
+                    <option key={family.id} value={family.id}>Unir a: {family.members.join(' / ')}</option>
+                  ))}
+                </select>
+                <p className="mt-1 text-[11px] text-slate-500">El código interno se genera automáticamente y no puede editarse.</p>
               </div>
 
               <div className="flex items-center justify-end gap-2 pt-3">
@@ -746,16 +779,20 @@ export default function StudentsManager({
             </div>
             <form onSubmit={handleStudentCapacity} className="mt-5 space-y-4">
               <div>
-                <label htmlFor="student-family" className="mb-1.5 block text-xs font-bold text-slate-700">Código de familia</label>
-                <input
+                <label htmlFor="student-family" className="mb-1.5 block text-xs font-bold text-slate-700">Familia</label>
+                <select
                   id="student-family"
-                  type="text"
-                  value={studentFamilyId}
-                  onChange={(event) => setStudentFamilyId(event.target.value)}
-                  placeholder="Vacío = cupo individual"
-                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm font-bold uppercase outline-none focus:border-sky-500 focus:ring-2 focus:ring-sky-100"
-                />
-                <p className="mt-1.5 text-[11px] text-slate-500">Los alumnos con el mismo código comparten ingresos y cupo en este evento.</p>
+                  value={studentFamilySelection}
+                  onChange={(event) => setStudentFamilySelection(event.target.value)}
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm font-bold outline-none focus:border-sky-500 focus:ring-2 focus:ring-sky-100"
+                >
+                  <option value="">Cupo individual</option>
+                  <option value={NEW_FAMILY_VALUE}>Crear una nueva familia automáticamente</option>
+                  {familyOptions.map((family) => (
+                    <option key={family.id} value={family.id}>Unir a: {family.members.join(' / ')}</option>
+                  ))}
+                </select>
+                <p className="mt-1.5 text-[11px] text-slate-500">El sistema administra el código interno; el usuario solo selecciona la familia.</p>
               </div>
               <div>
                 <label htmlFor="student-capacity" className="mb-1.5 block text-xs font-bold text-slate-700">Cantidad máxima de personas</label>

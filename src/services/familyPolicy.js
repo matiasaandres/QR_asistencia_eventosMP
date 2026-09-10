@@ -2,6 +2,21 @@ export function normalizeFamilyId(value) {
   return String(value || '').trim().toLocaleUpperCase('es');
 }
 
+export function createFamilyCodeGenerator(students = [], year = new Date().getFullYear()) {
+  const usedCodes = new Set(students.map((student) => normalizeFamilyId(student?.familyId)).filter(Boolean));
+  let sequence = 1;
+
+  return () => {
+    let candidate;
+    do {
+      candidate = `FAM-${year}-${String(sequence).padStart(3, '0')}`;
+      sequence += 1;
+    } while (usedCodes.has(candidate));
+    usedCodes.add(candidate);
+    return candidate;
+  };
+}
+
 export function getCapacityOwnerId(student = {}) {
   return String(student.familyOwnerId || student.id || '').trim();
 }

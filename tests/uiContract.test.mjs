@@ -130,6 +130,16 @@ test('la nómina permite cambiar cupos globales, individuales y deshabilitar alu
   assert.match(studentsManager, /DESHABILITADO/);
 });
 
+test('la vista de estudiantes y credenciales filtra por curso, cupo y estado', () => {
+  assert.match(studentsManager, /id="student-course-filter"/);
+  assert.match(studentsManager, /id="student-capacity-filter"/);
+  assert.match(studentsManager, /id="student-status-filter"/);
+  assert.match(studentsManager, /matchesSearch && matchesCourse && matchesCapacity && matchesStatus/);
+  assert.match(studentsManager, /Cupo extraordinario/);
+  assert.match(studentsManager, /Mostrando <span[^>]*>\{filteredStudents\.length\}<\/span> de \{students\.length\}/);
+  assert.match(studentsManager, /onClick=\{clearFilters\}/);
+});
+
 test('la nómina permite eliminar estudiantes y cursos con confirmación', () => {
   assert.match(studentsManager, /handleDeleteStudent/);
   assert.match(studentsManager, /¿Eliminar de la nómina a/);

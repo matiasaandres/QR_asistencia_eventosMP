@@ -23,6 +23,24 @@ import { createStudentCodeGenerator } from '../services/studentCodes';
 
 const BULK_IMPORT_TEMPLATE_PATH = '/Plantilla_Carga_Masiva_MundoPalabra.xlsx';
 
+const ROSTER_STATUS = {
+  RETIRED: { label: 'RETIRADO', className: 'bg-slate-200 text-slate-700' },
+  DISABLED: { label: 'DESHABILITADO', className: 'bg-slate-700 text-white' },
+  EXTRA: { label: 'CUPO EXTRA', className: 'bg-violet-100 text-violet-800' },
+  FULL: { label: 'COMPLETO', className: 'bg-rose-100 text-rose-800' },
+  PARTIAL: { label: 'PARCIAL', className: 'bg-amber-100 text-amber-800' },
+  PENDING: { label: 'PENDIENTE', className: 'bg-slate-100 text-slate-600' }
+};
+
+const getRosterStatus = (capacity) => {
+  if (capacity.isRetired) return 'RETIRED';
+  if (capacity.isDisabled) return 'DISABLED';
+  if (capacity.hasExtraGuest) return 'EXTRA';
+  if (capacity.isFull) return 'FULL';
+  if (capacity.enteredCount > 0) return 'PARTIAL';
+  return 'PENDING';
+};
+
 export default function StudentsManager({ 
   students, 
   onSaveStudents, 
@@ -44,6 +62,9 @@ export default function StudentsManager({
   const [studentCapacity, setStudentCapacity] = useState(4);
   const [isSaving, setIsSaving] = useState(false);
   const [courseToDelete, setCourseToDelete] = useState('');
+  const [courseFilter, setCourseFilter] = useState('ALL');
+  const [capacityFilter, setCapacityFilter] = useState('ALL');
+  const [statusFilter, setStatusFilter] = useState('ALL');
 
   const showStatus = (message) => {
     setImportStatus(message);
@@ -171,14 +192,35 @@ export default function StudentsManager({
     if (deleted) setCourseToDelete('');
   };
 
-  const filteredStudents = students.filter((s) => {
-    const term = searchTerm.toLowerCase();
-    return (
-      s.name.toLowerCase().includes(term) ||
-      (s.course && s.course.toLowerCase().includes(term)) ||
-      (s.id && s.id.toLowerCase().includes(term))
-    );
+  const filteredStudents = students.filter((student) => {
+    const term = searchTerm.trim().toLocaleLowerCase('es');
+    const matchesSearch = !term || [student.name, student.course, student.id]
+      .some((value) => String(value || '').toLocaleLowerCase('es').includes(term));
+    const matchesCourse = courseFilter === 'ALL' || student.course === courseFilter;
+    const capacity = getCapacityState(student);
+    const rosterStatus = getRosterStatus(capacity);
+    const matchesCapacity = capacityFilter === 'ALL'
+      || (capacityFilter === 'EMPTY' && capacity.enteredCount === 0)
+      || (capacityFilter === 'ENTERED' && capacity.enteredCount > 0)
+      || (capacityFilter === 'AVAILABLE' && !capacity.isAccessBlocked && capacity.remaining > 0)
+      || (capacityFilter === 'FULL' && capacity.maxCapacity > 0 && capacity.enteredCount >= capacity.maxCapacity && !capacity.hasExtraGuest)
+      || (capacityFilter === 'EXTRA' && capacity.hasExtraGuest);
+    const matchesStatus = statusFilter === 'ALL' || rosterStatus === statusFilter;
+
+    return matchesSearch && matchesCourse && matchesCapacity && matchesStatus;
   });
+
+  const hasActiveFilters = Boolean(searchTerm.trim())
+    || courseFilter !== 'ALL'
+    || capacityFilter !== 'ALL'
+    || statusFilter !== 'ALL';
+
+  const clearFilters = () => {
+    setSearchTerm('');
+    setCourseFilter('ALL');
+    setCapacityFilter('ALL');
+    setStatusFilter('ALL');
+  };
 
   const handleAddStudent = (e) => {
     e.preventDefault();
@@ -401,17 +443,96 @@ export default function StudentsManager({
         </div>
       </div>
 
-      {/* Search Bar */}
-      <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-200">
-        <div className="relative">
-          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-          <input
-            type="text"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            placeholder="Buscar por nombre, curso o código..."
-            className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium focus:outline-none focus:ring-2 focus:ring-sky-500 focus:bg-white"
-          />
+      {/* Roster filters */}
+      <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-200 space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-sky-50 text-sky-700">
+              <SlidersHorizontal className="h-4 w-4" />
+            </span>
+            <div>
+              <p className="text-xs font-extrabold text-slate-900">Filtros de estudiantes y credenciales</p>
+              <p className="text-[11px] text-slate-500">Combina los criterios para encontrar la nómina que necesitas.</p>
+            </div>
+          </div>
+          <p className="text-[11px] font-bold text-slate-500">
+            Mostrando <span className="text-sky-700">{filteredStudents.length}</span> de {students.length}
+          </p>
+        </div>
+
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[minmax(240px,2fr)_minmax(150px,1fr)_minmax(180px,1fr)_minmax(150px,1fr)_auto] xl:items-end">
+          <label className="block text-[11px] font-bold text-slate-600" htmlFor="student-search">
+            Buscar estudiante
+            <div className="relative mt-1.5">
+              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+              <input
+                id="student-search"
+                type="text"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                placeholder="Nombre, curso o código..."
+                className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium focus:outline-none focus:ring-2 focus:ring-sky-500 focus:bg-white"
+              />
+            </div>
+          </label>
+
+          <label className="block text-[11px] font-bold text-slate-600" htmlFor="student-course-filter">
+            Curso
+            <select
+              id="student-course-filter"
+              value={courseFilter}
+              onChange={(event) => setCourseFilter(event.target.value)}
+              className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-xs font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-sky-500"
+            >
+              <option value="ALL">Todos los cursos</option>
+              {courses.map((course) => <option key={course} value={course}>{course}</option>)}
+            </select>
+          </label>
+
+          <label className="block text-[11px] font-bold text-slate-600" htmlFor="student-capacity-filter">
+            Ingresados / Cupo
+            <select
+              id="student-capacity-filter"
+              value={capacityFilter}
+              onChange={(event) => setCapacityFilter(event.target.value)}
+              className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-xs font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-sky-500"
+            >
+              <option value="ALL">Todos los cupos</option>
+              <option value="EMPTY">Sin ingresos</option>
+              <option value="ENTERED">Con ingresos</option>
+              <option value="AVAILABLE">Con cupo disponible</option>
+              <option value="FULL">Cupo completo</option>
+              <option value="EXTRA">Cupo extraordinario</option>
+            </select>
+          </label>
+
+          <label className="block text-[11px] font-bold text-slate-600" htmlFor="student-status-filter">
+            Estado
+            <select
+              id="student-status-filter"
+              value={statusFilter}
+              onChange={(event) => setStatusFilter(event.target.value)}
+              className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-xs font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-sky-500"
+            >
+              <option value="ALL">Todos los estados</option>
+              <option value="PENDING">Pendiente</option>
+              <option value="PARTIAL">Parcial</option>
+              <option value="FULL">Completo</option>
+              <option value="EXTRA">Cupo extra</option>
+              <option value="DISABLED">Deshabilitado</option>
+              <option value="RETIRED">Retirado</option>
+            </select>
+          </label>
+
+          <button
+            type="button"
+            onClick={clearFilters}
+            disabled={!hasActiveFilters}
+            className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-xs font-bold text-slate-600 transition hover:border-sky-300 hover:bg-sky-50 hover:text-sky-700 disabled:cursor-not-allowed disabled:opacity-40 md:col-span-2 xl:col-span-1"
+          >
+            <X className="h-4 w-4" />
+            Limpiar
+          </button>
         </div>
       </div>
 
@@ -441,8 +562,8 @@ export default function StudentsManager({
                   const capacity = getCapacityState(s);
                   const maxCap = capacity.maxCapacity;
                   const entered = capacity.enteredCount;
-                  const isFull = capacity.isFull;
                   const isDisabled = capacity.isDisabled;
+                  const rosterStatus = ROSTER_STATUS[getRosterStatus(capacity)];
 
                   return (
                     <tr key={s.id} className={`transition-colors ${isDisabled ? 'bg-slate-100/80 opacity-75' : 'hover:bg-slate-50/70'}`}>
@@ -461,16 +582,8 @@ export default function StudentsManager({
                         {entered} de {maxCap}
                       </td>
                       <td className="py-3 px-4 text-center">
-                        <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                          isDisabled
-                            ? 'bg-slate-700 text-white'
-                            : isFull
-                            ? 'bg-rose-100 text-rose-800'
-                            : entered > 0
-                              ? 'bg-amber-100 text-amber-800'
-                              : 'bg-slate-100 text-slate-600'
-                        }`}>
-                          {isDisabled ? 'DESHABILITADO' : isFull ? 'COMPLETO' : entered > 0 ? 'PARCIAL' : 'PENDIENTE'}
+                        <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-bold ${rosterStatus.className}`}>
+                          {rosterStatus.label}
                         </span>
                       </td>
                       <td className="py-3 px-4 text-right space-x-1.5 whitespace-nowrap">

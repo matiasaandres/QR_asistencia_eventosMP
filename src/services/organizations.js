@@ -390,6 +390,38 @@ export async function importMundoPalabraReport({ organizationId, user, studentRo
   };
 }
 
+export async function restoreMundoPalabraStudentStates({ organizationId, user }) {
+  if (organizationId !== 'colegio-mundopalabra' || !isPlatformAdmin(user)) {
+    throw new Error('Solo la cuenta maestra puede restaurar estos estados de Mundo Palabra.');
+  }
+  const { db } = initFirebase();
+  const eventId = 'acto-cultural-institucional-2026-20260908-recuperado';
+  const studentsCollection = collection(db, 'organizations', organizationId, 'events', eventId, 'students');
+  const snapshot = await getDocs(studentsCollection);
+  const retired = snapshot.docs.filter((item) => String(item.data().course || '').trim().toLowerCase() === 'retirado');
+  const disabledIds = ['MP-2026-035', 'MP-2026-045'];
+  const disabled = disabledIds.map((id) => snapshot.docs.find((item) => item.id === id)).filter(Boolean);
+  if (retired.length !== 23 || disabled.length !== disabledIds.length) {
+    throw new Error('La nómina actual no coincide con el respaldo: se esperaban 23 retirados y 2 alumnos deshabilitados.');
+  }
+
+  const deletedAt = '2026-09-09T23:57:47-03:00';
+  const metadataBatch = writeBatch(db);
+  retired.forEach((item) => metadataBatch.update(item.ref, {
+    deleted: true,
+    disabled: true,
+    deletedAt,
+    maxCapacity: 0
+  }));
+  disabled.forEach((item) => metadataBatch.update(item.ref, { disabled: true }));
+  await metadataBatch.commit();
+
+  const statusBatch = writeBatch(db);
+  [...retired, ...disabled].forEach((item) => statusBatch.update(item.ref, { status: 'DESHABILITADO' }));
+  await statusBatch.commit();
+  return { deleted: retired.length, disabled: disabled.length };
+}
+
 export function subscribeToMembers(organizationId, onUpdate, onError) {
   const { db } = initFirebase();
   return onSnapshot(

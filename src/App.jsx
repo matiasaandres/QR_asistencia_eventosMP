@@ -22,6 +22,7 @@ import {
   assignSchoolAdministrator,
   importMundoPalabraReport,
   migrateLegacyMundoPalabra,
+  restoreMundoPalabraStudentStates,
   subscribeToAllOrganizations,
   updateOrganizationStatus,
   subscribeToMembership,
@@ -232,7 +233,7 @@ export default function App() {
   if (!authUser) return <LoginScreen portal={portal} />;
   if (portal === 'master' && !isMaster) return <main className="flex min-h-screen flex-col items-center justify-center gap-4 bg-slate-950 p-6 text-center text-white"><h1 className="text-2xl font-black">Acceso maestro restringido</h1><p className="text-sm text-slate-300">Esta cuenta corresponde a una escuela.</p><button onClick={handleLogout} className="rounded-xl bg-sky-600 px-4 py-2 text-sm font-bold">Volver al ingreso</button></main>;
   if (!organizationReady) return <LoadingScreen message="Cargando organizaciones…" />;
-  if (isMaster && !schoolViewForMaster) return <MasterDashboard organizations={organizations} user={authUser} onCreate={handleCreateSchool} onAssignAccount={(data) => assignSchoolAdministrator({ ...data, masterUser: authUser })} onStatusChange={updateOrganizationStatus} onOpenSchool={(organizationId) => { handleOrganizationChange(organizationId); setSchoolViewForMaster(true); }} onMigrateLegacy={handleLegacyMigration} onImportReport={(report) => importMundoPalabraReport({ ...report, user: authUser })} onLogout={handleLogout} />;
+  if (isMaster && !schoolViewForMaster) return <MasterDashboard organizations={organizations} user={authUser} onCreate={handleCreateSchool} onAssignAccount={(data) => assignSchoolAdministrator({ ...data, masterUser: authUser })} onStatusChange={updateOrganizationStatus} onOpenSchool={(organizationId) => { handleOrganizationChange(organizationId); setSchoolViewForMaster(true); }} onMigrateLegacy={handleLegacyMigration} onImportReport={(report) => importMundoPalabraReport({ ...report, user: authUser })} onRestoreStudentStates={(organizationId) => restoreMundoPalabraStudentStates({ organizationId, user: authUser })} onLogout={handleLogout} />;
   if (!organization) return <LoadingScreen message="Tu cuenta no tiene una organización activa." />;
   if ((!membership && !isMaster) || !event) return <LoadingScreen message="Preparando el espacio de la escuela…" />;
 

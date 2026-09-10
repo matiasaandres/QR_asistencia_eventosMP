@@ -4,7 +4,7 @@ import * as XLSX from 'xlsx';
 
 const PLAN_LABELS = { pilot: 'Piloto', event: 'Por evento', monthly: 'Mensual', annual: 'Anual' };
 
-export default function MasterDashboard({ organizations, user, onCreate, onAssignAccount, onStatusChange, onOpenSchool, onMigrateLegacy, onImportReport, onLogout }) {
+export default function MasterDashboard({ organizations, user, onCreate, onAssignAccount, onStatusChange, onOpenSchool, onMigrateLegacy, onImportReport, onRestoreStudentStates, onLogout }) {
   const [schoolName, setSchoolName] = useState('');
   const [adminEmail, setAdminEmail] = useState('');
   const [temporaryPassword, setTemporaryPassword] = useState('');
@@ -96,6 +96,20 @@ export default function MasterDashboard({ organizations, user, onCreate, onAssig
     }
   };
 
+  const handleStudentStateRestore = async (organization) => {
+    setError('');
+    setMessage('');
+    setMigratingSchool(organization.id);
+    try {
+      const result = await onRestoreStudentStates(organization.id);
+      setMessage(`Estados restaurados: ${result.deleted} alumnos eliminados y ${result.disabled} deshabilitados.`);
+    } catch (restoreError) {
+      setError(restoreError.message || 'No fue posible restaurar los estados de los alumnos.');
+    } finally {
+      setMigratingSchool('');
+    }
+  };
+
   return (
     <main className="min-h-screen bg-slate-100">
       <header className="border-b border-slate-800 bg-slate-950 text-white">
@@ -140,6 +154,7 @@ export default function MasterDashboard({ organizations, user, onCreate, onAssig
                   <button type="button" onClick={() => onOpenSchool(organization.id)} className="inline-flex items-center gap-1 rounded-lg bg-sky-600 px-3 py-2 text-xs font-bold text-white"><ExternalLink className="h-3.5 w-3.5" /> Abrir gestión</button>
                   {organization.id === 'colegio-mundopalabra' && <button type="button" disabled={Boolean(migratingSchool)} onClick={() => handleMigration(organization)} className="rounded-lg bg-amber-100 px-3 py-2 text-xs font-bold text-amber-900 disabled:opacity-60">{migratingSchool === organization.id ? 'Recuperando…' : 'Recuperar alumnos anteriores'}</button>}
                   {organization.id === 'colegio-mundopalabra' && <label className="cursor-pointer rounded-lg bg-emerald-100 px-3 py-2 text-xs font-bold text-emerald-900">Importar respaldo completo<input type="file" accept=".xlsx" className="sr-only" disabled={Boolean(migratingSchool)} onChange={(event) => handleReportImport(event, organization)} /></label>}
+                  {organization.id === 'colegio-mundopalabra' && <button type="button" disabled={Boolean(migratingSchool)} onClick={() => handleStudentStateRestore(organization)} className="rounded-lg bg-violet-100 px-3 py-2 text-xs font-bold text-violet-900 disabled:opacity-60">Restaurar eliminados y deshabilitados</button>}
                   <button type="button" onClick={() => onStatusChange(organization.id, organization.status === 'active' ? 'suspended' : 'active')} className="rounded-lg bg-slate-100 px-3 py-2 text-xs font-bold text-slate-700">{organization.status === 'active' ? 'Suspender' : 'Reactivar'}</button>
                   </div>
                 </div>

@@ -46,6 +46,7 @@ export default function HistoryLog({
       (log.studentName && log.studentName.toLowerCase().includes(term)) ||
       (log.course && log.course.toLowerCase().includes(term)) ||
       (log.studentId && log.studentId.toLowerCase().includes(term)) ||
+      (log.formattedDate && log.formattedDate.toLowerCase().includes(term)) ||
       (log.guestName && log.guestName.toLowerCase().includes(term)) ||
       (log.relationship && log.relationship.toLowerCase().includes(term));
 
@@ -112,7 +113,7 @@ export default function HistoryLog({
           <table className="w-full text-left text-xs">
             <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-bold uppercase tracking-wider">
               <tr>
-                <th className="py-3 px-4">Hora</th>
+                <th className="py-3 px-4">Fecha y hora</th>
                 <th className="py-3 px-4">Estudiante</th>
                 <th className="py-3 px-4">Curso</th>
                 <th className="py-3 px-4 text-center">Personas</th>
@@ -132,7 +133,8 @@ export default function HistoryLog({
                 filteredLogs.map((log) => (
                   <tr key={log.id} className="hover:bg-slate-50/70 transition-colors">
                     <td className="py-3 px-4 font-mono text-slate-600 font-semibold whitespace-nowrap">
-                      {log.formattedTime}
+                      <div>{log.formattedDate || 'Sin fecha'}</div>
+                      <div className="text-[11px] text-slate-500">{log.formattedTime || 'Sin hora'}</div>
                     </td>
                     <td className="py-3 px-4 font-bold text-slate-900">
                       <div>{log.studentName}</div>

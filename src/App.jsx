@@ -11,15 +11,17 @@ import SettingsModal from './components/SettingsModal';
 import LoginScreen from './components/LoginScreen';
 import EventsManager from './components/EventsManager';
 import MembersManager from './components/MembersManager';
-import OrganizationsModal from './components/OrganizationsModal';
+import MasterDashboard from './components/MasterDashboard';
 import { sounds } from './services/sound';
 import { clearAuthSession, subscribeToAuth } from './services/auth';
-import { canManageOrganization, canOperateAccess } from './services/organizationPolicy';
+import { canManageOrganization, canOperateAccess, isPlatformAdmin } from './services/organizationPolicy';
 import {
   getSavedOrganizationId,
   saveOrganizationId,
-  createOrganizationForUser,
+  createSchoolWithAdministrator,
   migrateLegacyMundoPalabra,
+  subscribeToAllOrganizations,
+  updateOrganizationStatus,
   subscribeToMembership,
   subscribeToOrganizations
 } from './services/organizations';
@@ -53,9 +55,10 @@ export default function App() {
   const [printStudent, setPrintStudent] = useState(null);
   const [showPrinter, setShowPrinter] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
-  const [showOrganizations, setShowOrganizations] = useState(false);
+  const [schoolViewForMaster, setSchoolViewForMaster] = useState(false);
 
-  const role = membership?.role || 'viewer';
+  const isMaster = isPlatformAdmin(authUser);
+  const role = isMaster && schoolViewForMaster ? 'admin' : membership?.role || 'viewer';
   const canManage = canManageOrganization(role);
   const canOperate = canOperateAccess(role);
 
@@ -72,7 +75,8 @@ export default function App() {
   useEffect(() => {
     if (!authUser) return undefined;
     setOrganizationReady(false);
-    return subscribeToOrganizations(authUser.uid, (available) => {
+    const subscribe = isPlatformAdmin(authUser) ? subscribeToAllOrganizations : (onUpdate, onError) => subscribeToOrganizations(authUser.uid, onUpdate, onError);
+    return subscribe((available) => {
       setOrganizations(available);
       setOrganization((current) => {
         const savedId = getSavedOrganizationId(authUser.uid);
@@ -125,12 +129,12 @@ export default function App() {
   }, [organization, event?.id]);
 
   useEffect(() => {
-    if (!organization || !event || !membership) return undefined;
+    if (!organization || !event || (!membership && !isMaster)) return undefined;
     return subscribeToLogs(organization.id, event.id, (data, mode) => {
       setLogs(data);
       if (mode === 'error') setSyncMode('error');
     });
-  }, [organization, event?.id, membership]);
+  }, [organization, event?.id, membership, isMaster]);
 
   useEffect(() => {
     if (!canManage && (activeTab === 'students' || activeTab === 'events' || activeTab === 'members')) setActiveTab('dashboard');
@@ -146,16 +150,10 @@ export default function App() {
     setOrganization(selected);
   };
 
-  const handleCreateOrganization = async (schoolName) => {
-    const created = await createOrganizationForUser({ schoolName, user: authUser });
-    saveOrganizationId(authUser.uid, created.id);
-    setOrganizations((current) => [...current.filter((item) => item.id !== created.id), created]);
-    setOrganization(created);
-    return created;
-  };
+  const handleCreateSchool = (schoolData) => createSchoolWithAdministrator({ ...schoolData, masterUser: authUser });
 
-  const handleLegacyMigration = () => migrateLegacyMundoPalabra({
-    organizationId: organization.id,
+  const handleLegacyMigration = (organizationId) => migrateLegacyMundoPalabra({
+    organizationId,
     user: authUser
   });
 
@@ -164,7 +162,7 @@ export default function App() {
     setCheckinStudent(null);
     setShowPrinter(false);
     setShowSettings(false);
-    setShowOrganizations(false);
+    setSchoolViewForMaster(false);
   };
 
   const handleDoorChange = (newDoor) => {
@@ -230,8 +228,9 @@ export default function App() {
   if (!authReady) return <LoadingScreen />;
   if (!authUser) return <LoginScreen />;
   if (!organizationReady) return <LoadingScreen message="Cargando organizaciones…" />;
+  if (isMaster && !schoolViewForMaster) return <MasterDashboard organizations={organizations} user={authUser} onCreate={handleCreateSchool} onStatusChange={updateOrganizationStatus} onOpenSchool={(organizationId) => { handleOrganizationChange(organizationId); setSchoolViewForMaster(true); }} onMigrateLegacy={handleLegacyMigration} onLogout={handleLogout} />;
   if (!organization) return <LoadingScreen message="Tu cuenta no tiene una organización activa." />;
-  if (!membership || !event) return <LoadingScreen message="Preparando el espacio de la escuela…" />;
+  if ((!membership && !isMaster) || !event) return <LoadingScreen message="Preparando el espacio de la escuela…" />;
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col selection:bg-sky-500 selection:text-white">
@@ -240,7 +239,7 @@ export default function App() {
         currentDoor={currentDoor} onDoorChange={handleDoorChange} events={events}
         onEventChange={handleEventChange} syncMode={syncMode}
         onOpenSettings={() => canManage && setShowSettings(true)} onLogout={handleLogout}
-        onOpenOrganizations={() => setShowOrganizations(true)}
+        onBackToMaster={isMaster ? () => setSchoolViewForMaster(false) : undefined}
         organization={organization} organizations={organizations}
         onOrganizationChange={handleOrganizationChange} role={role} permissions={selectableTabs}
       />
@@ -256,15 +255,6 @@ export default function App() {
       {checkinStudent && canOperate && <CheckinPanel student={students.find((item) => item.id === checkinStudent.id) || checkinStudent} currentDoor={currentDoor} onConfirmCheckIn={handleConfirmCheckIn} onClose={() => setCheckinStudent(null)} />}
       {showPrinter && <QRCardPrinter students={students} selectedStudent={printStudent} event={event} onClose={() => { setShowPrinter(false); setPrintStudent(null); }} />}
       {canManage && <SettingsModal isOpen={showSettings} onClose={() => setShowSettings(false)} event={event} onSaveEvent={handleSaveEvent} currentDoor={currentDoor} onDoorChange={handleDoorChange} onResetData={() => resetEventData(organization.id, event.id)} />}
-      <OrganizationsModal
-        isOpen={showOrganizations}
-        onClose={() => setShowOrganizations(false)}
-        organizations={organizations}
-        currentOrganization={organization}
-        onSelect={handleOrganizationChange}
-        onCreate={handleCreateOrganization}
-        onMigrateLegacy={handleLegacyMigration}
-      />
     </div>
   );
 }

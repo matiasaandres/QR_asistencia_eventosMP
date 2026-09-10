@@ -1,22 +1,17 @@
 import React, { useState } from 'react';
-import { Building2, KeyRound, LogIn, Mail, ShieldCheck, UserPlus } from 'lucide-react';
-import { authenticate, joinOrganization, registerOrganization } from '../services/auth';
+import { KeyRound, LogIn, Mail, ShieldCheck } from 'lucide-react';
+import { authenticate } from '../services/auth';
 import { APP_VERSION } from '../config/appVersion';
 
 function authMessage(error) {
   const code = error?.code || '';
   if (code.includes('invalid-credential')) return 'Correo o contraseña incorrectos.';
-  if (code.includes('email-already-in-use')) return 'Ese correo ya tiene una cuenta.';
-  if (code.includes('weak-password')) return 'La contraseña debe tener al menos 6 caracteres.';
   if (code.includes('operation-not-allowed')) return 'El acceso por correo todavía no está habilitado en Firebase.';
   if (code.includes('network-request-failed')) return 'No hay conexión con el servicio de acceso.';
   return error?.message || 'No fue posible completar el acceso.';
 }
 
 export default function LoginScreen() {
-  const [mode, setMode] = useState('login');
-  const [schoolName, setSchoolName] = useState('');
-  const [invitationCode, setInvitationCode] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -27,13 +22,7 @@ export default function LoginScreen() {
     setError('');
     setIsSaving(true);
     try {
-      if (mode === 'register') {
-        await registerOrganization({ schoolName, email, password });
-      } else if (mode === 'join') {
-        await joinOrganization({ invitationCode, email, password });
-      } else {
-        await authenticate(email, password);
-      }
+      await authenticate(email, password);
     } catch (authError) {
       setError(authMessage(authError));
     } finally {
@@ -52,28 +41,7 @@ export default function LoginScreen() {
           <p className="mt-1 text-sm text-slate-500">Control de acceso seguro para eventos escolares.</p>
         </div>
 
-        <div className="mx-7 mb-5 grid grid-cols-3 rounded-xl bg-slate-100 p-1" role="tablist" aria-label="Tipo de acceso">
-          <button type="button" onClick={() => { setMode('login'); setError(''); }} className={`rounded-lg px-3 py-2 text-sm font-bold ${mode === 'login' ? 'bg-white text-sky-700 shadow-sm' : 'text-slate-500'}`}>Ingresar</button>
-          <button type="button" onClick={() => { setMode('register'); setError(''); }} className={`rounded-lg px-3 py-2 text-sm font-bold ${mode === 'register' ? 'bg-white text-sky-700 shadow-sm' : 'text-slate-500'}`}>Nueva escuela</button>
-          <button type="button" onClick={() => { setMode('join'); setError(''); }} className={`rounded-lg px-2 py-2 text-sm font-bold ${mode === 'join' ? 'bg-white text-sky-700 shadow-sm' : 'text-slate-500'}`}>Invitación</button>
-        </div>
-
-        <form onSubmit={handleSubmit} className="space-y-4 px-7 pb-7" noValidate>
-          {mode === 'register' && (
-            <label className="block text-sm font-bold text-slate-700">
-              Nombre de la escuela
-              <span className="relative mt-1.5 block">
-                <Building2 className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
-                <input required minLength="2" maxLength="100" value={schoolName} onChange={(event) => setSchoolName(event.target.value)} className="w-full rounded-xl border border-slate-200 bg-slate-50 py-3 pl-11 pr-3 outline-none focus:border-sky-500 focus:bg-white focus:ring-4 focus:ring-sky-100" placeholder="Colegio Ejemplo" />
-              </span>
-            </label>
-          )}
-          {mode === 'join' && (
-            <label className="block text-sm font-bold text-slate-700">
-              Código de invitación
-              <input required value={invitationCode} onChange={(event) => setInvitationCode(event.target.value.toUpperCase())} className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 font-mono uppercase tracking-widest outline-none focus:border-sky-500 focus:bg-white focus:ring-4 focus:ring-sky-100" placeholder="CÓDIGO" />
-            </label>
-          )}
+        <form onSubmit={handleSubmit} className="space-y-4 px-7 pb-7 pt-2" noValidate>
           <label className="block text-sm font-bold text-slate-700">
             Correo electrónico
             <span className="relative mt-1.5 block">
@@ -85,17 +53,17 @@ export default function LoginScreen() {
             Contraseña
             <span className="relative mt-1.5 block">
               <KeyRound className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
-              <input required minLength="6" type="password" autoComplete={mode === 'register' ? 'new-password' : 'current-password'} value={password} onChange={(event) => setPassword(event.target.value)} className="w-full rounded-xl border border-slate-200 bg-slate-50 py-3 pl-11 pr-3 outline-none focus:border-sky-500 focus:bg-white focus:ring-4 focus:ring-sky-100" placeholder="Mínimo 6 caracteres" />
+              <input required minLength="6" type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} className="w-full rounded-xl border border-slate-200 bg-slate-50 py-3 pl-11 pr-3 outline-none focus:border-sky-500 focus:bg-white focus:ring-4 focus:ring-sky-100" placeholder="Contraseña" />
             </span>
           </label>
 
           {error && <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2.5 text-sm font-semibold text-rose-700">{error}</p>}
 
           <button disabled={isSaving} className="flex w-full items-center justify-center gap-2 rounded-xl bg-sky-600 py-3 text-sm font-extrabold text-white shadow-lg shadow-sky-600/25 hover:bg-sky-500 disabled:opacity-60">
-            {mode === 'register' ? <UserPlus className="h-5 w-5" /> : <LogIn className="h-5 w-5" />}
-            {isSaving ? 'Procesando…' : mode === 'register' ? 'Crear escuela y cuenta' : mode === 'join' ? 'Aceptar invitación' : 'Ingresar a la aplicación'}
+            <LogIn className="h-5 w-5" />
+            {isSaving ? 'Ingresando…' : 'Ingresar a la aplicación'}
           </button>
-          <p className="text-center text-xs text-slate-400">Cada escuela mantiene sus usuarios, eventos y estudiantes separados.</p>
+          <p className="text-center text-xs text-slate-400">Las cuentas escolares son creadas por la administración de la plataforma.</p>
           <p className="text-center text-[11px] font-semibold text-slate-400">Versión {APP_VERSION}</p>
         </form>
       </div>

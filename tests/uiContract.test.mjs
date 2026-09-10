@@ -34,8 +34,8 @@ const dashboard = await readFile(
   new URL('../src/components/Dashboard.jsx', import.meta.url),
   'utf8'
 );
-const organizationsModal = await readFile(
-  new URL('../src/components/OrganizationsModal.jsx', import.meta.url),
+const masterDashboard = await readFile(
+  new URL('../src/components/MasterDashboard.jsx', import.meta.url),
   'utf8'
 );
 
@@ -83,17 +83,18 @@ test('ofrece un ZIP con un PDF individual por alumno y progreso visible', () => 
   assert.match(qrPrinter, /Comprimiendo ZIP/);
 });
 
-test('el login usa cuentas Firebase y permite registrar una escuela aislada', () => {
-  assert.match(loginScreen, />Nueva escuela</);
-  assert.match(loginScreen, /registerOrganization/);
+test('el login solo permite ingresar con una cuenta existente', () => {
+  assert.doesNotMatch(loginScreen, />Nueva escuela</);
+  assert.doesNotMatch(loginScreen, /registerOrganization|joinOrganization/);
   assert.match(loginScreen, /Correo electrónico/);
-  assert.match(loginScreen, /Cada escuela mantiene sus usuarios, eventos y estudiantes separados/);
+  assert.match(loginScreen, /cuentas escolares son creadas por la administración/);
 });
 
-test('una cuenta existente puede agregar escuelas y recuperar Mundo Palabra', () => {
-  assert.match(organizationsModal, /Agregar otra escuela/);
-  assert.match(organizationsModal, /Recuperar alumnos de Mundo Palabra/);
-  assert.match(organizationsModal, /onMigrateLegacy/);
+test('la cuenta maestra administra escuelas y recupera Mundo Palabra', () => {
+  assert.match(masterDashboard, /Panel maestro/);
+  assert.match(masterDashboard, /Crear escuela y cuenta administradora/);
+  assert.match(masterDashboard, /Recuperar alumnos anteriores/);
+  assert.match(masterDashboard, /onMigrateLegacy/);
 });
 
 test('la nómina permite cambiar cupos globales, individuales y deshabilitar alumnos', () => {

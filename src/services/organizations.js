@@ -1,6 +1,8 @@
-import { collection, doc, getDoc, getDocs, onSnapshot, query, setDoc, Timestamp, where, writeBatch } from 'firebase/firestore';
-import { initFirebase } from './firebase';
-import { createOrganizationId, normalizeOrganization } from './organizationPolicy';
+import { deleteApp, initializeApp } from 'firebase/app';
+import { createUserWithEmailAndPassword, deleteUser, getAuth, signOut } from 'firebase/auth';
+import { collection, doc, getDoc, getDocs, onSnapshot, query, setDoc, Timestamp, updateDoc, where, writeBatch } from 'firebase/firestore';
+import { getSavedFirebaseConfig, initFirebase } from './firebase';
+import { createOrganizationId, isPlatformAdmin, normalizeOrganization } from './organizationPolicy';
 import { createEventId, normalizeEvent } from './eventPolicy';
 
 const CURRENT_ORGANIZATION_KEY = 'access_current_organization_';
@@ -41,57 +43,101 @@ export function saveOrganizationId(userId, organizationId) {
   localStorage.setItem(CURRENT_ORGANIZATION_KEY + userId, organizationId);
 }
 
-export async function createOrganizationForUser({ schoolName, user }) {
+export function subscribeToAllOrganizations(onUpdate, onError) {
+  const { db, isConfigured } = initFirebase();
+  if (!isConfigured || !db) {
+    onUpdate([]);
+    return () => {};
+  }
+  return onSnapshot(
+    collection(db, 'organizations'),
+    (snapshot) => onUpdate(snapshot.docs.map((item) => normalizeOrganization({
+      ...item.data(), id: item.id
+    })).sort((a, b) => a.name.localeCompare(b.name, 'es'))),
+    (error) => onError?.(error)
+  );
+}
+
+export async function createSchoolWithAdministrator({ schoolName, adminEmail, temporaryPassword, plan, masterUser }) {
   const { db } = initFirebase();
-  if (!db || !user?.uid || !user?.email) throw new Error('No hay una sesión válida para crear la escuela.');
+  if (!db || !isPlatformAdmin(masterUser)) throw new Error('Solo la cuenta maestra puede crear escuelas.');
 
   const cleanName = schoolName.trim();
+  const cleanEmail = adminEmail.trim().toLowerCase();
   const organizationId = createOrganizationId(cleanName);
   const organizationRef = doc(db, 'organizations', organizationId);
   if ((await getDoc(organizationRef)).exists()) {
     throw new Error('Ya existe una escuela con ese nombre. Usa un nombre más específico.');
   }
 
-  const now = new Date();
-  const nowIso = now.toISOString();
-  const organization = normalizeOrganization({
-    id: organizationId,
-    slug: organizationId,
-    name: cleanName,
-    ownerUid: user.uid,
-    memberUids: [user.uid],
-    plan: 'pilot',
-    status: 'active',
-    createdAt: nowIso,
-    updatedAt: nowIso
-  });
-  const eventId = createEventId('Evento inicial', nowIso.slice(0, 10), now.getTime());
-  const initialEvent = normalizeEvent({
-    id: eventId,
-    name: 'Evento inicial',
-    institution: cleanName,
-    date: nowIso.slice(0, 10),
-    defaultCapacity: 5,
-    doors: ['Acceso Principal'],
-    archived: false,
-    studentsInitialized: true,
-    createdAt: nowIso,
-    updatedAt: nowIso
-  });
+  const secondaryApp = initializeApp(getSavedFirebaseConfig(), `school-provision-${Date.now()}`);
+  const secondaryAuth = getAuth(secondaryApp);
+  let schoolUser = null;
 
-  const batch = writeBatch(db);
-  batch.set(organizationRef, organization);
-  batch.set(doc(organizationRef, 'members', user.uid), {
-    userId: user.uid,
-    email: user.email.toLowerCase(),
-    displayName: user.displayName || user.email.split('@')[0],
-    role: 'admin',
-    status: 'active',
-    createdAt: nowIso
+  try {
+    const credential = await createUserWithEmailAndPassword(secondaryAuth, cleanEmail, temporaryPassword);
+    schoolUser = credential.user;
+    const now = new Date();
+    const nowIso = now.toISOString();
+    const organization = normalizeOrganization({
+      id: organizationId,
+      slug: organizationId,
+      name: cleanName,
+      contactEmail: cleanEmail,
+      ownerUid: schoolUser.uid,
+      memberUids: [schoolUser.uid],
+      plan: plan || 'pilot',
+      status: 'active',
+      createdAt: nowIso,
+      updatedAt: nowIso
+    });
+    const eventId = createEventId('Evento inicial', nowIso.slice(0, 10), now.getTime());
+    const initialEvent = normalizeEvent({
+      id: eventId,
+      name: 'Evento inicial',
+      institution: cleanName,
+      date: nowIso.slice(0, 10),
+      defaultCapacity: 5,
+      doors: ['Acceso Principal'],
+      archived: false,
+      studentsInitialized: true,
+      createdAt: nowIso,
+      updatedAt: nowIso
+    });
+
+    const batch = writeBatch(db);
+    batch.set(organizationRef, organization);
+    batch.set(doc(organizationRef, 'members', schoolUser.uid), {
+      userId: schoolUser.uid,
+      email: cleanEmail,
+      displayName: cleanName,
+      role: 'admin',
+      status: 'active',
+      createdAt: nowIso
+    });
+    await batch.commit();
+    await setDoc(doc(organizationRef, 'events', eventId), initialEvent);
+    return organization;
+  } catch (error) {
+    if (schoolUser) {
+      try { await deleteUser(schoolUser); } catch (cleanupError) {
+        console.warn('No fue posible eliminar la cuenta escolar incompleta:', cleanupError);
+      }
+    }
+    throw error;
+  } finally {
+    try { await signOut(secondaryAuth); } catch (error) { /* La sesión secundaria puede no haberse creado. */ }
+    await deleteApp(secondaryApp);
+  }
+}
+
+export async function updateOrganizationStatus(organizationId, status) {
+  const { db } = initFirebase();
+  if (!['active', 'suspended'].includes(status)) throw new Error('Estado de escuela no válido.');
+  await updateDoc(doc(db, 'organizations', organizationId), {
+    status,
+    updatedAt: new Date().toISOString()
   });
-  await batch.commit();
-  await setDoc(doc(organizationRef, 'events', eventId), initialEvent);
-  return organization;
 }
 
 async function copyDocuments(db, sourceDocuments, destinationCollection, transform = (data) => data) {

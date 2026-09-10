@@ -6,11 +6,16 @@ service cloud.firestore {
       return request.auth != null;
     }
 
-    function organizationAdmin(organizationId) {
+    function platformAdmin() {
       return signedIn()
+        && request.auth.token.email == 'matias.andres.mh@gmail.com';
+    }
+
+    function organizationAdmin(organizationId) {
+      return platformAdmin() || (signedIn()
         && exists(/databases/$(database)/documents/organizations/$(organizationId)/members/$(request.auth.uid))
         && get(/databases/$(database)/documents/organizations/$(organizationId)/members/$(request.auth.uid)).data.status == 'active'
-        && get(/databases/$(database)/documents/organizations/$(organizationId)/members/$(request.auth.uid)).data.role == 'admin';
+        && get(/databases/$(database)/documents/organizations/$(organizationId)/members/$(request.auth.uid)).data.role == 'admin');
     }
 
     match /organizations/{organizationId} {
@@ -20,10 +25,10 @@ service cloud.firestore {
       }
 
       function isMember() {
-        return signedIn()
+        return platformAdmin() || (signedIn()
           && organizationActive()
           && exists(/databases/$(database)/documents/organizations/$(organizationId)/members/$(request.auth.uid))
-          && get(/databases/$(database)/documents/organizations/$(organizationId)/members/$(request.auth.uid)).data.status == 'active';
+          && get(/databases/$(database)/documents/organizations/$(organizationId)/members/$(request.auth.uid)).data.status == 'active');
       }
 
       function roleIs(role) {
@@ -32,7 +37,7 @@ service cloud.firestore {
       }
 
       function isAdmin() {
-        return roleIs('admin');
+        return platformAdmin() || roleIs('admin');
       }
 
       function canOperate() {
@@ -42,7 +47,7 @@ service cloud.firestore {
       function validOrganization(data) {
         return data.keys().hasOnly([
             'id', 'slug', 'name', 'ownerUid', 'memberUids', 'plan', 'status',
-            'createdAt', 'updatedAt', 'logoUrl', 'primaryColor'
+            'createdAt', 'updatedAt', 'logoUrl', 'primaryColor', 'contactEmail'
           ])
           && data.id == organizationId
           && data.slug == organizationId
@@ -54,16 +59,20 @@ service cloud.firestore {
           && data.memberUids.size() >= 1
           && data.memberUids.size() <= 100
           && data.ownerUid in data.memberUids
+          && (!('contactEmail' in data) || data.contactEmail is string)
           && data.plan in ['pilot', 'event', 'monthly', 'annual']
           && data.status in ['active', 'suspended'];
       }
 
-      allow list, get: if signedIn() && request.auth.uid in resource.data.memberUids;
-      allow create: if signedIn()
+      allow list, get: if platformAdmin() || (signedIn() && request.auth.uid in resource.data.memberUids);
+      allow create: if platformAdmin()
         && validOrganization(request.resource.data)
-        && request.resource.data.ownerUid == request.auth.uid
         && request.resource.data.memberUids.size() == 1;
       allow update: if validOrganization(request.resource.data) && (
+        (platformAdmin()
+          && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['name', 'contactEmail', 'plan', 'status', 'logoUrl', 'primaryColor', 'updatedAt']))
+        ||
         (isAdmin()
           && request.resource.data.diff(resource.data).affectedKeys()
             .hasOnly(['name', 'logoUrl', 'primaryColor', 'updatedAt']))
@@ -91,6 +100,8 @@ service cloud.firestore {
 
         allow read: if isMember();
         allow create: if validMember(request.resource.data) && (
+          platformAdmin()
+          ||
           isAdmin()
           || (
             signedIn()
@@ -108,10 +119,10 @@ service cloud.firestore {
             && get(/databases/$(database)/documents/organizationInvitations/$(request.resource.data.invitationCode)).data.expiresAt > request.time
           )
         );
-        allow update: if isAdmin()
+        allow update: if (platformAdmin() || isAdmin())
           && validMember(request.resource.data)
           && (userId != request.auth.uid || request.resource.data.role == 'admin');
-        allow delete: if isAdmin() && userId != resource.data.userId;
+        allow delete: if (platformAdmin() || isAdmin()) && userId != resource.data.userId;
       }
 
       match /events/{eventId} {

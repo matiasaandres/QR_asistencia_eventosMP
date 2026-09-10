@@ -1,6 +1,7 @@
 export const ORGANIZATION_ROLES = ['admin', 'operator', 'viewer'];
 export const ORGANIZATION_STATUSES = ['active', 'suspended'];
 export const ORGANIZATION_PLANS = ['pilot', 'event', 'monthly', 'annual'];
+export const MASTER_ADMIN_EMAIL = 'matias.andres.mh@gmail.com';
 
 export function createOrganizationId(name, suffix = '') {
   const slug = String(name || 'organizacion')
@@ -32,3 +33,6 @@ export function normalizeOrganization(data = {}) {
 
 export function canManageOrganization(role) { return role === 'admin'; }
 export function canOperateAccess(role) { return role === 'admin' || role === 'operator'; }
+export function isPlatformAdmin(user) {
+  return String(user?.email || '').trim().toLowerCase() === MASTER_ADMIN_EMAIL;
+}

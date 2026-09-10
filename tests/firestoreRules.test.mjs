@@ -13,8 +13,10 @@ test('aísla los datos por organización y exige membresía activa', () => {
   assert.doesNotMatch(rules, /match \/events\/\{eventId\}\/\{document=\*\*\}/);
 });
 
-test('permite crear la primera organización solamente a su propietario', () => {
-  assert.match(rules, /request\.resource\.data\.ownerUid == request\.auth\.uid/);
+test('reserva la creación y gestión global de escuelas para la cuenta maestra', () => {
+  assert.match(rules, /function platformAdmin\(\)/);
+  assert.match(rules, /matias\.andres\.mh@gmail\.com/);
+  assert.match(rules, /allow create: if platformAdmin\(\)/);
   assert.match(rules, /request\.resource\.data\.memberUids\.size\(\) == 1/);
   assert.match(rules, /data\.ownerUid in data\.memberUids/);
 });

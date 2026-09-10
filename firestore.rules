@@ -71,7 +71,7 @@ service cloud.firestore {
       allow update: if validOrganization(request.resource.data) && (
         (platformAdmin()
           && request.resource.data.diff(resource.data).affectedKeys()
-            .hasOnly(['name', 'contactEmail', 'plan', 'status', 'logoUrl', 'primaryColor', 'updatedAt']))
+            .hasOnly(['name', 'contactEmail', 'plan', 'status', 'logoUrl', 'primaryColor', 'ownerUid', 'memberUids', 'updatedAt']))
         ||
         (isAdmin()
           && request.resource.data.diff(resource.data).affectedKeys()

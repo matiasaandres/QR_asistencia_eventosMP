@@ -88,6 +88,9 @@ test('el login solo permite ingresar con una cuenta existente', () => {
   assert.doesNotMatch(loginScreen, /registerOrganization|joinOrganization/);
   assert.match(loginScreen, /Correo electrónico/);
   assert.match(loginScreen, /cuentas escolares son creadas por la administración/);
+  assert.match(loginScreen, /Acceso Maestro/);
+  assert.match(loginScreen, /Acceso Escuelas/);
+  assert.match(loginScreen, /\/master/);
 });
 
 test('la cuenta maestra administra escuelas y recupera Mundo Palabra', () => {
@@ -96,6 +99,7 @@ test('la cuenta maestra administra escuelas y recupera Mundo Palabra', () => {
   assert.match(masterDashboard, /Recuperar alumnos anteriores/);
   assert.match(masterDashboard, /onMigrateLegacy/);
   assert.match(masterDashboard, /Importar respaldo completo/);
+  assert.match(masterDashboard, /Asignar cuenta escolar/);
 });
 
 test('la nómina permite cambiar cupos globales, individuales y deshabilitar alumnos', () => {

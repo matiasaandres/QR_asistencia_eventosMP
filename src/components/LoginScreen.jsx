@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { KeyRound, LogIn, Mail, ShieldCheck } from 'lucide-react';
 import { authenticate } from '../services/auth';
 import { APP_VERSION } from '../config/appVersion';
+import { MASTER_ADMIN_EMAIL } from '../services/organizationPolicy';
 
 function authMessage(error) {
   const code = error?.code || '';
@@ -11,7 +12,7 @@ function authMessage(error) {
   return error?.message || 'No fue posible completar el acceso.';
 }
 
-export default function LoginScreen() {
+export default function LoginScreen({ portal = 'school' }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -22,6 +23,13 @@ export default function LoginScreen() {
     setError('');
     setIsSaving(true);
     try {
+      const normalizedEmail = email.trim().toLowerCase();
+      if (portal === 'master' && normalizedEmail !== MASTER_ADMIN_EMAIL) {
+        throw new Error('Este acceso es exclusivo para la cuenta maestra.');
+      }
+      if (portal === 'school' && normalizedEmail === MASTER_ADMIN_EMAIL) {
+        throw new Error('La cuenta maestra debe ingresar desde Acceso maestro.');
+      }
       await authenticate(email, password);
     } catch (authError) {
       setError(authMessage(authError));
@@ -37,8 +45,8 @@ export default function LoginScreen() {
           <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-3xl bg-sky-600 text-white shadow-lg shadow-sky-600/25">
             <ShieldCheck className="h-10 w-10" />
           </div>
-          <h1 className="mt-4 text-2xl font-black text-slate-950">Acceso Escolar</h1>
-          <p className="mt-1 text-sm text-slate-500">Control de acceso seguro para eventos escolares.</p>
+          <h1 className="mt-4 text-2xl font-black text-slate-950">{portal === 'master' ? 'Acceso Maestro' : 'Acceso Escuelas'}</h1>
+          <p className="mt-1 text-sm text-slate-500">{portal === 'master' ? 'Administración general de escuelas.' : 'Control de acceso para tu comunidad escolar.'}</p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4 px-7 pb-7 pt-2" noValidate>
@@ -64,6 +72,7 @@ export default function LoginScreen() {
             {isSaving ? 'Ingresando…' : 'Ingresar a la aplicación'}
           </button>
           <p className="text-center text-xs text-slate-400">Las cuentas escolares son creadas por la administración de la plataforma.</p>
+          <a href={portal === 'master' ? '/' : '/master'} className="block text-center text-xs font-bold text-sky-700 hover:underline">{portal === 'master' ? 'Ir al acceso de escuelas' : 'Ingresar a la cuenta maestra'}</a>
           <p className="text-center text-[11px] font-semibold text-slate-400">Versión {APP_VERSION}</p>
         </form>
       </div>

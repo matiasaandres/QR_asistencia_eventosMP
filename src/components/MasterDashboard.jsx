@@ -4,13 +4,16 @@ import * as XLSX from 'xlsx';
 
 const PLAN_LABELS = { pilot: 'Piloto', event: 'Por evento', monthly: 'Mensual', annual: 'Anual' };
 
-export default function MasterDashboard({ organizations, user, onCreate, onStatusChange, onOpenSchool, onMigrateLegacy, onImportReport, onLogout }) {
+export default function MasterDashboard({ organizations, user, onCreate, onAssignAccount, onStatusChange, onOpenSchool, onMigrateLegacy, onImportReport, onLogout }) {
   const [schoolName, setSchoolName] = useState('');
   const [adminEmail, setAdminEmail] = useState('');
   const [temporaryPassword, setTemporaryPassword] = useState('');
   const [plan, setPlan] = useState('pilot');
   const [isSaving, setIsSaving] = useState(false);
   const [migratingSchool, setMigratingSchool] = useState('');
+  const [accountEmail, setAccountEmail] = useState('');
+  const [accountPassword, setAccountPassword] = useState('');
+  const [assigningSchool, setAssigningSchool] = useState('');
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
 
@@ -76,6 +79,23 @@ export default function MasterDashboard({ organizations, user, onCreate, onStatu
     }
   };
 
+  const handleAccountAssignment = async (event, organization) => {
+    event.preventDefault();
+    setError('');
+    setMessage('');
+    setAssigningSchool(organization.id);
+    try {
+      const result = await onAssignAccount({ organizationId: organization.id, adminEmail: accountEmail, password: accountPassword });
+      setAccountEmail('');
+      setAccountPassword('');
+      setMessage(`Cuenta escolar asignada: ${result.email}.`);
+    } catch (assignmentError) {
+      setError(assignmentError.message || 'No fue posible asignar la cuenta escolar.');
+    } finally {
+      setAssigningSchool('');
+    }
+  };
+
   return (
     <main className="min-h-screen bg-slate-100">
       <header className="border-b border-slate-800 bg-slate-950 text-white">
@@ -111,16 +131,19 @@ export default function MasterDashboard({ organizations, user, onCreate, onStatu
           <div className="border-b border-slate-200 p-5"><h2 className="text-lg font-black text-slate-950">Escuelas registradas</h2></div>
           <div className="divide-y divide-slate-100">
             {organizations.map((organization) => (
-              <article key={organization.id} className="flex flex-col gap-3 p-4 lg:flex-row lg:items-center">
-                <Building2 className="hidden h-6 w-6 text-sky-600 sm:block" />
-                <div className="min-w-0 flex-1"><h3 className="font-extrabold text-slate-950">{organization.name}</h3><p className="truncate text-xs text-slate-500">{organization.contactEmail || 'Cuenta creada antes del panel maestro'} · {PLAN_LABELS[organization.plan] || organization.plan}</p></div>
-                <span className={`inline-flex w-fit items-center gap-1 rounded-full px-2.5 py-1 text-xs font-bold ${organization.status === 'active' ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'}`}>{organization.status === 'active' ? <CheckCircle2 className="h-3.5 w-3.5" /> : <XCircle className="h-3.5 w-3.5" />}{organization.status === 'active' ? 'Activa' : 'Suspendida'}</span>
-                <div className="flex flex-wrap gap-2">
+              <article key={organization.id} className="p-4">
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+                  <Building2 className="hidden h-6 w-6 text-sky-600 sm:block" />
+                  <div className="min-w-0 flex-1"><h3 className="font-extrabold text-slate-950">{organization.name}</h3><p className="truncate text-xs text-slate-500">{organization.contactEmail || 'Cuenta escolar pendiente de asignar'} · {PLAN_LABELS[organization.plan] || organization.plan}</p></div>
+                  <span className={`inline-flex w-fit items-center gap-1 rounded-full px-2.5 py-1 text-xs font-bold ${organization.status === 'active' ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'}`}>{organization.status === 'active' ? <CheckCircle2 className="h-3.5 w-3.5" /> : <XCircle className="h-3.5 w-3.5" />}{organization.status === 'active' ? 'Activa' : 'Suspendida'}</span>
+                  <div className="flex flex-wrap gap-2">
                   <button type="button" onClick={() => onOpenSchool(organization.id)} className="inline-flex items-center gap-1 rounded-lg bg-sky-600 px-3 py-2 text-xs font-bold text-white"><ExternalLink className="h-3.5 w-3.5" /> Abrir gestión</button>
                   {organization.id === 'colegio-mundopalabra' && <button type="button" disabled={Boolean(migratingSchool)} onClick={() => handleMigration(organization)} className="rounded-lg bg-amber-100 px-3 py-2 text-xs font-bold text-amber-900 disabled:opacity-60">{migratingSchool === organization.id ? 'Recuperando…' : 'Recuperar alumnos anteriores'}</button>}
                   {organization.id === 'colegio-mundopalabra' && <label className="cursor-pointer rounded-lg bg-emerald-100 px-3 py-2 text-xs font-bold text-emerald-900">Importar respaldo completo<input type="file" accept=".xlsx" className="sr-only" disabled={Boolean(migratingSchool)} onChange={(event) => handleReportImport(event, organization)} /></label>}
                   <button type="button" onClick={() => onStatusChange(organization.id, organization.status === 'active' ? 'suspended' : 'active')} className="rounded-lg bg-slate-100 px-3 py-2 text-xs font-bold text-slate-700">{organization.status === 'active' ? 'Suspender' : 'Reactivar'}</button>
+                  </div>
                 </div>
+                {!organization.contactEmail && <form onSubmit={(event) => handleAccountAssignment(event, organization)} className="mt-4 grid gap-3 rounded-xl border border-indigo-200 bg-indigo-50 p-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end"><label className="text-xs font-bold text-slate-700">Correo de la escuela<input required type="email" value={accountEmail} onChange={(event) => setAccountEmail(event.target.value)} className="mt-1 w-full rounded-lg border border-indigo-200 bg-white px-3 py-2" /></label><label className="text-xs font-bold text-slate-700">Contraseña inicial<input required type="password" minLength="6" value={accountPassword} onChange={(event) => setAccountPassword(event.target.value)} className="mt-1 w-full rounded-lg border border-indigo-200 bg-white px-3 py-2" /></label><button disabled={Boolean(assigningSchool)} className="rounded-lg bg-indigo-600 px-3 py-2 text-xs font-bold text-white disabled:opacity-60">{assigningSchool === organization.id ? 'Asignando…' : 'Asignar cuenta escolar'}</button></form>}
               </article>
             ))}
             {!organizations.length && <p className="p-8 text-center text-sm text-slate-500">Aún no hay escuelas registradas.</p>}

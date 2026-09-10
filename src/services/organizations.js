@@ -1,5 +1,5 @@
 import { deleteApp, initializeApp } from 'firebase/app';
-import { createUserWithEmailAndPassword, deleteUser, getAuth, signOut } from 'firebase/auth';
+import { createUserWithEmailAndPassword, deleteUser, getAuth, signInWithEmailAndPassword, signOut } from 'firebase/auth';
 import { collection, doc, getDoc, getDocs, onSnapshot, query, setDoc, Timestamp, updateDoc, where, writeBatch } from 'firebase/firestore';
 import { getSavedFirebaseConfig, initFirebase } from './firebase';
 import { createOrganizationId, isPlatformAdmin, normalizeOrganization } from './organizationPolicy';
@@ -139,6 +139,63 @@ export async function updateOrganizationStatus(organizationId, status) {
     status,
     updatedAt: new Date().toISOString()
   });
+}
+
+export async function assignSchoolAdministrator({ organizationId, adminEmail, password, masterUser }) {
+  const { db } = initFirebase();
+  if (!db || !isPlatformAdmin(masterUser)) throw new Error('Solo la cuenta maestra puede asignar cuentas escolares.');
+  const organizationRef = doc(db, 'organizations', organizationId);
+  const organizationSnapshot = await getDoc(organizationRef);
+  if (!organizationSnapshot.exists()) throw new Error('La escuela no existe.');
+  const cleanEmail = adminEmail.trim().toLowerCase();
+  const secondaryApp = initializeApp(getSavedFirebaseConfig(), `school-account-${Date.now()}`);
+  const secondaryAuth = getAuth(secondaryApp);
+  let schoolUser = null;
+  let createdUser = false;
+  try {
+    try {
+      schoolUser = (await signInWithEmailAndPassword(secondaryAuth, cleanEmail, password)).user;
+    } catch (signInError) {
+      try {
+        schoolUser = (await createUserWithEmailAndPassword(secondaryAuth, cleanEmail, password)).user;
+        createdUser = true;
+      } catch (creationError) {
+        if (creationError?.code?.includes('email-already-in-use')) {
+          throw new Error('Ese correo ya existe en Firebase, pero la contraseña indicada no coincide.');
+        }
+        throw creationError;
+      }
+    }
+    const current = organizationSnapshot.data();
+    const now = new Date().toISOString();
+    const batch = writeBatch(db);
+    batch.update(organizationRef, {
+      ownerUid: schoolUser.uid,
+      memberUids: [...new Set([...(current.memberUids || []), schoolUser.uid])],
+      contactEmail: cleanEmail,
+      updatedAt: now
+    });
+    batch.set(doc(organizationRef, 'members', schoolUser.uid), {
+      userId: schoolUser.uid,
+      email: cleanEmail,
+      displayName: current.name || cleanEmail.split('@')[0],
+      role: 'admin',
+      status: 'active',
+      createdAt: now
+    }, { merge: true });
+    await batch.commit();
+    return { organizationId, email: cleanEmail };
+  } catch (error) {
+    if (createdUser && schoolUser) {
+      try { await deleteUser(schoolUser); } catch (cleanupError) {
+        console.warn('No fue posible eliminar la cuenta escolar incompleta:', cleanupError);
+      }
+    }
+    throw error;
+  } finally {
+    try { await signOut(secondaryAuth); } catch (error) { /* La sesión secundaria puede no existir. */ }
+    await deleteApp(secondaryApp);
+  }
 }
 
 async function copyDocuments(db, sourceDocuments, destinationCollection, transform = (data) => data) {

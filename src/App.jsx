@@ -19,6 +19,7 @@ import {
   getSavedOrganizationId,
   saveOrganizationId,
   createSchoolWithAdministrator,
+  importMundoPalabraReport,
   migrateLegacyMundoPalabra,
   subscribeToAllOrganizations,
   updateOrganizationStatus,
@@ -228,7 +229,7 @@ export default function App() {
   if (!authReady) return <LoadingScreen />;
   if (!authUser) return <LoginScreen />;
   if (!organizationReady) return <LoadingScreen message="Cargando organizaciones…" />;
-  if (isMaster && !schoolViewForMaster) return <MasterDashboard organizations={organizations} user={authUser} onCreate={handleCreateSchool} onStatusChange={updateOrganizationStatus} onOpenSchool={(organizationId) => { handleOrganizationChange(organizationId); setSchoolViewForMaster(true); }} onMigrateLegacy={handleLegacyMigration} onLogout={handleLogout} />;
+  if (isMaster && !schoolViewForMaster) return <MasterDashboard organizations={organizations} user={authUser} onCreate={handleCreateSchool} onStatusChange={updateOrganizationStatus} onOpenSchool={(organizationId) => { handleOrganizationChange(organizationId); setSchoolViewForMaster(true); }} onMigrateLegacy={handleLegacyMigration} onImportReport={(report) => importMundoPalabraReport({ ...report, user: authUser })} onLogout={handleLogout} />;
   if (!organization) return <LoadingScreen message="Tu cuenta no tiene una organización activa." />;
   if ((!membership && !isMaster) || !event) return <LoadingScreen message="Preparando el espacio de la escuela…" />;
 

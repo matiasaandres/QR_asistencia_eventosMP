@@ -4,6 +4,7 @@ import { collection, doc, getDoc, getDocs, onSnapshot, query, setDoc, Timestamp,
 import { getSavedFirebaseConfig, initFirebase } from './firebase';
 import { createOrganizationId, isPlatformAdmin, normalizeOrganization } from './organizationPolicy';
 import { createEventId, normalizeEvent } from './eventPolicy';
+import { INITIAL_STUDENTS } from '../mock/sampleStudents';
 
 const CURRENT_ORGANIZATION_KEY = 'access_current_organization_';
 
@@ -184,6 +185,111 @@ export async function migrateLegacyMundoPalabra({ organizationId, user }) {
     logsCopied += logs.size;
   }
   return { events: legacyEvents.size, students: studentsCopied, logs: logsCopied };
+}
+
+function parseLegacyDateTime(dateValue, timeValue, fallbackIndex) {
+  const dateMatch = String(dateValue || '').match(/(\d{1,2})[-/]([0-1]?\d)[-/](\d{4})/);
+  const timeText = String(timeValue || '').toLowerCase().replaceAll('.', '').replace(/\s+/g, ' ').trim();
+  const timeMatch = timeText.match(/(\d{1,2}):(\d{2})(?::(\d{2}))?\s*([ap])?\s*m?/);
+  if (!dateMatch || !timeMatch) return new Date(Date.UTC(2026, 8, 8, 12, 0, fallbackIndex % 60)).toISOString();
+  let hour = Number(timeMatch[1]);
+  if (timeMatch[4] === 'p' && hour < 12) hour += 12;
+  if (timeMatch[4] === 'a' && hour === 12) hour = 0;
+  const localDate = new Date(
+    Number(dateMatch[3]), Number(dateMatch[2]) - 1, Number(dateMatch[1]),
+    hour, Number(timeMatch[2]), Number(timeMatch[3] || 0), fallbackIndex
+  );
+  return localDate.toISOString();
+}
+
+function numberValue(value, fallback = 0) {
+  const parsed = Number(String(value ?? '').replace(',', '.'));
+  return Number.isFinite(parsed) ? Math.trunc(parsed) : fallback;
+}
+
+export async function importMundoPalabraReport({ organizationId, user, studentRows, logRows }) {
+  if (organizationId !== 'colegio-mundopalabra' || !isPlatformAdmin(user)) {
+    throw new Error('Solo la cuenta maestra puede importar el respaldo de Mundo Palabra.');
+  }
+  if (!studentRows?.length || !logRows?.length) throw new Error('El respaldo no contiene alumnos o ingresos.');
+  const { db } = initFirebase();
+  const eventId = 'acto-cultural-institucional-2026-20260908-recuperado';
+  const knownStudents = new Map(INITIAL_STUDENTS.map((student) => [student.id, student]));
+  const normalizedLogs = logRows.map((row, index) => {
+    const timestamp = parseLegacyDateTime(row.Fecha, row.Hora, index);
+    return {
+      id: `legacy-${String(index + 1).padStart(4, '0')}`,
+      studentId: String(row['Código'] || '').trim(),
+      studentName: String(row.Estudiante || '').trim(),
+      course: String(row.Curso || '').trim(),
+      count: numberValue(row['Personas en este Ingreso']),
+      accumulated: numberValue(row['Total Acumulado']),
+      maxCapacity: 5,
+      doorName: String(row['Punto / Puerta'] || 'Acceso Principal').trim(),
+      timestamp,
+      formattedDate: String(row.Fecha || '').trim(),
+      formattedTime: String(row.Hora || '').trim(),
+      operatorUid: user.uid,
+      operatorEmail: user.email,
+      isExtra: String(row['Cupo Extraordinario'] || '').toLowerCase() === 'sí',
+      ...(row['Nombre Persona Extra'] ? { guestName: String(row['Nombre Persona Extra']).trim() } : {}),
+      ...(row.Parentesco ? { relationship: String(row.Parentesco).trim() } : {})
+    };
+  }).filter((log) => log.studentId && log.count >= 1 && log.count <= 5);
+  const lastLogByStudent = new Map();
+  normalizedLogs.forEach((log) => {
+    const previous = lastLogByStudent.get(log.studentId);
+    if (!previous || log.timestamp > previous.timestamp) lastLogByStudent.set(log.studentId, log);
+  });
+  const students = studentRows.map((row) => {
+    const id = String(row['Código'] || '').trim();
+    const known = knownStudents.get(id) || {};
+    const maxCapacity = Math.max(0, numberValue(row['Capacidad Autorizada'], 5));
+    const enteredCount = Math.max(0, numberValue(row['Personas Ingresadas']));
+    const lastLog = lastLogByStudent.get(id);
+    return {
+      ...known,
+      id,
+      name: String(row.Estudiante || known.name || '').trim(),
+      course: String(row.Curso || known.course || '').trim(),
+      maxCapacity,
+      enteredCount,
+      status: String(row['Estado Acceso'] || (enteredCount ? 'PARCIAL' : 'PENDIENTE')).trim(),
+      ...(lastLog ? { lastEntryAt: lastLog.timestamp } : {}),
+      ...(String(row['Cupo Extraordinario'] || '').toLowerCase() === 'sí' ? {
+        extraGuest: {
+          name: String(row['Nombre Persona Extra'] || 'Persona extraordinaria').trim(),
+          relationship: String(row['Parentesco Persona Extra'] || 'Apoderado/a').trim(),
+          addedAt: lastLog?.timestamp || new Date().toISOString(),
+          doorName: lastLog?.doorName || 'Acceso Principal'
+        }
+      } : {})
+    };
+  }).filter((student) => student.id && student.name);
+
+  const now = new Date().toISOString();
+  const doors = [...new Set(['Acceso Principal', 'Puerta 1', 'Puerta 2', ...normalizedLogs.map((log) => log.doorName)])];
+  const eventRef = doc(db, 'organizations', organizationId, 'events', eventId);
+  await setDoc(eventRef, normalizeEvent({
+    id: eventId,
+    name: 'Acto Cultural Institucional 2026',
+    institution: 'Colegio MundoPalabra',
+    date: '2026-09-08',
+    defaultCapacity: 5,
+    doors,
+    archived: false,
+    studentsInitialized: true,
+    createdAt: now,
+    updatedAt: now
+  }));
+  await copyDocuments(db, students.map((student) => ({ id: student.id, data: () => student })), collection(eventRef, 'students'));
+  await copyDocuments(db, normalizedLogs.map((log) => ({ id: log.id, data: () => { const { id, ...data } = log; return data; } })), collection(eventRef, 'logs'));
+  return {
+    eventId,
+    students: students.length,
+    logs: normalizedLogs.length,
+    people: normalizedLogs.reduce((total, log) => total + log.count, 0)
+  };
 }
 
 export function subscribeToMembers(organizationId, onUpdate, onError) {

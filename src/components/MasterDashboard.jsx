@@ -1,9 +1,10 @@
 import React, { useMemo, useState } from 'react';
 import { Building2, CheckCircle2, ExternalLink, LogOut, Plus, ShieldCheck, XCircle } from 'lucide-react';
+import * as XLSX from 'xlsx';
 
 const PLAN_LABELS = { pilot: 'Piloto', event: 'Por evento', monthly: 'Mensual', annual: 'Anual' };
 
-export default function MasterDashboard({ organizations, user, onCreate, onStatusChange, onOpenSchool, onMigrateLegacy, onLogout }) {
+export default function MasterDashboard({ organizations, user, onCreate, onStatusChange, onOpenSchool, onMigrateLegacy, onImportReport, onLogout }) {
   const [schoolName, setSchoolName] = useState('');
   const [adminEmail, setAdminEmail] = useState('');
   const [temporaryPassword, setTemporaryPassword] = useState('');
@@ -52,6 +53,29 @@ export default function MasterDashboard({ organizations, user, onCreate, onStatu
     }
   };
 
+  const handleReportImport = async (event, organization) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    setError('');
+    setMessage('');
+    setMigratingSchool(organization.id);
+    try {
+      const workbook = XLSX.read(await file.arrayBuffer(), { type: 'array' });
+      const studentSheet = workbook.Sheets['Resumen Estudiantes'];
+      const logSheet = workbook.Sheets['Bitácora de Ingresos'];
+      if (!studentSheet || !logSheet) throw new Error('El archivo no es un respaldo completo de Mundo Palabra.');
+      const studentRows = XLSX.utils.sheet_to_json(studentSheet, { defval: '', raw: false });
+      const logRows = XLSX.utils.sheet_to_json(logSheet, { defval: '', raw: false });
+      const result = await onImportReport({ organizationId: organization.id, studentRows, logRows });
+      setMessage(`Respaldo importado: ${result.students} alumnos, ${result.logs} ingresos y ${result.people} personas.`);
+    } catch (importError) {
+      setError(importError.message || 'No fue posible importar el respaldo.');
+    } finally {
+      setMigratingSchool('');
+    }
+  };
+
   return (
     <main className="min-h-screen bg-slate-100">
       <header className="border-b border-slate-800 bg-slate-950 text-white">
@@ -94,6 +118,7 @@ export default function MasterDashboard({ organizations, user, onCreate, onStatu
                 <div className="flex flex-wrap gap-2">
                   <button type="button" onClick={() => onOpenSchool(organization.id)} className="inline-flex items-center gap-1 rounded-lg bg-sky-600 px-3 py-2 text-xs font-bold text-white"><ExternalLink className="h-3.5 w-3.5" /> Abrir gestión</button>
                   {organization.id === 'colegio-mundopalabra' && <button type="button" disabled={Boolean(migratingSchool)} onClick={() => handleMigration(organization)} className="rounded-lg bg-amber-100 px-3 py-2 text-xs font-bold text-amber-900 disabled:opacity-60">{migratingSchool === organization.id ? 'Recuperando…' : 'Recuperar alumnos anteriores'}</button>}
+                  {organization.id === 'colegio-mundopalabra' && <label className="cursor-pointer rounded-lg bg-emerald-100 px-3 py-2 text-xs font-bold text-emerald-900">Importar respaldo completo<input type="file" accept=".xlsx" className="sr-only" disabled={Boolean(migratingSchool)} onChange={(event) => handleReportImport(event, organization)} /></label>}
                   <button type="button" onClick={() => onStatusChange(organization.id, organization.status === 'active' ? 'suspended' : 'active')} className="rounded-lg bg-slate-100 px-3 py-2 text-xs font-bold text-slate-700">{organization.status === 'active' ? 'Suspender' : 'Reactivar'}</button>
                 </div>
               </article>

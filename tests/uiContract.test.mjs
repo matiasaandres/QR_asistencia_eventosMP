@@ -95,6 +95,7 @@ test('la cuenta maestra administra escuelas y recupera Mundo Palabra', () => {
   assert.match(masterDashboard, /Crear escuela y cuenta administradora/);
   assert.match(masterDashboard, /Recuperar alumnos anteriores/);
   assert.match(masterDashboard, /onMigrateLegacy/);
+  assert.match(masterDashboard, /Importar respaldo completo/);
 });
 
 test('la nómina permite cambiar cupos globales, individuales y deshabilitar alumnos', () => {

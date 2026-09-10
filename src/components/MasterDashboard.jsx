@@ -114,9 +114,9 @@ export default function MasterDashboard({ organizations, user, onCreate, onAssig
   return (
     <main className="min-h-screen bg-slate-100">
       <header className="border-b border-slate-800 bg-slate-950 text-white">
-        <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-4 sm:px-6">
-          <div className="flex items-center gap-3"><ShieldCheck className="h-9 w-9 text-sky-400" /><div><h1 className="text-xl font-black">Panel maestro</h1><p className="text-xs text-slate-400">{user.email}</p></div></div>
-          <button type="button" onClick={onLogout} className="flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-bold text-slate-300 hover:bg-slate-800"><LogOut className="h-4 w-4" /> Salir</button>
+        <div className="mx-auto flex max-w-7xl items-center justify-between gap-3 px-4 py-4 sm:px-6">
+          <div className="flex min-w-0 items-center gap-3"><ShieldCheck className="h-9 w-9 shrink-0 text-sky-400" /><div className="min-w-0"><h1 className="text-xl font-black">Panel maestro</h1><p className="truncate text-xs text-slate-400">{user.email}</p></div></div>
+          <button type="button" onClick={onLogout} className="flex shrink-0 items-center gap-2 rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 text-xs font-extrabold text-white shadow-sm hover:border-rose-400 hover:bg-rose-600 sm:px-4 sm:text-sm"><LogOut className="h-4 w-4" /><span>Cerrar sesión</span></button>
         </div>
       </header>
 

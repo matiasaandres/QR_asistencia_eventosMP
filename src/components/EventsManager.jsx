@@ -1,10 +1,10 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Archive,
   ArchiveRestore,
   CalendarDays,
   CheckCircle2,
-  Copy,
+  ListChecks,
   Plus,
   Users
 } from 'lucide-react';
@@ -27,8 +27,9 @@ export default function EventsManager({
 }) {
   const [name, setName] = useState('');
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
-  const [defaultCapacity, setDefaultCapacity] = useState(currentEvent?.defaultCapacity || 5);
+  const [defaultCapacity, setDefaultCapacity] = useState(4);
   const [copyRoster, setCopyRoster] = useState(true);
+  const [selectedCourses, setSelectedCourses] = useState([]);
   const [isSaving, setIsSaving] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
   const [message, setMessage] = useState('');
@@ -37,10 +38,31 @@ export default function EventsManager({
     () => events.filter((event) => showArchived || !event.archived),
     [events, showArchived]
   );
+  const courseOptions = useMemo(() => {
+    const counts = new Map();
+    students.filter((student) => student?.deleted !== true).forEach((student) => {
+      const course = String(student.course || 'Sin curso');
+      counts.set(course, (counts.get(course) || 0) + 1);
+    });
+    return [...counts].map(([name, count]) => ({ name, count }))
+      .sort((a, b) => a.name.localeCompare(b.name, 'es', { numeric: true }));
+  }, [students]);
+  const courseKey = courseOptions.map((course) => `${course.name}:${course.count}`).join('|');
+  const selectedStudentCount = courseOptions.reduce((total, course) => (
+    selectedCourses.includes(course.name) ? total + course.count : total
+  ), 0);
+
+  useEffect(() => {
+    setSelectedCourses(courseOptions.map((course) => course.name));
+  }, [courseKey]);
 
   const handleCreate = async (submitEvent) => {
     submitEvent.preventDefault();
     if (!name.trim()) return;
+    if (copyRoster && selectedCourses.length === 0) {
+      alert('Selecciona al menos un curso para incorporar su nómina al evento.');
+      return;
+    }
     setIsSaving(true);
     setMessage('');
     try {
@@ -50,7 +72,7 @@ export default function EventsManager({
         institution: currentEvent?.institution || 'Institución educativa',
         defaultCapacity: Number(defaultCapacity),
         doors: currentEvent?.doors || ['Acceso Principal']
-      }, copyRoster);
+      }, copyRoster, selectedCourses);
       setName('');
       setMessage(`Evento “${created.name}” creado y seleccionado.`);
     } catch (error) {
@@ -107,12 +129,21 @@ export default function EventsManager({
         <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <label className="flex cursor-pointer items-start gap-2 text-xs font-semibold text-slate-700">
             <input type="checkbox" checked={copyRoster} onChange={(event) => setCopyRoster(event.target.checked)} className="mt-0.5 h-4 w-4 rounded border-sky-300 text-sky-600" />
-            <span><strong>Copiar la nómina actual ({students.length} alumnos)</strong><br />La asistencia comenzará en cero; se conservarán identidad, curso y cupos.</span>
+            <span><strong>Incorporar nómina desde el evento actual</strong><br />Selecciona los cursos que participarán; la asistencia comenzará en cero.</span>
           </label>
           <button disabled={isSaving} className="inline-flex items-center justify-center gap-2 rounded-xl bg-sky-600 px-4 py-2.5 text-sm font-extrabold text-white hover:bg-sky-500 disabled:opacity-60">
             <Plus className="h-4 w-4" /> {isSaving ? 'Creando…' : 'Crear y seleccionar'}
           </button>
         </div>
+        {copyRoster && (
+          <div className="mt-4 rounded-2xl border border-sky-200 bg-white p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2"><ListChecks className="h-4 w-4 text-sky-700" /><div><h3 className="text-xs font-extrabold text-slate-900">Cursos que se incorporarán</h3><p className="text-[11px] text-slate-500">{selectedStudentCount} de {students.length} alumnos seleccionados</p></div></div>
+              <div className="flex gap-2"><button type="button" onClick={() => setSelectedCourses(courseOptions.map((course) => course.name))} className="rounded-lg bg-sky-50 px-2.5 py-1.5 text-[11px] font-bold text-sky-700">Todos</button><button type="button" onClick={() => setSelectedCourses([])} className="rounded-lg bg-slate-100 px-2.5 py-1.5 text-[11px] font-bold text-slate-600">Ninguno</button></div>
+            </div>
+            {courseOptions.length > 0 ? <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">{courseOptions.map((course) => <label key={course.name} className={`flex cursor-pointer items-center justify-between gap-3 rounded-xl border px-3 py-2.5 transition ${selectedCourses.includes(course.name) ? 'border-sky-300 bg-sky-50' : 'border-slate-200 bg-slate-50'}`}><span className="flex min-w-0 items-center gap-2"><input type="checkbox" checked={selectedCourses.includes(course.name)} onChange={(event) => setSelectedCourses((current) => event.target.checked ? [...current, course.name] : current.filter((name) => name !== course.name))} className="h-4 w-4 rounded border-sky-300 text-sky-600" /><span className="truncate text-xs font-bold text-slate-700">{course.name}</span></span><span className="shrink-0 rounded-full bg-white px-2 py-0.5 text-[10px] font-extrabold text-slate-500">{course.count}</span></label>)}</div> : <p className="mt-3 rounded-xl bg-amber-50 p-3 text-xs font-semibold text-amber-800">El evento actual no tiene alumnos para copiar.</p>}
+          </div>
+        )}
       </form>
 
       <section className="space-y-3">

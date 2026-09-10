@@ -98,7 +98,7 @@ export async function createSchoolWithAdministrator({ schoolName, adminEmail, te
       name: 'Evento inicial',
       institution: cleanName,
       date: nowIso.slice(0, 10),
-      defaultCapacity: 5,
+      defaultCapacity: 4,
       doors: ['Acceso Principal'],
       archived: false,
       studentsInitialized: true,

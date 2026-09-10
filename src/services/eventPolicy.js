@@ -7,7 +7,7 @@ export function normalizeEvent(eventData = {}, fallbackEvent = {}) {
   const fallback = fallbackEvent && typeof fallbackEvent === 'object' ? fallbackEvent : {};
   const defaultCapacity = normalizeCapacityValue(
     source.defaultCapacity,
-    normalizeCapacityValue(fallback.defaultCapacity, 5)
+    normalizeCapacityValue(fallback.defaultCapacity, 4)
   );
   const normalized = ensureRequiredDoors({
     ...fallback,
@@ -16,7 +16,7 @@ export function normalizeEvent(eventData = {}, fallbackEvent = {}) {
     name: String(source.name || fallback.name || 'Evento sin nombre').trim(),
     institution: String(source.institution || fallback.institution || 'Institución educativa').trim(),
     date: String(source.date || fallback.date || new Date().toISOString().slice(0, 10)).trim(),
-    defaultCapacity: Math.min(50, Math.max(1, defaultCapacity || 5)),
+    defaultCapacity: Math.min(50, Math.max(1, defaultCapacity || 4)),
     archived: source.archived === true,
     studentsInitialized: source.studentsInitialized === true
   }, { doors: fallback.doors || DEFAULT_EVENT_DOORS });
@@ -50,4 +50,10 @@ export function prepareStudentsForEvent(students = []) {
       const { deleted, deletedAt, ...copy } = reset;
       return copy;
     });
+}
+
+export function selectStudentsForCourses(students = [], selectedCourses = []) {
+  if (!Array.isArray(selectedCourses) || selectedCourses.length === 0) return [];
+  const allowed = new Set(selectedCourses.map((course) => String(course || 'Sin curso')));
+  return students.filter((student) => allowed.has(String(student?.course || 'Sin curso')));
 }

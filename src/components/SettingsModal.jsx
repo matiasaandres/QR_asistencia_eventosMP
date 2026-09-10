@@ -63,7 +63,7 @@ export default function SettingsModal({
 }) {
   const [eventName, setEventName] = useState(event?.name || '');
   const [eventDate, setEventDate] = useState(event?.date || '');
-  const [defaultCap, setDefaultCap] = useState(event?.defaultCapacity || 5);
+  const [defaultCap, setDefaultCap] = useState(event?.defaultCapacity || 4);
   const [doorName, setDoorName] = useState(currentDoor);
   const [doorsListStr, setDoorsListStr] = useState((event?.doors || []).join(', '));
   const [schoolName, setSchoolName] = useState(organization?.name || '');
@@ -82,7 +82,7 @@ export default function SettingsModal({
     if (isOpen) {
       setEventName(event?.name || '');
       setEventDate(event?.date || '');
-      setDefaultCap(event?.defaultCapacity || 5);
+      setDefaultCap(event?.defaultCapacity || 4);
       setDoorName(currentDoor);
       setDoorsListStr((event?.doors || []).join(', '));
       setSchoolName(organization?.name || '');
@@ -114,7 +114,7 @@ export default function SettingsModal({
       ...event,
       name: eventName.trim() || 'Acto Cultural',
       date: eventDate,
-      defaultCapacity: Number(defaultCap) || 5,
+      defaultCapacity: Number(defaultCap) || 4,
       doors: updatedDoors.length > 0 ? updatedDoors : ['Acceso Principal']
     };
 

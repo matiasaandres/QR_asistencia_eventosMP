@@ -4,7 +4,8 @@ import { readFile } from 'node:fs/promises';
 import {
   createEventId,
   normalizeEvent,
-  prepareStudentsForEvent
+  prepareStudentsForEvent,
+  selectStudentsForCourses
 } from '../src/services/eventPolicy.js';
 
 test('genera identificadores de evento legibles y únicos', () => {
@@ -12,6 +13,20 @@ test('genera identificadores de evento legibles y únicos', () => {
   const second = createEventId('Gala Aniversario', '2026-11-05', 1001);
   assert.match(first, /^gala-aniversario-20261105-/);
   assert.notEqual(first, second);
+});
+
+test('un evento nuevo usa cuatro cupos cuando no se indica otro valor', () => {
+  assert.equal(normalizeEvent({ id: 'evento-2', name: 'Evento 2' }).defaultCapacity, 4);
+});
+
+test('permite incorporar la nómina por cursos seleccionados', () => {
+  const selected = selectStudentsForCourses([
+    { id: '1', course: '1° A' },
+    { id: '2', course: '2° A' },
+    { id: '3', course: '1° A' },
+    { id: '4' }
+  ], ['1° A', 'Sin curso']);
+  assert.deepEqual(selected.map((student) => student.id), ['1', '3', '4']);
 });
 
 test('normaliza la configuración necesaria para administrar un evento', () => {
@@ -61,7 +76,9 @@ test('la interfaz permite crear, seleccionar y archivar eventos', async () => {
   assert.match(app, /subscribeToEvents\(organizationId/);
   assert.match(navbar, /aria-label="Evento actual"/);
   assert.match(manager, /Crear un evento nuevo/);
-  assert.match(manager, /Copiar la nómina actual/);
+  assert.match(manager, /Incorporar nómina desde el evento actual/);
+  assert.match(manager, /Cursos que se incorporarán/);
+  assert.match(manager, /selectedCourses/);
   assert.match(manager, /Archivar/);
   assert.match(storage, /export async function createEvent/);
   assert.match(storage, /'organizations', organizationId, 'events'/);

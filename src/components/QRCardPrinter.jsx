@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import QRCode from 'qrcode';
 import { getCapacityState } from '../services/checkinPolicy';
-import { createStudentQrArchive } from '../services/qrArchive';
+import { createStudentQrArchive, createStudentQrPdf } from '../services/qrArchive';
 import OrganizationLogo from './OrganizationLogo.jsx';
 import { 
   Printer, 
@@ -81,6 +81,24 @@ export default function QRCardPrinter({
   }, [selectedStudent, eligibleStudents, filterCourse]);
 
   const handlePrint = async () => {
+    if (selectedStudent) {
+      try {
+        const bytes = await createStudentQrPdf({ student: selectedStudent, event, organization });
+        const cleanName = (selectedStudent.name || 'Estudiante').replace(/[^a-zA-Z0-9áéíóúÁÉÍÓÚñÑ_-]+/g, '_');
+        const downloadUrl = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
+        const anchor = document.createElement('a');
+        anchor.href = downloadUrl;
+        anchor.download = `Credencial_QR_${cleanName}_${selectedStudent.id}.pdf`;
+        document.body.appendChild(anchor);
+        anchor.click();
+        anchor.remove();
+        setTimeout(() => URL.revokeObjectURL(downloadUrl), 1000);
+      } catch (error) {
+        console.error('Error generating individual QR PDF:', error);
+        setArchiveError(error?.message || 'No fue posible crear la credencial PDF.');
+      }
+      return;
+    }
     if (document.fonts?.ready) {
       await document.fonts.ready;
     }
@@ -196,7 +214,7 @@ export default function QRCardPrinter({
           <button
             onClick={handlePrint}
             title={selectedStudent
-              ? 'Abre la ventana para guardar esta credencial como PDF'
+                ? 'Descarga solamente la credencial seleccionada en PDF'
               : 'Abre la ventana para guardar todos los códigos QR como PDF'}
             className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-5 py-2 bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold rounded-xl shadow-md shadow-sky-600/30 transition-all active:scale-95"
           >
@@ -205,7 +223,7 @@ export default function QRCardPrinter({
               : <Download className="w-4 h-4" />}
             <span>
               {selectedStudent
-                ? 'Guardar tarjeta en PDF'
+                ? 'Descargar credencial PDF'
                 : 'Descargar todos los QR en PDF'}
             </span>
           </button>

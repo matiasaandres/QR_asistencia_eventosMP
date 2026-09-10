@@ -2515,7 +2515,7 @@ export const INITIAL_EVENT = {
   id: "acto-cultural-2026",
   name: "Acto Cultural Institucional 2026",
   institution: "Colegio MundoPalabra",
-  defaultCapacity: 5,
+  defaultCapacity: 4,
   date: "2026-09-10",
   doors: [
     "Acceso Principal",

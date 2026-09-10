@@ -9,7 +9,8 @@ import {
 import {
   createEventId,
   normalizeEvent,
-  prepareStudentsForEvent
+  prepareStudentsForEvent,
+  selectStudentsForCourses
 } from './eventPolicy';
 import {
   collection,
@@ -184,10 +185,13 @@ export async function updateEvent(organizationId, eventData) {
   return saveCurrentEvent(organizationId, updatedEvent);
 }
 
-export async function createEvent(organizationId, eventData, { copyStudents = false, sourceStudents = [] } = {}) {
+export async function createEvent(organizationId, eventData, { copyStudents = false, sourceStudents = [], selectedCourses } = {}) {
   const now = new Date();
   const id = createEventId(eventData?.name, eventData?.date, now.getTime());
-  const students = copyStudents ? prepareStudentsForEvent(sourceStudents) : [];
+  const selectedStudents = Array.isArray(selectedCourses)
+    ? selectStudentsForCourses(sourceStudents, selectedCourses)
+    : sourceStudents;
+  const students = copyStudents ? prepareStudentsForEvent(selectedStudents) : [];
   const newEvent = normalizeEvent({
     ...eventData,
     id,

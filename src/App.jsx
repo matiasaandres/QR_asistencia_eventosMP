@@ -195,11 +195,11 @@ export default function App() {
     setEvent(saveCurrentEvent(organization.id, selected));
   };
 
-  const handleCreateEvent = async (eventData, copyRoster) => {
+  const handleCreateEvent = async (eventData, copyRoster, selectedCourses) => {
     const created = await createEvent(organization.id, {
       ...eventData,
       institution: organization.name
-    }, { copyStudents: copyRoster, sourceStudents: students });
+    }, { copyStudents: copyRoster, sourceStudents: students, selectedCourses });
     setEvent(created);
     setStudents([]);
     setLogs([]);

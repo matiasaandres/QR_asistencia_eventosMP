@@ -103,7 +103,7 @@ export async function registerOrganization({ schoolName, email, password }) {
       name: 'Evento inicial',
       institution: organization.name,
       date: now.toISOString().slice(0, 10),
-      defaultCapacity: 5,
+      defaultCapacity: 4,
       doors: ['Acceso Principal'],
       archived: false,
       studentsInitialized: true,

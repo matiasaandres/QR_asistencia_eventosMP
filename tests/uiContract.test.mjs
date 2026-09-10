@@ -89,6 +89,13 @@ test('ofrece un ZIP con un PDF individual por alumno y progreso visible', () => 
   assert.match(qrPrinter, /Comprimiendo ZIP/);
 });
 
+test('la descarga individual genera solo la credencial seleccionada', () => {
+  assert.match(qrPrinter, /createStudentQrPdf/);
+  assert.match(qrPrinter, /student:\s*selectedStudent/);
+  assert.match(qrPrinter, /application\/pdf/);
+  assert.match(qrPrinter, /Descargar credencial PDF/);
+});
+
 test('el login solo permite ingresar con una cuenta existente', () => {
   assert.doesNotMatch(loginScreen, />Nueva escuela</);
   assert.doesNotMatch(loginScreen, /registerOrganization|joinOrganization/);
@@ -101,6 +108,7 @@ test('el login solo permite ingresar con una cuenta existente', () => {
 
 test('la cuenta maestra administra escuelas y recupera Mundo Palabra', () => {
   assert.match(masterDashboard, /Panel maestro/);
+  assert.match(masterDashboard, /Cerrar sesión/);
   assert.match(masterDashboard, /Crear escuela y cuenta administradora/);
   assert.match(masterDashboard, /Recuperar alumnos anteriores/);
   assert.match(masterDashboard, /onMigrateLegacy/);

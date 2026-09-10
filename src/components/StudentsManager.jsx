@@ -142,10 +142,7 @@ export default function StudentsManager({
 
     setIsSaving(true);
     try {
-      const familyId = studentFamilySelection === NEW_FAMILY_VALUE
-        ? createFamilyCodeGenerator(students)()
-        : studentFamilySelection;
-      await onSaveFamily(editingStudent.id, familyId);
+      await onSaveFamily(editingStudent.id, studentFamilySelection);
       await onSaveCapacities([{ id: editingStudent.id, maxCapacity: nextCapacity }]);
       showStatus(`Familia y cupo de ${editingStudent.name} actualizados.`);
       setEditingStudent(null);
@@ -252,29 +249,37 @@ export default function StudentsManager({
     setStatusFilter('ALL');
   };
 
-  const handleAddStudent = (e) => {
+  const handleAddStudent = async (e) => {
     e.preventDefault();
     if (!newStudent.name.trim() || !newStudent.course.trim()) return;
 
     // Use a time-based suffix so a newly created student cannot reuse the
     // document ID of a soft-deleted record that is hidden from this roster.
     const nextId = `MP-${new Date().getFullYear()}-${Date.now().toString(36).toUpperCase()}`;
-    const familyId = newStudent.familySelection === NEW_FAMILY_VALUE
-      ? createFamilyCodeGenerator(students)()
-      : newStudent.familySelection;
     const studentObj = {
       id: nextId,
       name: newStudent.name.trim(),
       course: newStudent.course.trim(),
-      ...(familyId ? { familyId } : {}),
       maxCapacity: Math.max(1, normalizeCapacityValue(newStudent.maxCapacity)),
       enteredCount: 0,
       status: 'PENDIENTE'
     };
 
-    onSaveStudents([...students, studentObj]);
-    setNewStudent({ name: '', course: '', familySelection: '', maxCapacity: 4 });
-    setShowAddModal(false);
+    const nextStudents = [...students, studentObj];
+    setIsSaving(true);
+    try {
+      await onSaveStudents(nextStudents);
+      if (newStudent.familySelection) {
+        await onSaveFamily(studentObj.id, newStudent.familySelection, nextStudents);
+      }
+      setNewStudent({ name: '', course: '', familySelection: '', maxCapacity: 4 });
+      setShowAddModal(false);
+      showStatus(`${studentObj.name} fue incorporado a la nómina.`);
+    } catch (error) {
+      alert(`No fue posible agregar el estudiante: ${error.message}`);
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const handleFileUpload = (e) => {

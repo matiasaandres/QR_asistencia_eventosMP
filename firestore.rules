@@ -155,10 +155,6 @@ service cloud.firestore {
             && data.studentsInitialized == true;
         }
 
-        function eventIsOpen() {
-          return isMember() && (!('archived' in resource.data) || resource.data.archived == false);
-        }
-
         function eventWillBeOpen() {
           return canOperate()
             && existsAfter(/databases/$(database)/documents/organizations/$(organizationId)/events/$(eventId))
@@ -174,6 +170,44 @@ service cloud.firestore {
             ])
           && validEvent(request.resource.data);
         allow delete: if false;
+
+        match /families/{familyId} {
+          function validFamily(data) {
+            return data.keys().hasOnly([
+                'id', 'maxCapacity', 'enteredCount', 'status', 'members',
+                'lastEntryAt', 'extraGuest', 'createdAt', 'updatedAt'
+              ])
+              && data.id == familyId
+              && data.maxCapacity is int
+              && data.maxCapacity >= 1
+              && data.maxCapacity <= 50
+              && data.enteredCount is int
+              && data.enteredCount >= 0
+              && data.enteredCount <= data.maxCapacity + 1
+              && data.members is list
+              && data.members.size() >= 1
+              && data.members.size() <= 100;
+          }
+
+          allow read: if isMember();
+          allow create: if isAdmin() && eventWillBeOpen() && validFamily(request.resource.data);
+          allow update: if eventWillBeOpen() && validFamily(request.resource.data) && (
+            isAdmin()
+            || (canOperate()
+              && request.resource.data.diff(resource.data).affectedKeys()
+                .hasOnly(['enteredCount', 'status', 'lastEntryAt', 'extraGuest'])
+              && (
+                (request.resource.data.enteredCount >= resource.data.enteredCount
+                  && request.resource.data.enteredCount <= resource.data.maxCapacity)
+                || (resource.data.enteredCount == resource.data.maxCapacity
+                  && !('extraGuest' in resource.data)
+                  && request.resource.data.enteredCount == resource.data.maxCapacity + 1
+                  && request.resource.data.status == 'CUPO_EXTRA'
+                  && request.resource.data.extraGuest is map)
+              ))
+          );
+          allow delete: if isAdmin() && eventWillBeOpen();
+        }
 
         match /students/{studentId} {
           allow read: if isMember();
@@ -202,6 +236,7 @@ service cloud.firestore {
               && request.resource.data.maxCapacity <= 50)
             || (
               canOperate()
+              && !('familyId' in resource.data)
               && request.resource.data.diff(resource.data).affectedKeys()
                 .hasOnly(['enteredCount', 'status', 'lastEntryAt', 'extraGuest'])
               && request.resource.data.enteredCount is int
@@ -246,6 +281,16 @@ service cloud.firestore {
             eventWillBeOpen()
               && request.resource.data.operatorUid == request.auth.uid
               && request.resource.data.operatorEmail == request.auth.token.email
+              && ((('familyId' in request.resource.data) && (
+                get(/databases/$(database)/documents/organizations/$(organizationId)/events/$(eventId)/students/$(request.resource.data.studentId)).data.familyId == request.resource.data.familyId
+                && get(/databases/$(database)/documents/organizations/$(organizationId)/events/$(eventId)/students/$(request.resource.data.studentId)).data.disabled != true
+                && get(/databases/$(database)/documents/organizations/$(organizationId)/events/$(eventId)/students/$(request.resource.data.studentId)).data.deleted != true
+                && getAfter(/databases/$(database)/documents/organizations/$(organizationId)/events/$(eventId)/families/$(request.resource.data.familyId)).data.enteredCount == request.resource.data.accumulated
+              )) || (!('familyId' in request.resource.data)
+                && get(/databases/$(database)/documents/organizations/$(organizationId)/events/$(eventId)/students/$(request.resource.data.studentId)).data.disabled != true
+                && get(/databases/$(database)/documents/organizations/$(organizationId)/events/$(eventId)/students/$(request.resource.data.studentId)).data.deleted != true
+                && getAfter(/databases/$(database)/documents/organizations/$(organizationId)/events/$(eventId)/students/$(request.resource.data.studentId)).data.enteredCount == request.resource.data.accumulated
+              ))
               && request.resource.data.count is int
               && request.resource.data.count >= 1
               && request.resource.data.count <= 5

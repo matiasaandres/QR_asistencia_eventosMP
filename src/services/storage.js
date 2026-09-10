@@ -13,6 +13,9 @@ import {
   selectStudentsForCourses
 } from './eventPolicy';
 import {
+  createFamilyCodeGenerator,
+  createFamilyRecord,
+  deriveFamilyRecords,
   getCapacityOwnerId,
   hydrateFamilyCapacities,
   normalizeFamilyId,
@@ -34,6 +37,7 @@ import { getAuth } from 'firebase/auth';
 
 const LOCAL_STORAGE_KEY_STUDENTS = 'mp_students_data_';
 const LOCAL_STORAGE_KEY_LOGS = 'mp_logs_data_';
+const LOCAL_STORAGE_KEY_FAMILIES = 'mp_families_data_';
 const LOCAL_STORAGE_KEY_EVENT = 'mp_current_event';
 const LOCAL_STORAGE_KEY_EVENTS = 'mp_events_catalog';
 const LOCAL_STORAGE_KEY_DOOR = 'mp_current_door';
@@ -63,6 +67,18 @@ function eventStudents(db, organizationId, eventId) {
 
 function eventStudentDoc(db, organizationId, eventId, studentId) {
   return doc(db, 'organizations', organizationId, 'events', eventId, 'students', studentId);
+}
+
+function eventFamilies(db, organizationId, eventId) {
+  return collection(db, 'organizations', organizationId, 'events', eventId, 'families');
+}
+
+function eventFamilyDoc(db, organizationId, eventId, familyId) {
+  return doc(db, 'organizations', organizationId, 'events', eventId, 'families', familyId);
+}
+
+function storedFamiliesKey(organizationId, eventId) {
+  return organizationKey(LOCAL_STORAGE_KEY_FAMILIES, organizationId) + eventId;
 }
 
 function storedStudentsKey(organizationId, eventId) {
@@ -202,6 +218,7 @@ export async function createEvent(organizationId, eventData, { copyStudents = fa
     ? selectStudentsForCourses(sourceStudents, selectedCourses)
     : sourceStudents;
   const students = copyStudents ? prepareStudentsForEvent(selectedStudents) : [];
+  const families = deriveFamilyRecords(students);
   const newEvent = normalizeEvent({
     ...eventData,
     id,
@@ -214,6 +231,13 @@ export async function createEvent(organizationId, eventData, { copyStudents = fa
 
   if (isConfigured && db) {
     await setDoc(eventDoc(db, organizationId, id), newEvent);
+    await commitInChunks(db, families.map((family) => (batch) => {
+      batch.set(eventFamilyDoc(db, organizationId, id, family.id), {
+        ...family,
+        createdAt: now.toISOString(),
+        updatedAt: now.toISOString()
+      });
+    }));
     await commitInChunks(db, students.map((student) => (batch) => {
       batch.set(eventStudentDoc(db, organizationId, id, student.id), student);
     }));
@@ -221,6 +245,7 @@ export async function createEvent(organizationId, eventData, { copyStudents = fa
 
   localStorage.setItem(organizationKey(LOCAL_STORAGE_KEY_STUDENTS, organizationId) + id, JSON.stringify(students));
   localStorage.setItem(organizationKey(LOCAL_STORAGE_KEY_LOGS, organizationId) + id, JSON.stringify([]));
+  localStorage.setItem(storedFamiliesKey(organizationId, id), JSON.stringify(families));
   saveLocalEvents(organizationId, [...getLocalEvents(organizationId), newEvent]);
   if (localChannel) {
     localChannel.postMessage({ type: 'STUDENTS_UPDATED', organizationId, eventId: id });
@@ -248,23 +273,28 @@ export function subscribeToStudents(organizationId, eventId, onUpdate) {
   const { db, isConfigured } = initFirebase();
 
   if (isConfigured && db) {
-    // Firebase Firestore Realtime Listener
     const studentsCol = eventStudents(db, organizationId, eventId);
-    const unsubscribe = onSnapshot(
+    const familiesCol = eventFamilies(db, organizationId, eventId);
+    let rawStudents = null;
+    let families = null;
+    let mode = 'cloud';
+    const emit = () => {
+      if (!rawStudents || !families) return;
+      const students = hydrateFamilyCapacities(rawStudents, families).filter((student) => student.deleted !== true);
+      localStorage.setItem(storedStudentsKey(organizationId, eventId), JSON.stringify(students));
+      localStorage.setItem(storedFamiliesKey(organizationId, eventId), JSON.stringify(families));
+      onUpdate(students, mode);
+    };
+    const unsubscribeStudents = onSnapshot(
       studentsCol,
       { includeMetadataChanges: true },
       (snapshot) => {
-        if (snapshot.empty) {
-          onUpdate([], snapshot.metadata.fromCache ? 'offline' : 'cloud');
-          return;
-        }
-        const students = hydrateStudentRuts(snapshot.docs.map((d) => ({
+        rawStudents = hydrateStudentRuts(snapshot.docs.map((d) => ({
           ...d.data(),
           id: d.id
-        }))).filter((student) => student.deleted !== true);
-        // Cache locally for offline backup
-        localStorage.setItem(organizationKey(LOCAL_STORAGE_KEY_STUDENTS, organizationId) + eventId, JSON.stringify(students));
-        onUpdate(students, snapshot.metadata.fromCache ? 'offline' : 'cloud');
+        })));
+        mode = snapshot.metadata.fromCache ? 'offline' : 'cloud';
+        emit();
       },
       (error) => {
         console.warn("Firestore subscription error:", error);
@@ -273,7 +303,25 @@ export function subscribeToStudents(organizationId, eventId, onUpdate) {
         loadCachedStudents(organizationId, eventId, onUpdate, 'error');
       }
     );
-    return unsubscribe;
+    const unsubscribeFamilies = onSnapshot(
+      familiesCol,
+      { includeMetadataChanges: true },
+      (snapshot) => {
+        families = snapshot.docs.map((item) => ({ ...item.data(), id: item.id }));
+        if (snapshot.metadata.fromCache) mode = 'offline';
+        emit();
+      },
+      (error) => {
+        console.warn('Firestore families subscription error:', error);
+        families = JSON.parse(localStorage.getItem(storedFamiliesKey(organizationId, eventId)) || '[]');
+        mode = 'error';
+        emit();
+      }
+    );
+    return () => {
+      unsubscribeStudents();
+      unsubscribeFamilies();
+    };
   } else {
     // Local mode
     return fallbackToLocalStudents(organizationId, eventId, onUpdate);
@@ -283,7 +331,8 @@ export function subscribeToStudents(organizationId, eventId, onUpdate) {
 function loadCachedStudents(organizationId, eventId, onUpdate, mode) {
   try {
     const raw = localStorage.getItem(organizationKey(LOCAL_STORAGE_KEY_STUDENTS, organizationId) + eventId);
-    onUpdate(raw ? hydrateStudentRuts(JSON.parse(raw)) : [], mode);
+    const families = JSON.parse(localStorage.getItem(storedFamiliesKey(organizationId, eventId)) || '[]');
+    onUpdate(raw ? hydrateFamilyCapacities(hydrateStudentRuts(JSON.parse(raw)), families) : [], mode);
   } catch (e) {
     onUpdate([], mode);
   }
@@ -315,7 +364,8 @@ function fallbackToLocalStudents(organizationId, eventId, onUpdate) {
         onUpdate(INITIAL_STUDENTS, 'local');
         return;
       }
-      const hydratedStudents = hydrateStudentRuts(JSON.parse(raw));
+      const localFamilies = JSON.parse(localStorage.getItem(storedFamiliesKey(organizationId, eventId)) || '[]');
+      const hydratedStudents = hydrateFamilyCapacities(hydrateStudentRuts(JSON.parse(raw)), localFamilies);
       localStorage.setItem(storageKey, JSON.stringify(hydratedStudents));
       onUpdate(hydratedStudents, 'local');
     } catch (e) {
@@ -399,12 +449,9 @@ export async function deleteLogEntry(organizationId, eventId, log) {
       }
 
       const storedLog = logSnapshot.data();
-      const storedStudentRef = eventStudentDoc(
-        db,
-        organizationId,
-        eventId,
-        storedLog.capacityOwnerId || storedLog.studentId
-      );
+      const storedStudentRef = storedLog.familyId
+        ? eventFamilyDoc(db, organizationId, eventId, storedLog.familyId)
+        : eventStudentDoc(db, organizationId, eventId, storedLog.capacityOwnerId || storedLog.studentId);
       const studentSnapshot = await transaction.get(storedStudentRef);
 
       if (studentSnapshot.exists()) {
@@ -449,6 +496,18 @@ export async function deleteLogEntry(organizationId, eventId, log) {
         return updatedStudent;
       });
       localStorage.setItem(studentsKey, JSON.stringify(localStudents));
+    }
+    if (storedStudents && log.familyId) {
+      const familiesKey = storedFamiliesKey(organizationId, eventId);
+      const families = JSON.parse(localStorage.getItem(familiesKey) || '[]');
+      const removedCount = Math.max(1, Number(log.count) || 1);
+      localStorage.setItem(familiesKey, JSON.stringify(families.map((family) => {
+        if (normalizeFamilyId(family.id) !== normalizeFamilyId(log.familyId)) return family;
+        const enteredCount = Math.max(0, (Number(family.enteredCount) || 0) - removedCount);
+        const updated = { ...family, enteredCount, status: statusForEnteredCount(enteredCount, family.maxCapacity) };
+        if (log.isExtra === true) delete updated.extraGuest;
+        return updated;
+      })));
     }
   } catch (error) {
     console.warn('No fue posible actualizar el historial local después de eliminar:', error);
@@ -522,8 +581,7 @@ export async function registerCheckIn({
   const buildLogData = (student, plan) => ({
     studentId,
     ...(student.familyId ? {
-      familyId: student.familyId,
-      capacityOwnerId: getCapacityOwnerId(student)
+      familyId: student.familyId
     } : {}),
     studentName: student.name,
     course: student.course,
@@ -563,22 +621,35 @@ export async function registerCheckIn({
       }
 
       const currentData = studentSnap.data();
-      const ownerId = getCapacityOwnerId({ ...currentData, id: studentId });
-      const ownerRef = eventStudentDoc(db, organizationId, eventId, ownerId);
-      const ownerSnapshot = ownerId === studentId ? studentSnap : await transaction.get(ownerRef);
-      if (!ownerSnapshot.exists()) throw new Error('No se encontró el registro de cupos de la familia.');
-      const ownerData = ownerSnapshot.data();
-      const effectiveStudent = currentData.familyId ? {
-        ...currentData,
-        familyOwnerId: ownerId,
-        familyMaxCapacity: ownerData.maxCapacity,
-        familyEnteredCount: ownerData.enteredCount,
-        familyExtraGuest: ownerData.extraGuest
-      } : currentData;
+      const familyId = normalizeFamilyId(currentData.familyId);
+      const legacyOwnerId = getCapacityOwnerId({ ...currentData, id: studentId });
+      const capacityRef = familyId
+        ? eventFamilyDoc(db, organizationId, eventId, familyId)
+        : eventStudentDoc(db, organizationId, eventId, studentId);
+      let capacitySnapshot = familyId ? await transaction.get(capacityRef) : studentSnap;
+      let effectiveStudent;
+      if (familyId && capacitySnapshot.exists()) {
+        const family = capacitySnapshot.data();
+        effectiveStudent = {
+          ...currentData,
+          familyId,
+          familyMaxCapacity: family.maxCapacity,
+          familyEnteredCount: family.enteredCount,
+          familyExtraGuest: family.extraGuest
+        };
+      } else if (familyId) {
+        const legacyOwnerRef = eventStudentDoc(db, organizationId, eventId, legacyOwnerId);
+        capacitySnapshot = legacyOwnerId === studentId ? studentSnap : await transaction.get(legacyOwnerRef);
+        if (!capacitySnapshot.exists()) throw new Error('No se encontró el registro de cupos de la familia.');
+        const legacy = capacitySnapshot.data();
+        effectiveStudent = { ...currentData, familyId, familyOwnerId: legacyOwnerId, familyMaxCapacity: legacy.maxCapacity, familyEnteredCount: legacy.enteredCount, familyExtraGuest: legacy.extraGuest };
+      } else {
+        effectiveStudent = currentData;
+      }
       const plan = buildPlan(effectiveStudent);
       const updatedStudent = buildUpdatedStudent(effectiveStudent, plan);
 
-      transaction.update(ownerRef, {
+      transaction.update(familyId && capacitySnapshot.ref.path.includes('/families/') ? capacityRef : capacitySnapshot.ref, {
         enteredCount: plan.newEntered,
         status: plan.newStatus,
         lastEntryAt: timestampIso,
@@ -619,10 +690,23 @@ export async function registerCheckIn({
     const hydratedStudents = hydrateFamilyCapacities(students);
     const student = hydratedStudents[studentIndex];
     const plan = buildPlan(student);
-    const ownerId = getCapacityOwnerId(student);
-    const ownerIndex = students.findIndex((item) => item.id === ownerId);
-    if (ownerIndex === -1) throw new Error('No se encontró el registro de cupos de la familia.');
-    students[ownerIndex] = buildUpdatedStudent(students[ownerIndex], plan);
+    const familyId = normalizeFamilyId(student.familyId);
+    if (familyId) {
+      const familiesKey = storedFamiliesKey(organizationId, eventId);
+      const families = JSON.parse(localStorage.getItem(familiesKey) || '[]');
+      const familyIndex = families.findIndex((family) => normalizeFamilyId(family.id) === familyId);
+      if (familyIndex >= 0) {
+        families[familyIndex] = { ...families[familyIndex], enteredCount: plan.newEntered, status: plan.newStatus, lastEntryAt: timestampIso, ...(plan.extraGuest ? { extraGuest: plan.extraGuest } : {}) };
+        localStorage.setItem(familiesKey, JSON.stringify(families));
+      } else {
+        const ownerId = getCapacityOwnerId(student);
+        const ownerIndex = students.findIndex((item) => item.id === ownerId);
+        if (ownerIndex === -1) throw new Error('No se encontró el registro de cupos de la familia.');
+        students[ownerIndex] = buildUpdatedStudent(students[ownerIndex], plan);
+      }
+    } else {
+      students[studentIndex] = buildUpdatedStudent(students[studentIndex], plan);
+    }
 
     localStorage.setItem(keyStudents, JSON.stringify(students));
 
@@ -673,20 +757,64 @@ export async function saveStudentCapacities(organizationId, eventId, updates) {
   const ownerCapacities = new Map();
   updates.forEach(({ id, maxCapacity }) => {
     const student = byId.get(id);
-    ownerCapacities.set(student ? getCapacityOwnerId(student) : id, maxCapacity);
+    const key = student?.familyId ? `family:${normalizeFamilyId(student.familyId)}` : `student:${id}`;
+    ownerCapacities.set(key, maxCapacity);
   });
   if (isConfigured && db) {
-    await commitInChunks(db, [...ownerCapacities].map(([ownerId, maxCapacity]) => (batch) =>
-      batch.update(eventStudentDoc(db, organizationId, eventId, ownerId), { maxCapacity })));
+    const familySnapshot = await getDocs(eventFamilies(db, organizationId, eventId));
+    const existingFamilyIds = new Set(familySnapshot.docs.map((family) => normalizeFamilyId(family.id)));
+    await commitInChunks(db, [...ownerCapacities].map(([key, maxCapacity]) => (batch) => {
+      const [kind, id] = key.split(':');
+      if (kind === 'family' && !existingFamilyIds.has(id)) {
+        const members = current.filter((student) => normalizeFamilyId(student.familyId) === id);
+        batch.set(eventFamilyDoc(db, organizationId, eventId, id), {
+          ...createFamilyRecord(id, members, { ...members[0], maxCapacity }),
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        });
+      } else {
+        batch.update(kind === 'family'
+          ? eventFamilyDoc(db, organizationId, eventId, id)
+          : eventStudentDoc(db, organizationId, eventId, id), kind === 'family'
+          ? { maxCapacity, updatedAt: new Date().toISOString() }
+          : { maxCapacity });
+      }
+    }));
   }
   localStorage.setItem(key, JSON.stringify(current.map((student) =>
-    ownerCapacities.has(student.id) && !getCapacityState(student).isRetired
-      ? { ...student, maxCapacity: ownerCapacities.get(student.id) } : student)));
+    ownerCapacities.has(`student:${student.id}`) && !getCapacityState(student).isRetired
+      ? { ...student, maxCapacity: ownerCapacities.get(`student:${student.id}`) } : student)));
+  const familiesKey = storedFamiliesKey(organizationId, eventId);
+  const families = JSON.parse(localStorage.getItem(familiesKey) || '[]');
+  localStorage.setItem(familiesKey, JSON.stringify(families.map((family) => ownerCapacities.has(`family:${family.id}`)
+    ? { ...family, maxCapacity: ownerCapacities.get(`family:${family.id}`) } : family)));
   if (localChannel) localChannel.postMessage({ type: 'STUDENTS_UPDATED', organizationId, eventId });
 }
 
+// One-time, idempotent migration. Existing family counters remain readable until
+// an administrator opens the event and creates their independent family records.
+export async function migrateLegacyFamilies(organizationId, eventId) {
+  const { db, isConfigured } = initFirebase();
+  if (!isConfigured || !db) return 0;
+  const [studentsSnapshot, familiesSnapshot] = await Promise.all([
+    getDocs(eventStudents(db, organizationId, eventId)),
+    getDocs(eventFamilies(db, organizationId, eventId))
+  ]);
+  const existing = new Set(familiesSnapshot.docs.map((item) => normalizeFamilyId(item.id)));
+  const students = studentsSnapshot.docs.map((item) => ({ ...item.data(), id: item.id }));
+  const missing = deriveFamilyRecords(students).filter((family) => !existing.has(family.id));
+  await commitInChunks(db, missing.map((family) => (batch) => batch.set(
+    eventFamilyDoc(db, organizationId, eventId, family.id),
+    { ...family, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }
+  )));
+  return missing.length;
+}
+
 export async function saveStudentFamily(organizationId, eventId, studentId, nextFamilyId, visibleStudents) {
-  const familyId = normalizeFamilyId(nextFamilyId);
+  const createNewFamily = nextFamilyId === '__NEW_FAMILY__';
+  const familyId = createNewFamily
+    ? createFamilyCodeGenerator(visibleStudents)()
+    : normalizeFamilyId(nextFamilyId);
   const target = visibleStudents.find((student) => student.id === studentId);
   if (!target) throw new Error('No se encontró el estudiante.');
   const previousFamilyId = normalizeFamilyId(target.familyId);
@@ -704,21 +832,25 @@ export async function saveStudentFamily(organizationId, eventId, studentId, next
     : student);
   const groupIds = new Set([previousFamilyId, familyId].filter(Boolean));
   const updates = new Map();
+  const familyRecords = new Map();
+  const emptyFamilyIds = new Set();
 
   groupIds.forEach((groupId) => {
     const members = nextStudents
       .filter((student) => normalizeFamilyId(student.familyId) === groupId)
       .sort((a, b) => a.id.localeCompare(b.id));
-    if (!members.length) return;
-    const ownerId = members[0].id;
+    if (!members.length) {
+      emptyFamilyIds.add(groupId);
+      return;
+    }
     const capacity = getCapacityState(members[0]).maxCapacity;
     members.forEach((member) => updates.set(member.id, {
       familyId: groupId,
-      familyOwnerId: ownerId,
       maxCapacity: capacity,
       enteredCount: 0,
       status: 'PENDIENTE'
     }));
+    familyRecords.set(groupId, createFamilyRecord(groupId, members, members[0]));
   });
   if (!familyId) updates.set(studentId, {
     familyId: deleteField(), familyOwnerId: deleteField(), enteredCount: 0, status: 'PENDIENTE'
@@ -728,10 +860,34 @@ export async function saveStudentFamily(organizationId, eventId, studentId, next
   if (isConfigured && db) {
     await runTransaction(db, async (transaction) => {
       const refs = [...updates.keys()].map((id) => eventStudentDoc(db, organizationId, eventId, id));
+      const familyRefs = [...new Set([...familyRecords.keys(), ...emptyFamilyIds])]
+        .map((id) => eventFamilyDoc(db, organizationId, eventId, id));
       const snapshots = [];
       for (const ref of refs) snapshots.push(await transaction.get(ref));
+      const familySnapshots = [];
+      for (const ref of familyRefs) familySnapshots.push(await transaction.get(ref));
       if (snapshots.some((snapshot) => !snapshot.exists())) throw new Error('La nómina cambió mientras se guardaba la familia.');
-      snapshots.forEach((snapshot, index) => transaction.update(refs[index], updates.get(snapshot.id)));
+      if (createNewFamily && familySnapshots.some((snapshot) => snapshot.id === familyId && snapshot.exists())) {
+        throw new Error('El código familiar automático ya existe. Intenta guardar nuevamente.');
+      }
+      if (familySnapshots.some((snapshot) => snapshot.exists() && Number(snapshot.data().enteredCount) > 0)) {
+        throw new Error('La familia solo puede cambiarse antes de registrar ingresos.');
+      }
+      snapshots.forEach((snapshot, index) => transaction.update(refs[index], {
+        ...updates.get(snapshot.id),
+        familyOwnerId: deleteField()
+      }));
+      familyRefs.forEach((ref, index) => {
+        if (emptyFamilyIds.has(ref.id)) {
+          if (familySnapshots[index].exists()) transaction.delete(ref);
+          return;
+        }
+        transaction.set(ref, {
+          ...familyRecords.get(ref.id),
+          createdAt: familySnapshots[index].data()?.createdAt || new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        });
+      });
     });
   }
 
@@ -741,23 +897,25 @@ export async function saveStudentFamily(organizationId, eventId, studentId, next
     const update = updates.get(student.id);
     if (!update) return student;
     const stored = { ...student, ...update };
+    delete stored.familyOwnerId;
     if (!familyId && student.id === studentId) {
       delete stored.familyId;
-      delete stored.familyOwnerId;
     }
     return stored;
   })));
+  const familiesKey = storedFamiliesKey(organizationId, eventId);
+  const currentFamilies = JSON.parse(localStorage.getItem(familiesKey) || '[]');
+  const nextFamilies = new Map(currentFamilies.map((family) => [normalizeFamilyId(family.id), family]));
+  emptyFamilyIds.forEach((id) => nextFamilies.delete(id));
+  familyRecords.forEach((family, id) => nextFamilies.set(id, family));
+  localStorage.setItem(familiesKey, JSON.stringify([...nextFamilies.values()]));
   if (localChannel) localChannel.postMessage({ type: 'STUDENTS_UPDATED', organizationId, eventId });
 }
 
 export async function saveStudentsList(organizationId, eventId, newStudents) {
   const key = storedStudentsKey(organizationId, eventId);
   const previousStudents = JSON.parse(localStorage.getItem(key) || '[]');
-  const previousOwners = new Map();
-  previousStudents.forEach((student) => {
-    const familyId = normalizeFamilyId(student.familyId);
-    if (familyId && student.familyOwnerId) previousOwners.set(familyId, student.familyOwnerId);
-  });
+  const previousStudentIds = new Set(previousStudents.map((student) => student.id));
   const storedStudents = newStudents.map(stripFamilyCapacityProjection);
   const families = new Map();
   storedStudents.forEach((student) => {
@@ -767,25 +925,47 @@ export async function saveStudentsList(organizationId, eventId, newStudents) {
     if (!families.has(familyId)) families.set(familyId, []);
     families.get(familyId).push(student);
   });
-  families.forEach((members, familyId) => {
-    const knownOwner = previousOwners.get(familyId);
-    const ownerId = members.some((member) => member.id === knownOwner)
-      ? knownOwner
-      : [...members].sort((a, b) => a.id.localeCompare(b.id))[0].id;
-    members.forEach((member) => { member.familyOwnerId = ownerId; });
-  });
+  const familyRecords = deriveFamilyRecords(storedStudents);
   const { db, isConfigured } = initFirebase();
 
   if (isConfigured && db) {
+    const existingFamilies = await getDocs(eventFamilies(db, organizationId, eventId));
+    const existingIds = new Set(existingFamilies.docs.map((family) => normalizeFamilyId(family.id)));
+    for (const family of familyRecords.filter((item) => !existingIds.has(item.id))) {
+      await runTransaction(db, async (transaction) => {
+        const familyRef = eventFamilyDoc(db, organizationId, eventId, family.id);
+        const snapshot = await transaction.get(familyRef);
+        if (snapshot.exists()) throw new Error(`El código familiar ${family.id} acaba de ser utilizado. Vuelve a intentar la importación.`);
+        transaction.set(familyRef, {
+          ...family,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        });
+      });
+    }
+    await commitInChunks(db, familyRecords.filter((family) => existingIds.has(family.id)).map((family) =>
+      (batch) => batch.update(eventFamilyDoc(db, organizationId, eventId, family.id), {
+        members: family.members,
+        updatedAt: new Date().toISOString()
+      })));
     const operations = storedStudents.map((student) => {
       const studentRef = eventStudentDoc(db, organizationId, eventId, student.id);
-      return (batch) => batch.set(studentRef, student, { merge: true });
+      if (!previousStudentIds.has(student.id)) return (batch) => batch.set(studentRef, student, { merge: true });
+      const { enteredCount, status, lastEntryAt, extraGuest, ...rosterFields } = student;
+      return (batch) => batch.set(studentRef, { ...rosterFields, familyOwnerId: deleteField() }, { merge: true });
     });
     await commitInChunks(db, operations);
   }
 
   // Also write locally
   localStorage.setItem(key, JSON.stringify(storedStudents));
+  const cachedFamilies = JSON.parse(localStorage.getItem(storedFamiliesKey(organizationId, eventId)) || '[]');
+  const cachedById = new Map(cachedFamilies.map((family) => [normalizeFamilyId(family.id), family]));
+  localStorage.setItem(storedFamiliesKey(organizationId, eventId), JSON.stringify(familyRecords.map((family) => ({
+    ...family,
+    ...(cachedById.get(family.id) || {}),
+    members: family.members
+  }))));
   if (localChannel) {
     localChannel.postMessage({ type: 'STUDENTS_UPDATED', organizationId, eventId });
   }
@@ -798,14 +978,9 @@ export async function deleteStudents(organizationId, eventId, studentIds) {
   if (!idsToDelete.length) return;
   const deletedIds = new Set(idsToDelete);
   const cachedStudents = JSON.parse(localStorage.getItem(storedStudentsKey(organizationId, eventId)) || '[]');
-  const blockedOwner = cachedStudents.find((student) => deletedIds.has(student.id)
-    && student.familyId
-    && getCapacityOwnerId(student) === student.id
-    && cachedStudents.some((member) => normalizeFamilyId(member.familyId) === normalizeFamilyId(student.familyId)
-      && !deletedIds.has(member.id)));
-  if (blockedOwner) {
-    throw new Error(`No puedes eliminar a ${blockedOwner.name} porque conserva el contador compartido de la familia ${blockedOwner.familyId}. Mantén esta credencial para preservar el historial del evento.`);
-  }
+  const affectedFamilyIds = [...new Set(cachedStudents
+    .filter((student) => deletedIds.has(student.id) && student.familyId)
+    .map((student) => normalizeFamilyId(student.familyId)))];
 
   const { db, isConfigured } = initFirebase();
 
@@ -814,6 +989,18 @@ export async function deleteStudents(organizationId, eventId, studentIds) {
     const operations = idsToDelete.map((studentId) => {
       const studentRef = eventStudentDoc(db, organizationId, eventId, studentId);
       return (batch) => batch.update(studentRef, { deleted: true, deletedAt });
+    });
+    affectedFamilyIds.forEach((familyId) => {
+      const remainingStudents = cachedStudents
+        .filter((student) => normalizeFamilyId(student.familyId) === familyId && !deletedIds.has(student.id));
+      const remainingMembers = remainingStudents.map((student) => student.id);
+      const familyRef = eventFamilyDoc(db, organizationId, eventId, familyId);
+      operations.push((batch) => remainingMembers.length
+        ? batch.set(familyRef, {
+          ...createFamilyRecord(familyId, remainingStudents, remainingStudents[0]),
+          updatedAt: deletedAt
+        }, { merge: true })
+        : batch.delete(familyRef));
     });
     await commitInChunks(db, operations);
   }
@@ -826,6 +1013,13 @@ export async function deleteStudents(organizationId, eventId, studentIds) {
       storageKey,
       JSON.stringify(localStudents.filter((student) => !deletedIds.has(student.id)))
     );
+    const familiesKey = storedFamiliesKey(organizationId, eventId);
+    const localFamilies = JSON.parse(localStorage.getItem(familiesKey) || '[]');
+    localStorage.setItem(familiesKey, JSON.stringify(localFamilies
+      .map((family) => affectedFamilyIds.includes(normalizeFamilyId(family.id))
+        ? { ...family, members: family.members.filter((id) => !deletedIds.has(id)) }
+        : family)
+      .filter((family) => family.members.length > 0)));
   } catch (error) {
     console.warn('No fue posible actualizar la nómina local después de eliminar:', error);
   }
@@ -857,9 +1051,11 @@ export async function resetEventData(organizationId, eventId) {
 
   if (isConfigured && db) {
     const studentsCol = eventStudents(db, organizationId, eventId);
+    const familiesCol = eventFamilies(db, organizationId, eventId);
     const logsCol = eventLogs(db, organizationId, eventId);
-    const [studentsSnapshot, logsSnapshot] = await Promise.all([
+    const [studentsSnapshot, familiesSnapshot, logsSnapshot] = await Promise.all([
       getDocs(studentsCol),
+      getDocs(familiesCol),
       getDocs(logsCol)
     ]);
 
@@ -888,6 +1084,15 @@ export async function resetEventData(organizationId, eventId) {
     logsSnapshot.docs.forEach((logDoc) => {
       operations.push((batch) => batch.delete(logDoc.ref));
     });
+    familiesSnapshot.docs.forEach((familyDoc) => {
+      operations.push((batch) => batch.update(familyDoc.ref, {
+        enteredCount: 0,
+        status: 'PENDIENTE',
+        lastEntryAt: deleteField(),
+        extraGuest: deleteField(),
+        updatedAt: new Date().toISOString()
+      }));
+    });
 
     await commitInChunks(db, operations);
 
@@ -899,6 +1104,9 @@ export async function resetEventData(organizationId, eventId) {
       })))
     );
     localStorage.setItem(organizationKey(LOCAL_STORAGE_KEY_LOGS, organizationId) + eventId, JSON.stringify([]));
+    localStorage.setItem(storedFamiliesKey(organizationId, eventId), JSON.stringify(familiesSnapshot.docs.map((familyDoc) => ({
+      ...familyDoc.data(), id: familyDoc.id, enteredCount: 0, status: 'PENDIENTE', lastEntryAt: undefined, extraGuest: undefined
+    }))));
     return;
   }
 
@@ -912,6 +1120,12 @@ export async function resetEventData(organizationId, eventId) {
 
   localStorage.setItem(studentsKey, JSON.stringify(students.map(resetLocalStudent)));
   localStorage.setItem(organizationKey(LOCAL_STORAGE_KEY_LOGS, organizationId) + eventId, JSON.stringify([]));
+  const familiesKey = storedFamiliesKey(organizationId, eventId);
+  const families = JSON.parse(localStorage.getItem(familiesKey) || '[]');
+  localStorage.setItem(familiesKey, JSON.stringify(families.map((family) => {
+    const { lastEntryAt, extraGuest, ...rest } = family;
+    return { ...rest, enteredCount: 0, status: 'PENDIENTE' };
+  })));
 
   if (localChannel) {
     localChannel.postMessage({ type: 'STUDENTS_UPDATED', organizationId, eventId });

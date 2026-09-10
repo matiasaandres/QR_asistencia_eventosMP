@@ -4,6 +4,8 @@ import { getCapacityState, createCheckInPlan } from '../src/services/checkinPoli
 import { prepareStudentsForEvent } from '../src/services/eventPolicy.js';
 import {
   createFamilyCodeGenerator,
+  createFamilyRecord,
+  deriveFamilyRecords,
   getUniqueCapacityStudents,
   hydrateFamilyCapacities,
   stripFamilyCapacityProjection
@@ -30,7 +32,8 @@ test('genera códigos familiares consecutivos sin permitir que el usuario los de
 });
 
 test('los hermanos muestran y consumen el mismo cupo familiar', () => {
-  const hydrated = hydrateFamilyCapacities(siblings);
+  const family = createFamilyRecord('fam-perez', siblings, { maxCapacity: 4, enteredCount: 3, status: 'PARCIAL' });
+  const hydrated = hydrateFamilyCapacities(siblings, [family]);
   const ana = getCapacityState(hydrated[0]);
   const juan = getCapacityState(hydrated[1]);
 
@@ -41,6 +44,16 @@ test('los hermanos muestran y consumen el mismo cupo familiar', () => {
   const plan = createCheckInPlan({ student: hydrated[1], count: 1, timestampIso: '2026-09-10T12:00:00.000Z' });
   assert.equal(plan.newEntered, 4);
   assert.equal(plan.newStatus, 'COMPLETO');
+});
+
+test('el contador familiar vive en un registro independiente de los hermanos', () => {
+  const families = deriveFamilyRecords(siblings);
+  assert.equal(families.length, 1);
+  assert.deepEqual(families[0].members, ['MP-001', 'MP-002']);
+  assert.equal(families[0].enteredCount, 3);
+  const withoutLegacyOwner = siblings.map(({ familyOwnerId, ...student }) => student);
+  const hydrated = hydrateFamilyCapacities(withoutLegacyOwner, families);
+  assert.equal(getCapacityState(hydrated[1]).enteredCount, 3);
 });
 
 test('deshabilitar un hermano no deshabilita al resto de la familia', () => {
@@ -58,8 +71,8 @@ test('un evento nuevo reactiva alumnos y reinicia el cupo familiar', () => {
   assert.equal(copied[0].disabled, undefined);
   assert.equal(copied[0].enteredCount, 0);
   assert.equal(copied[1].enteredCount, 0);
-  assert.equal(copied[0].familyOwnerId, 'MP-001');
-  assert.equal(copied[1].familyOwnerId, 'MP-001');
+  assert.equal(copied[0].familyOwnerId, undefined);
+  assert.equal(copied[1].familyOwnerId, undefined);
 });
 
 test('los campos familiares calculados no se persisten en el alumno', () => {

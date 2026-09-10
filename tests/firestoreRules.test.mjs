@@ -34,6 +34,14 @@ test('permite operar accesos sin superar el cupo normal', () => {
   assert.match(rules, /resource\.data\.deleted == false/);
 });
 
+test('mantiene los cupos familiares en documentos independientes', () => {
+  assert.match(rules, /match \/families\/\{familyId\}/);
+  assert.match(rules, /data\.members is list/);
+  assert.match(rules, /data\.enteredCount <= data\.maxCapacity \+ 1/);
+  assert.match(rules, /!\('familyId' in resource\.data\)/);
+  assert.match(rules, /families\/\$\(request\.resource\.data\.familyId\)/);
+});
+
 test('el cupo extraordinario exige identificación y máximo más uno', () => {
   assert.match(rules, /enteredCount == resource\.data\.maxCapacity \+ 1/);
   assert.match(rules, /status == 'CUPO_EXTRA'/);

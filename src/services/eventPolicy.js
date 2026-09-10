@@ -48,25 +48,13 @@ export function prepareStudentsForEvent(students = []) {
     .map((student) => {
       const reset = resetStudentAttendance(student);
       const {
-        deleted, deletedAt, disabled,
+        deleted, deletedAt, disabled, familyOwnerId,
         familyMaxCapacity, familyEnteredCount, familyStatus,
         familyLastEntryAt, familyExtraGuest,
         ...copy
       } = reset;
       return { ...copy, enteredCount: 0, status: reset.status };
     });
-
-  const families = new Map();
-  prepared.forEach((student) => {
-    const familyId = String(student.familyId || '').trim();
-    if (!familyId) return;
-    if (!families.has(familyId)) families.set(familyId, []);
-    families.get(familyId).push(student);
-  });
-  families.forEach((members) => {
-    const ownerId = [...members].sort((a, b) => a.id.localeCompare(b.id))[0].id;
-    members.forEach((student) => { student.familyOwnerId = ownerId; });
-  });
 
   return prepared;
 }

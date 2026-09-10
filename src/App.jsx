@@ -34,7 +34,7 @@ import {
   getCurrentEvent, saveCurrentEvent, subscribeToEvents, createEvent, updateEvent,
   archiveEvent, getCurrentDoor, setCurrentDoor, subscribeToStudents, subscribeToLogs,
   deleteLogEntry, registerCheckIn, saveStudentsList, saveStudentCapacities, saveStudentFamily, deleteStudents,
-  resetEventData
+  resetEventData, migrateLegacyFamilies
 } from './services/storage';
 
 function LoadingScreen({ message = 'Cargando acceso seguro…' }) {
@@ -132,6 +132,13 @@ export default function App() {
       if (mode) setSyncMode(mode);
     });
   }, [organization, event?.id]);
+
+  useEffect(() => {
+    if (!organization || !event || !canManage) return;
+    migrateLegacyFamilies(organization.id, event.id).catch((error) => {
+      console.warn('No fue posible migrar las familias anteriores:', error);
+    });
+  }, [organization, event?.id, canManage]);
 
   useEffect(() => {
     if (!organization || !event || (!membership && !isMaster)) return undefined;
@@ -255,7 +262,7 @@ export default function App() {
         {activeTab === 'scan' && canOperate && <ScannerModal onScanResult={handleScanResult} onSwitchToManualSearch={() => setActiveTab('search')} currentDoor={currentDoor} />}
         {activeTab === 'search' && canOperate && <ManualSearch students={students} onSelectStudent={setCheckinStudent} onViewQR={(student) => { setPrintStudent(student); setShowPrinter(true); }} />}
         {activeTab === 'dashboard' && <Dashboard event={event} students={students} logs={logs} organization={organization} />}
-        {activeTab === 'students' && canManage && <StudentsManager students={students} onSaveStudents={(updated) => saveStudentsList(organization.id, event.id, updated)} onSaveCapacities={(updates) => saveStudentCapacities(organization.id, event.id, updates)} onSaveFamily={(studentId, familyId) => saveStudentFamily(organization.id, event.id, studentId, familyId, students)} onDeleteStudents={(ids) => deleteStudents(organization.id, event.id, ids)} onOpenCardPrinter={(student) => { setPrintStudent(student); setShowPrinter(true); }} onSelectStudent={setCheckinStudent} />}
+        {activeTab === 'students' && canManage && <StudentsManager students={students} onSaveStudents={(updated) => saveStudentsList(organization.id, event.id, updated)} onSaveCapacities={(updates) => saveStudentCapacities(organization.id, event.id, updates)} onSaveFamily={(studentId, familyId, visibleStudents = students) => saveStudentFamily(organization.id, event.id, studentId, familyId, visibleStudents)} onDeleteStudents={(ids) => deleteStudents(organization.id, event.id, ids)} onOpenCardPrinter={(student) => { setPrintStudent(student); setShowPrinter(true); }} onSelectStudent={setCheckinStudent} />}
         {activeTab === 'events' && canManage && <EventsManager events={events} currentEvent={event} students={students} onSelectEvent={handleEventChange} onCreateEvent={handleCreateEvent} onArchiveEvent={handleArchiveEvent} />}
         {activeTab === 'members' && canManage && <MembersManager organization={organization} currentUserId={authUser.uid} />}
         {activeTab === 'history' && <HistoryLog logs={logs} event={event} students={students} organization={organization} onDeleteLog={canManage ? (log) => deleteLogEntry(organization.id, event.id, log) : undefined} />}

@@ -13,15 +13,15 @@ test('crea un respaldo completo con resumen verificable', () => {
     organization: { id: 'colegio-prueba', name: 'Colegio Prueba' },
     members: [{ id: 'admin-1', role: 'admin' }],
     events: [
-      { id: 'evento-1', students: [{ id: 'alumno-1', familyId: 'FAM-2026-001' }], logs: [{ id: 'log-1', count: 2 }] },
+      { id: 'evento-1', students: [{ id: 'alumno-1', familyId: 'FAM-2026-001' }], families: [{ id: 'FAM-2026-001', maxCapacity: 4, enteredCount: 2, members: ['alumno-1'] }], logs: [{ id: 'log-1', count: 2 }] },
       { id: 'evento-2', students: [{ id: 'alumno-2' }, { id: 'alumno-3' }], logs: [] }
     ],
     exportedAt: '2026-09-10T12:00:00.000Z'
   });
 
   assert.equal(backup.format, 'mundopalabra-school-backup');
-  assert.equal(backup.schemaVersion, 1);
-  assert.deepEqual(backup.summary, { members: 1, events: 2, students: 3, logs: 1 });
+  assert.equal(backup.schemaVersion, 2);
+  assert.deepEqual(backup.summary, { members: 1, events: 2, students: 3, families: 1, logs: 1 });
   assert.equal(backup.events[0].students[0].familyId, 'FAM-2026-001');
 });
 
@@ -38,7 +38,7 @@ test('solo permite restaurar un respaldo válido de la misma escuela', () => {
     events: [{
       id: 'evento-1', name: 'Evento escolar', institution: 'Escuela Uno', date: '2026-09-10',
       defaultCapacity: 4, doors: ['Entrada'], archived: false, studentsInitialized: true,
-      students: [], logs: []
+      students: [], families: [], logs: []
     }]
   });
   assert.equal(validateSchoolBackup(backup, 'escuela-1'), backup);

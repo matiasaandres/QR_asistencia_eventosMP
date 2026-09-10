@@ -8,12 +8,20 @@ La aplicación funciona como un servicio multiempresa: cada escuela es una organ
 organizations/{organizationId}
   members/{userId}
   events/{eventId}
+    families/{familyId}
     students/{studentId}
     logs/{logId}
 organizationInvitations/{code}
 ```
 
 Las reglas de Firestore validan la organización y el rol en cada lectura y escritura. No existe una consulta global de estudiantes ni eventos.
+
+Los alumnos que comparten cupo guardan únicamente la referencia `familyId`. El
+contador, cupo, estado, integrantes y cupo extraordinario pertenecen al documento
+`families/{familyId}`. Al abrir un evento anterior como administrador, la
+aplicación crea estos documentos de forma idempotente a partir de los datos
+históricos; desde ese momento los ingresos actualizan la familia y la bitácora en
+una misma transacción.
 
 ## Roles
 

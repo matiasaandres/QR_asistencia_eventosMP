@@ -25,6 +25,7 @@ export function exportToExcel({ event, students, logs, organization }) {
       "Curso": s.course,
       "Capacidad Autorizada": maxCapacity,
       "Personas Ingresadas": enteredCount,
+      "Personas Actualmente Dentro": capacity.insideCount,
       "Cupos Restantes": Math.max(0, maxCapacity - enteredCount),
       "Estado Acceso": capacity.isDisabled
         ? "DESHABILITADO"
@@ -51,15 +52,17 @@ export function exportToExcel({ event, students, logs, organization }) {
     "Estudiante": l.studentName || '',
     "Curso": l.course || '',
     "Código": l.studentId || '',
-    "Personas en este Ingreso": l.count || 0,
+    "Tipo de Movimiento": l.movementType === 'EXIT' ? 'Salida' : l.movementType === 'REENTRY' ? 'Reingreso' : 'Ingreso',
+    "Personas en este Movimiento": l.count || 0,
     "Total Acumulado": l.accumulated || 0,
+    "Personas Dentro Después": l.insideAfter ?? l.accumulated ?? 0,
     "Punto / Puerta": l.doorName || 'Acceso Principal',
     "Cupo Extraordinario": l.isExtra ? 'Sí' : 'No',
     "Nombre Persona Extra": l.guestName || '',
     "Parentesco": l.relationship || ''
   }));
   const wsLogs = XLSX.utils.json_to_sheet(logsData);
-  XLSX.utils.book_append_sheet(wb, wsLogs, "Bitácora de Ingresos");
+  XLSX.utils.book_append_sheet(wb, wsLogs, "Bitácora de Movimientos");
 
   // 3. Estadísticas por Curso
   const courseStats = {};

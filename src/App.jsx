@@ -12,6 +12,8 @@ import LoginScreen from './components/LoginScreen';
 import EventsManager from './components/EventsManager';
 import MembersManager from './components/MembersManager';
 import MasterDashboard from './components/MasterDashboard';
+import OperationalCenter from './components/OperationalCenter';
+import FamiliesCenter from './components/FamiliesCenter';
 import { sounds } from './services/sound';
 import { clearAuthSession, subscribeToAuth } from './services/auth';
 import { canManageOrganization, canOperateAccess, isPlatformAdmin } from './services/organizationPolicy';
@@ -30,11 +32,13 @@ import {
   subscribeToOrganizations
 } from './services/organizations';
 import { getCapacityState } from './services/checkinPolicy';
+import { eventAllowsAccess, getEffectiveEventStatus } from './services/eventPolicy';
 import {
   getCurrentEvent, saveCurrentEvent, subscribeToEvents, createEvent, updateEvent,
   archiveEvent, getCurrentDoor, setCurrentDoor, subscribeToStudents, subscribeToLogs,
   deleteLogEntry, registerCheckIn, saveStudentsList, saveStudentCapacities, saveStudentFamily, deleteStudents,
-  resetEventData, migrateLegacyFamilies
+  resetEventData, migrateLegacyFamilies, subscribeToDoorSessions, registerDoorPresence,
+  mergeFamilies, separateFamilyMember, subscribeToFamilyHistory
 } from './services/storage';
 
 function LoadingScreen({ message = 'Cargando acceso seguro…' }) {
@@ -55,6 +59,8 @@ export default function App() {
   const [currentDoor, setCurrentDoorState] = useState('Acceso Principal');
   const [students, setStudents] = useState([]);
   const [logs, setLogs] = useState([]);
+  const [doorSessions, setDoorSessions] = useState([]);
+  const [familyHistory, setFamilyHistory] = useState([]);
   const [syncMode, setSyncMode] = useState('local');
   const [checkinStudent, setCheckinStudent] = useState(null);
   const [printStudent, setPrintStudent] = useState(null);
@@ -134,6 +140,24 @@ export default function App() {
   }, [organization, event?.id]);
 
   useEffect(() => {
+    if (!organization || !event) return undefined;
+    return subscribeToDoorSessions(organization.id, event.id, setDoorSessions);
+  }, [organization, event?.id]);
+
+  useEffect(() => {
+    if (!organization || !event || !canManage) return undefined;
+    return subscribeToFamilyHistory(organization.id, event.id, setFamilyHistory);
+  }, [organization, event?.id, canManage]);
+
+  useEffect(() => {
+    if (!organization || !event || !canOperate) return undefined;
+    const report = () => registerDoorPresence(organization.id, event.id, currentDoor).catch(() => {});
+    report();
+    const timer = window.setInterval(report, 30000);
+    return () => window.clearInterval(timer);
+  }, [organization, event?.id, currentDoor, canOperate]);
+
+  useEffect(() => {
     if (!organization || !event || !canManage) return;
     migrateLegacyFamilies(organization.id, event.id).catch((error) => {
       console.warn('No fue posible migrar las familias anteriores:', error);
@@ -184,7 +208,7 @@ export default function App() {
 
   const handleSaveEvent = async (updatedEvent) => {
     const normalized = await updateEvent(organization.id, updatedEvent);
-    setEvent(normalized);
+    if (event?.id === normalized.id) setEvent(normalized);
     return normalized;
   };
 
@@ -219,6 +243,12 @@ export default function App() {
   };
 
   const handleScanResult = (decodedText) => {
+    if (!eventAllowsAccess(event)) {
+      sounds.playWarning();
+      const status = getEffectiveEventStatus(event);
+      alert(`El evento está ${status === 'draft' ? 'en borrador o fuera de horario' : status === 'paused' ? 'pausado' : 'cerrado'}. No se pueden registrar movimientos.`);
+      return;
+    }
     const student = students.find((item) => item.id.toLowerCase() === decodedText.toLowerCase());
     if (!student) {
       sounds.playWarning();
@@ -235,8 +265,8 @@ export default function App() {
     setCheckinStudent(student);
   };
 
-  const handleConfirmCheckIn = ({ studentId, count, doorName, extraPerson }) => registerCheckIn({
-    organizationId: organization.id, eventId: event.id, studentId, count, doorName, extraPerson
+  const handleConfirmCheckIn = ({ studentId, count, doorName, extraPerson, movementType }) => registerCheckIn({
+    organizationId: organization.id, eventId: event.id, studentId, count, doorName, extraPerson, movementType
   });
 
   if (!authReady) return <LoadingScreen />;
@@ -262,8 +292,10 @@ export default function App() {
         {activeTab === 'scan' && canOperate && <ScannerModal onScanResult={handleScanResult} onSwitchToManualSearch={() => setActiveTab('search')} currentDoor={currentDoor} />}
         {activeTab === 'search' && canOperate && <ManualSearch students={students} onSelectStudent={setCheckinStudent} onViewQR={(student) => { setPrintStudent(student); setShowPrinter(true); }} />}
         {activeTab === 'dashboard' && <Dashboard event={event} students={students} logs={logs} organization={organization} />}
+        {activeTab === 'operations' && <OperationalCenter students={students} logs={logs} doors={doorSessions} />}
+        {activeTab === 'families' && canManage && <FamiliesCenter students={students} history={familyHistory} onMerge={(ids) => mergeFamilies(organization.id, event.id, ids, students)} onSplit={(familyId, studentId) => separateFamilyMember(organization.id, event.id, familyId, studentId, students)} />}
         {activeTab === 'students' && canManage && <StudentsManager students={students} onSaveStudents={(updated) => saveStudentsList(organization.id, event.id, updated)} onSaveCapacities={(updates) => saveStudentCapacities(organization.id, event.id, updates)} onSaveFamily={(studentId, familyId, visibleStudents = students) => saveStudentFamily(organization.id, event.id, studentId, familyId, visibleStudents)} onDeleteStudents={(ids) => deleteStudents(organization.id, event.id, ids)} onOpenCardPrinter={(student) => { setPrintStudent(student); setShowPrinter(true); }} onSelectStudent={setCheckinStudent} />}
-        {activeTab === 'events' && canManage && <EventsManager events={events} currentEvent={event} students={students} onSelectEvent={handleEventChange} onCreateEvent={handleCreateEvent} onArchiveEvent={handleArchiveEvent} />}
+        {activeTab === 'events' && canManage && <EventsManager events={events} currentEvent={event} students={students} onSelectEvent={handleEventChange} onCreateEvent={handleCreateEvent} onUpdateEvent={handleSaveEvent} onArchiveEvent={handleArchiveEvent} />}
         {activeTab === 'members' && canManage && <MembersManager organization={organization} currentUserId={authUser.uid} />}
         {activeTab === 'history' && <HistoryLog logs={logs} event={event} students={students} organization={organization} onDeleteLog={canManage ? (log) => deleteLogEntry(organization.id, event.id, log) : undefined} />}
       </main>

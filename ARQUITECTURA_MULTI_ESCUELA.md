@@ -72,3 +72,12 @@ No se debe publicar la interfaz 1.3 sin completar los pasos 1 y 2: la versión n
 ## Privacidad
 
 La recuperación pública de QR por RUT fue retirada del inicio de sesión. Exponer la nómina completa a usuarios sin autenticar es incompatible con el aislamiento multi-escuela. Una futura recuperación para apoderados debe usar un endpoint limitado, códigos de un solo uso o un enlace individual firmado.
+
+## Operación de eventos (v1.7)
+
+- Cada evento define `status` (`draft`, `open`, `paused`, `closed`), `startsAt` y `endsAt`.
+- `enteredCount` conserva las personas autorizadas que ya se registraron; `insideCount` representa cuántas permanecen dentro.
+- Los movimientos guardan `movementType` (`ENTRY`, `EXIT`, `REENTRY`), `insideAfter`, puerta, operador y dispositivo.
+- `doorSessions` mantiene presencia, último movimiento y conexión de cada dispositivo operativo.
+- `familyHistory` conserva en forma inmutable las uniones y separaciones de familias.
+- Los respaldos con SHA-256 usan el esquema 3 e incluyen el historial familiar, manteniendo compatibilidad con esquemas 1 y 2.

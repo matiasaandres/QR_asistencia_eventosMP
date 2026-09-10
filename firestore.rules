@@ -137,7 +137,7 @@ service cloud.firestore {
         function validEvent(data) {
           return data.keys().hasOnly([
               'id', 'name', 'institution', 'date', 'defaultCapacity', 'doors',
-              'archived', 'studentsInitialized', 'initializedAt', 'createdAt', 'updatedAt'
+              'status', 'startsAt', 'endsAt', 'archived', 'studentsInitialized', 'initializedAt', 'createdAt', 'updatedAt'
             ])
             && data.id == eventId
             && data.name is string
@@ -151,6 +151,9 @@ service cloud.firestore {
             && data.doors is list
             && data.doors.size() >= 1
             && data.doors.size() <= 20
+            && data.status in ['draft', 'open', 'paused', 'closed']
+            && data.startsAt is string
+            && data.endsAt is string
             && data.archived is bool
             && data.studentsInitialized == true;
         }
@@ -158,7 +161,9 @@ service cloud.firestore {
         function eventWillBeOpen() {
           return canOperate()
             && existsAfter(/databases/$(database)/documents/organizations/$(organizationId)/events/$(eventId))
-            && getAfter(/databases/$(database)/documents/organizations/$(organizationId)/events/$(eventId)).data.archived == false;
+            && getAfter(/databases/$(database)/documents/organizations/$(organizationId)/events/$(eventId)).data.archived == false
+            && (!('status' in getAfter(/databases/$(database)/documents/organizations/$(organizationId)/events/$(eventId)).data)
+              || getAfter(/databases/$(database)/documents/organizations/$(organizationId)/events/$(eventId)).data.status == 'open');
         }
 
         allow read: if isMember();
@@ -166,7 +171,7 @@ service cloud.firestore {
         allow update: if isAdmin()
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
               'name', 'institution', 'date', 'defaultCapacity', 'doors', 'archived',
-              'studentsInitialized', 'initializedAt', 'createdAt', 'updatedAt'
+              'status', 'startsAt', 'endsAt', 'studentsInitialized', 'initializedAt', 'createdAt', 'updatedAt'
             ])
           && validEvent(request.resource.data);
         allow delete: if false;
@@ -175,7 +180,7 @@ service cloud.firestore {
           function validFamily(data) {
             return data.keys().hasOnly([
                 'id', 'maxCapacity', 'enteredCount', 'status', 'members',
-                'lastEntryAt', 'extraGuest', 'createdAt', 'updatedAt'
+                'insideCount', 'lastEntryAt', 'lastMovementAt', 'extraGuest', 'createdAt', 'updatedAt'
               ])
               && data.id == familyId
               && data.maxCapacity is int
@@ -184,21 +189,31 @@ service cloud.firestore {
               && data.enteredCount is int
               && data.enteredCount >= 0
               && data.enteredCount <= data.maxCapacity + 1
+              && data.insideCount is int
+              && data.insideCount >= 0
+              && data.insideCount <= data.enteredCount
               && data.members is list
               && data.members.size() >= 1
               && data.members.size() <= 100;
           }
 
           allow read: if isMember();
-          allow create: if isAdmin() && eventWillBeOpen() && validFamily(request.resource.data);
-          allow update: if eventWillBeOpen() && validFamily(request.resource.data) && (
+          allow create: if isAdmin() && validFamily(request.resource.data);
+          allow update: if validFamily(request.resource.data) && (
             isAdmin()
-            || (canOperate()
+            || (eventWillBeOpen() && canOperate()
               && request.resource.data.diff(resource.data).affectedKeys()
-                .hasOnly(['enteredCount', 'status', 'lastEntryAt', 'extraGuest'])
+                .hasOnly(['enteredCount', 'insideCount', 'status', 'lastEntryAt', 'lastMovementAt', 'extraGuest'])
               && (
                 (request.resource.data.enteredCount >= resource.data.enteredCount
-                  && request.resource.data.enteredCount <= resource.data.maxCapacity)
+                  && request.resource.data.enteredCount <= resource.data.maxCapacity
+                  && request.resource.data.insideCount >= resource.data.insideCount)
+                || (request.resource.data.enteredCount == resource.data.enteredCount
+                  && request.resource.data.insideCount < resource.data.insideCount)
+                || (resource.data.enteredCount == resource.data.maxCapacity + 1
+                  && request.resource.data.enteredCount == resource.data.enteredCount
+                  && request.resource.data.insideCount > resource.data.insideCount
+                  && resource.data.extraGuest is map)
                 || (resource.data.enteredCount == resource.data.maxCapacity
                   && !('extraGuest' in resource.data)
                   && request.resource.data.enteredCount == resource.data.maxCapacity + 1
@@ -206,23 +221,28 @@ service cloud.firestore {
                   && request.resource.data.extraGuest is map)
               ))
           );
-          allow delete: if isAdmin() && eventWillBeOpen();
+          allow delete: if isAdmin();
         }
 
         match /students/{studentId} {
           allow read: if isMember();
           allow create: if isAdmin()
-            && eventWillBeOpen()
             && request.resource.data.enteredCount is int
+            && request.resource.data.insideCount is int
             && request.resource.data.maxCapacity is int
             && request.resource.data.enteredCount >= 0
+            && request.resource.data.insideCount >= 0
+            && request.resource.data.insideCount <= request.resource.data.enteredCount
             && request.resource.data.maxCapacity >= 0
-            && request.resource.data.enteredCount <= request.resource.data.maxCapacity + 1;
-          allow update: if eventWillBeOpen() && (
+              && request.resource.data.enteredCount <= request.resource.data.maxCapacity + 1;
+          allow update: if (
             (platformAdmin()
               && request.resource.data.diff(resource.data).affectedKeys()
-                .hasOnly(['maxCapacity', 'enteredCount', 'status', 'lastEntryAt', 'extraGuest'])
+                .hasOnly(['maxCapacity', 'enteredCount', 'insideCount', 'status', 'lastEntryAt', 'lastMovementAt', 'extraGuest'])
               && request.resource.data.enteredCount is int
+              && request.resource.data.insideCount is int
+              && request.resource.data.insideCount >= 0
+              && request.resource.data.insideCount <= request.resource.data.enteredCount
               && request.resource.data.maxCapacity is int
               && request.resource.data.enteredCount >= 0
               && request.resource.data.maxCapacity >= 0
@@ -230,21 +250,32 @@ service cloud.firestore {
               && request.resource.data.enteredCount <= request.resource.data.maxCapacity + 1)
             || (isAdmin()
               && request.resource.data.diff(resource.data).affectedKeys()
-                .hasOnly(['rut', 'name', 'rawName', 'course', 'maxCapacity', 'disabled', 'deleted', 'deletedAt', 'familyId', 'familyOwnerId', 'enteredCount', 'status', 'lastEntryAt', 'extraGuest'])
+                .hasOnly(['rut', 'name', 'rawName', 'course', 'maxCapacity', 'disabled', 'deleted', 'deletedAt', 'familyId', 'familyOwnerId', 'enteredCount', 'insideCount', 'status', 'lastEntryAt', 'lastMovementAt', 'extraGuest'])
               && request.resource.data.maxCapacity is int
               && request.resource.data.maxCapacity >= 0
               && request.resource.data.maxCapacity <= 50)
             || (
-              canOperate()
+              eventWillBeOpen()
+              && canOperate()
               && !('familyId' in resource.data)
               && request.resource.data.diff(resource.data).affectedKeys()
-                .hasOnly(['enteredCount', 'status', 'lastEntryAt', 'extraGuest'])
+                .hasOnly(['enteredCount', 'insideCount', 'status', 'lastEntryAt', 'lastMovementAt', 'extraGuest'])
               && request.resource.data.enteredCount is int
+              && request.resource.data.insideCount is int
+              && request.resource.data.insideCount >= 0
+              && request.resource.data.insideCount <= request.resource.data.enteredCount
               && (!('disabled' in resource.data) || resource.data.disabled == false || 'familyId' in resource.data)
               && (!('deleted' in resource.data) || resource.data.deleted == false)
               && (
                 (request.resource.data.enteredCount >= resource.data.enteredCount
-                  && request.resource.data.enteredCount <= resource.data.maxCapacity)
+                  && request.resource.data.enteredCount <= resource.data.maxCapacity
+                  && (!('insideCount' in resource.data) || request.resource.data.insideCount >= resource.data.insideCount))
+                || (request.resource.data.enteredCount == resource.data.enteredCount
+                  && request.resource.data.insideCount < resource.data.insideCount)
+                || (resource.data.enteredCount == resource.data.maxCapacity + 1
+                  && request.resource.data.enteredCount == resource.data.enteredCount
+                  && request.resource.data.insideCount > resource.data.insideCount
+                  && resource.data.extraGuest is map)
                 || (
                   resource.data.maxCapacity > 0
                   && resource.data.enteredCount == resource.data.maxCapacity
@@ -275,6 +306,22 @@ service cloud.firestore {
           allow delete: if false;
         }
 
+        match /doorSessions/{sessionId} {
+          allow read: if isMember();
+          allow create, update: if canOperate()
+            && request.resource.data.deviceId == sessionId
+            && request.resource.data.operatorUid == request.auth.uid
+            && request.resource.data.operatorEmail == request.auth.token.email;
+          allow delete: if isAdmin();
+        }
+
+        match /familyHistory/{historyId} {
+          allow read: if isMember();
+          allow create: if isAdmin()
+            && request.resource.data.action in ['MERGE', 'SPLIT'];
+          allow update, delete: if false;
+        }
+
         match /logs/{logId} {
           allow read: if isMember();
           allow create: if (isAdmin() && eventWillBeOpen()) || (
@@ -286,10 +333,12 @@ service cloud.firestore {
                 && get(/databases/$(database)/documents/organizations/$(organizationId)/events/$(eventId)/students/$(request.resource.data.studentId)).data.disabled != true
                 && get(/databases/$(database)/documents/organizations/$(organizationId)/events/$(eventId)/students/$(request.resource.data.studentId)).data.deleted != true
                 && getAfter(/databases/$(database)/documents/organizations/$(organizationId)/events/$(eventId)/families/$(request.resource.data.familyId)).data.enteredCount == request.resource.data.accumulated
+                && getAfter(/databases/$(database)/documents/organizations/$(organizationId)/events/$(eventId)/families/$(request.resource.data.familyId)).data.insideCount == request.resource.data.insideAfter
               )) || (!('familyId' in request.resource.data)
                 && get(/databases/$(database)/documents/organizations/$(organizationId)/events/$(eventId)/students/$(request.resource.data.studentId)).data.disabled != true
                 && get(/databases/$(database)/documents/organizations/$(organizationId)/events/$(eventId)/students/$(request.resource.data.studentId)).data.deleted != true
                 && getAfter(/databases/$(database)/documents/organizations/$(organizationId)/events/$(eventId)/students/$(request.resource.data.studentId)).data.enteredCount == request.resource.data.accumulated
+                && getAfter(/databases/$(database)/documents/organizations/$(organizationId)/events/$(eventId)/students/$(request.resource.data.studentId)).data.insideCount == request.resource.data.insideAfter
               ))
               && request.resource.data.count is int
               && request.resource.data.count >= 1

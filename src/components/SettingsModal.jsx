@@ -28,6 +28,13 @@ import {
 } from '../services/firebase';
 import { downloadSchoolBackup, restoreSchoolBackup } from '../services/schoolBackup';
 
+function toLocalDateTime(value) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+}
+
 function optimizeLogo(file) {
   return new Promise((resolve, reject) => {
     if (!file?.type?.startsWith('image/')) return reject(new Error('Selecciona un archivo de imagen.'));
@@ -68,6 +75,9 @@ export default function SettingsModal({
   const [eventName, setEventName] = useState(event?.name || '');
   const [eventDate, setEventDate] = useState(event?.date || '');
   const [defaultCap, setDefaultCap] = useState(event?.defaultCapacity || 4);
+  const [eventStatus, setEventStatus] = useState(event?.status || 'open');
+  const [startsAt, setStartsAt] = useState(toLocalDateTime(event?.startsAt));
+  const [endsAt, setEndsAt] = useState(toLocalDateTime(event?.endsAt));
   const [doorName, setDoorName] = useState(currentDoor);
   const [doorsListStr, setDoorsListStr] = useState((event?.doors || []).join(', '));
   const [schoolName, setSchoolName] = useState(organization?.name || '');
@@ -90,6 +100,9 @@ export default function SettingsModal({
       setEventName(event?.name || '');
       setEventDate(event?.date || '');
       setDefaultCap(event?.defaultCapacity || 4);
+      setEventStatus(event?.status || 'open');
+      setStartsAt(toLocalDateTime(event?.startsAt));
+      setEndsAt(toLocalDateTime(event?.endsAt));
       setDoorName(currentDoor);
       setDoorsListStr((event?.doors || []).join(', '));
       setSchoolName(organization?.name || '');
@@ -122,8 +135,15 @@ export default function SettingsModal({
       name: eventName.trim() || 'Acto Cultural',
       date: eventDate,
       defaultCapacity: Number(defaultCap) || 4,
+      status: eventStatus,
+      startsAt: startsAt ? new Date(startsAt).toISOString() : '',
+      endsAt: endsAt ? new Date(endsAt).toISOString() : '',
       doors: updatedDoors.length > 0 ? updatedDoors : ['Acceso Principal']
     };
+    if (startsAt && endsAt && new Date(endsAt) <= new Date(startsAt)) {
+      alert('El cierre automático debe ser posterior a la apertura.');
+      return;
+    }
 
     setIsSavingGeneral(true);
     try {
@@ -345,6 +365,8 @@ export default function SettingsModal({
                 />
               </div>
             </div>
+
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3"><div><label className="mb-1 block font-bold text-slate-700">Estado:</label><select value={eventStatus} onChange={(e) => setEventStatus(e.target.value)} className="w-full rounded-xl border border-slate-200 bg-white p-2.5 font-semibold text-slate-800"><option value="draft">Borrador</option><option value="open">Abierto</option><option value="paused">Pausado</option><option value="closed">Cerrado</option></select></div><div><label className="mb-1 block font-bold text-slate-700">Apertura automática:</label><input type="datetime-local" value={startsAt} onChange={(e) => setStartsAt(e.target.value)} className="w-full rounded-xl border border-slate-200 bg-white p-2.5 font-semibold text-slate-800"/></div><div><label className="mb-1 block font-bold text-slate-700">Cierre automático:</label><input type="datetime-local" value={endsAt} min={startsAt} onChange={(e) => setEndsAt(e.target.value)} className="w-full rounded-xl border border-slate-200 bg-white p-2.5 font-semibold text-slate-800"/></div></div>
 
             <div>
               <label className="font-bold text-slate-700 block mb-1">

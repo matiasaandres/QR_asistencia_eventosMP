@@ -62,6 +62,7 @@ test('copiar nómina reinicia asistencia sin perder identidad, curso ni cupos', 
     course: '1° A',
     maxCapacity: 4,
     enteredCount: 0,
+    insideCount: 0,
     status: 'PENDIENTE'
   }]);
 });

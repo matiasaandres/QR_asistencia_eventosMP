@@ -11,6 +11,8 @@ export function getCapacityState(student = {}) {
   const maxCapacity = normalizeCapacityValue(student.familyMaxCapacity ?? student.maxCapacity);
   const parsedEntered = Number(student.familyEnteredCount ?? student.enteredCount);
   const enteredCount = Number.isFinite(parsedEntered) ? Math.max(0, parsedEntered) : 0;
+  const parsedInside = Number(student.familyInsideCount ?? student.insideCount);
+  const insideCount = Number.isFinite(parsedInside) ? Math.max(0, Math.min(enteredCount, parsedInside)) : enteredCount;
   const hasExtraGuest = Boolean(student.familyExtraGuest ?? student.extraGuest) || enteredCount > maxCapacity;
   const isRetired = student.status === 'RETIRADO'
     || String(student.course || '').trim().toLowerCase() === 'retirado';
@@ -22,6 +24,8 @@ export function getCapacityState(student = {}) {
   return {
     maxCapacity,
     enteredCount,
+    insideCount,
+    outsideCount: Math.max(0, enteredCount - insideCount),
     remaining,
     isFull,
     hasExtraGuest,
@@ -34,6 +38,44 @@ export function getCapacityState(student = {}) {
     isDisabled,
     isAccessBlocked
   };
+}
+
+export function createMovementPlan({ student, count, movementType = 'ENTRY', doorName, timestampIso, extraPerson = null }) {
+  if (movementType === 'EXIT') {
+    if (!Number.isInteger(count) || count < 1) throw new Error('La cantidad debe ser un número entero mayor que cero.');
+    const capacity = getCapacityState(student);
+    if (count > capacity.insideCount) throw new Error(`Solo hay ${capacity.insideCount} persona(s) dentro para registrar salida.`);
+    return {
+      newEntered: capacity.enteredCount,
+      newInside: capacity.insideCount - count,
+      newStatus: capacity.enteredCount >= capacity.maxCapacity ? 'COMPLETO' : (capacity.enteredCount ? 'PARCIAL' : 'PENDIENTE'),
+      remaining: capacity.remaining,
+      isExtra: false,
+      extraGuest: null,
+      movementType: 'EXIT',
+      newAdmissions: 0,
+      reentries: 0
+    };
+  }
+
+  const capacity = getCapacityState(student);
+  const reentries = Math.min(count, capacity.outsideCount);
+  const newAdmissions = count - reentries;
+  if (!extraPerson && newAdmissions === 0) {
+    return {
+      newEntered: capacity.enteredCount,
+      newInside: capacity.insideCount + count,
+      newStatus: capacity.enteredCount >= capacity.maxCapacity ? 'COMPLETO' : 'PARCIAL',
+      remaining: capacity.remaining,
+      isExtra: false,
+      extraGuest: null,
+      movementType: 'REENTRY',
+      newAdmissions: 0,
+      reentries
+    };
+  }
+  const plan = createCheckInPlan({ student: { ...student, familyEnteredCount: capacity.enteredCount }, count: newAdmissions, doorName, timestampIso, extraPerson });
+  return { ...plan, newInside: capacity.insideCount + count, movementType: reentries ? 'REENTRY' : 'ENTRY', newAdmissions, reentries };
 }
 
 export function ensureRequiredDoors(eventData, fallbackEvent = {}) {
@@ -60,7 +102,7 @@ export function normalizeExtraPerson(extraPerson) {
 }
 
 export function resetStudentAttendance(student = {}) {
-  const { lastEntryAt, extraGuest, ...studentWithoutAttendance } = student;
+  const { lastEntryAt, lastMovementAt, extraGuest, insideCount, ...studentWithoutAttendance } = student;
   const capacity = getCapacityState(student);
 
   return {

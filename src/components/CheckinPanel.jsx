@@ -22,6 +22,7 @@ export default function CheckinPanel({
   onClose 
 }) {
   const [selectedCount, setSelectedCount] = useState(null);
+  const [movementType, setMovementType] = useState('ENTRY');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [successMessage, setSuccessMessage] = useState(null);
   const [extraGuestName, setExtraGuestName] = useState('');
@@ -33,12 +34,14 @@ export default function CheckinPanel({
   const maxCap = capacity.maxCapacity;
   const entered = capacity.enteredCount;
   const remaining = capacity.remaining;
+  const inside = capacity.insideCount;
+  const outside = capacity.outsideCount;
   const isFull = capacity.isFull;
   const hasExtraGuest = capacity.hasExtraGuest;
   const canAddExtra = capacity.canAddExtra;
   const remainingAfterSelection = selectedCount == null
     ? remaining
-    : Math.max(0, remaining - selectedCount);
+    : Math.max(0, remaining - Math.max(0, selectedCount - outside));
 
   if (capacity.isDisabled) {
     return (
@@ -71,7 +74,8 @@ export default function CheckinPanel({
 
   // Handle immediate registration
   const handleRegister = async (countToRegister, extraPerson = null) => {
-    if (isSubmitting || (!extraPerson && countToRegister > remaining)) return;
+    const movementLimit = movementType === 'EXIT' ? inside : remaining + outside;
+    if (isSubmitting || (!extraPerson && countToRegister > movementLimit)) return;
 
     setIsSubmitting(true);
     try {
@@ -79,7 +83,8 @@ export default function CheckinPanel({
         studentId: student.id,
         count: countToRegister,
         doorName: currentDoor,
-        extraPerson
+        extraPerson,
+        movementType
       });
 
       sounds.playSuccess();
@@ -96,7 +101,9 @@ export default function CheckinPanel({
         total: result?.newEntered || (entered + countToRegister),
         remaining: Math.max(0, result?.remaining ?? (remaining - countToRegister)),
         isExtra: Boolean(result?.isExtra || extraPerson),
-        extraPerson
+        extraPerson,
+        movementType: result?.movementType || movementType,
+        totalInside: result?.newInside
       });
 
       setTimeout(() => {
@@ -216,21 +223,24 @@ export default function CheckinPanel({
           </div>
 
           {/* Success Flash */}
+          {!successMessage && <div className="grid grid-cols-2 gap-2 rounded-xl bg-slate-100 p-1.5"><button type="button" onClick={() => { setMovementType('ENTRY'); setSelectedCount(null); }} className={`rounded-lg px-3 py-2 text-sm font-extrabold ${movementType === 'ENTRY' ? 'bg-emerald-600 text-white shadow-sm' : 'text-slate-600'}`}>Ingreso / reingreso</button><button type="button" disabled={inside === 0} onClick={() => { setMovementType('EXIT'); setSelectedCount(null); }} className={`rounded-lg px-3 py-2 text-sm font-extrabold disabled:opacity-40 ${movementType === 'EXIT' ? 'bg-amber-600 text-white shadow-sm' : 'text-slate-600'}`}>Salida ({inside} dentro)</button></div>}
           {successMessage ? (
             <div className="bg-emerald-50 border border-emerald-200 text-emerald-900 rounded-xl p-4 text-center animate-in zoom-in-95 duration-150">
               <CheckCircle2 className="w-8 h-8 text-emerald-600 mx-auto mb-1.5 animate-bounce" />
               <p className="font-bold text-base">
-                {successMessage.isExtra
+                {successMessage.movementType === 'EXIT' ? `¡Salida de ${successMessage.count} persona(s) registrada!` : successMessage.movementType === 'REENTRY' ? `¡Reingreso de ${successMessage.count} persona(s) registrado!` : successMessage.isExtra
                   ? '¡Cupo extraordinario registrado correctamente!'
                   : `¡Ingreso de ${successMessage.count} persona(s) registrado!`}
               </p>
               <p className="text-xs text-emerald-700 mt-0.5">
-                {successMessage.isExtra
+                {successMessage.movementType === 'EXIT' ? `Permanecen ${successMessage.totalInside ?? Math.max(0, inside - successMessage.count)} persona(s) dentro.` : successMessage.isExtra
                   ? `${successMessage.extraPerson?.name} · ${successMessage.extraPerson?.relationship}`
                   : `Total acumulado: ${successMessage.total} de ${maxCap} • Restan ${successMessage.remaining} cupos`}
               </p>
             </div>
-          ) : isFull ? (
+          ) : movementType === 'EXIT' ? (
+            <div><p className="mb-2.5 text-sm font-bold text-slate-800">¿Cuántas personas están saliendo?</p><div className="grid grid-cols-5 gap-2">{[1,2,3,4,5].map((num) => <button key={num} type="button" disabled={num > inside || isSubmitting} onClick={() => setSelectedCount(num)} className={`h-14 rounded-xl border-2 font-black ${selectedCount === num ? 'border-amber-600 bg-amber-600 text-white' : num <= inside ? 'border-amber-300 bg-amber-50 text-amber-900' : 'border-slate-200 bg-slate-100 text-slate-300'}`}>{num}</button>)}</div>{selectedCount && <button type="button" disabled={isSubmitting} onClick={() => handleRegister(selectedCount)} className="mt-4 w-full rounded-xl bg-amber-600 px-4 py-3 text-sm font-extrabold text-white">{isSubmitting ? 'Registrando…' : `Confirmar salida de ${selectedCount}`}</button>}</div>
+          ) : isFull && outside === 0 ? (
             /* Warning Screen if Cupo Completo */
             <div className="space-y-4">
               <div className="bg-rose-50 border border-rose-200 rounded-xl p-4 text-center">
@@ -336,7 +346,7 @@ export default function CheckinPanel({
               {/* Select first, then confirm to prevent accidental check-ins. */}
               <div className="grid grid-cols-5 gap-2">
                 {[1, 2, 3, 4, 5].map((num) => {
-                  const isAvailable = num <= remaining;
+                  const isAvailable = num <= remaining + outside;
                   return (
                     <button
                       key={num}
@@ -375,7 +385,7 @@ export default function CheckinPanel({
                   </p>
                   <button
                     type="button"
-                    disabled={isSubmitting || selectedCount > remaining}
+                    disabled={isSubmitting || selectedCount > remaining + outside}
                     onClick={() => handleRegister(selectedCount)}
                     className="mt-3 w-full rounded-xl bg-emerald-600 px-4 py-3 text-sm font-extrabold text-white shadow-sm transition-colors hover:bg-emerald-500 disabled:cursor-wait disabled:opacity-60"
                   >

@@ -1,5 +1,6 @@
 import React from 'react';
 import OrganizationLogo from './OrganizationLogo.jsx';
+import { getEffectiveEventStatus } from '../services/eventPolicy.js';
 import { 
   QrCode, 
   Search, 
@@ -13,7 +14,9 @@ import {
   AlertTriangle,
   LogOut,
   CalendarDays,
-  UserCog
+  UserCog,
+  Activity,
+  UsersRound
 } from 'lucide-react';
 
 export default function Navbar({ 
@@ -34,6 +37,8 @@ export default function Navbar({
   role,
   permissions = {}
 }) {
+  const eventStatus = getEffectiveEventStatus(event);
+  const eventStatusLabel = eventStatus === 'open' ? 'Abierto' : eventStatus === 'paused' ? 'Pausado' : eventStatus === 'closed' ? 'Cerrado' : 'Borrador';
   return (
     <header className="bg-white border-b border-slate-200 sticky top-0 z-40 shadow-sm no-print">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -49,6 +54,7 @@ export default function Navbar({
               <p className="text-xs text-slate-500 truncate max-w-[180px] sm:max-w-xs font-medium">
                 {event?.name || 'Control de Asistencia'}
               </p>
+              <span className={`mt-0.5 inline-block rounded-full px-2 py-0.5 text-[9px] font-black uppercase ${eventStatus === 'open' ? 'bg-emerald-100 text-emerald-800' : eventStatus === 'paused' ? 'bg-amber-100 text-amber-800' : eventStatus === 'closed' ? 'bg-rose-100 text-rose-800' : 'bg-slate-100 text-slate-700'}`}>{eventStatusLabel}</span>
             </div>
           </div>
 
@@ -213,6 +219,10 @@ export default function Navbar({
             <BarChart3 className="w-4 h-4" />
             <span>Panel en Vivo</span>
           </button>
+
+          <button onClick={() => setActiveTab('operations')} className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-sm font-semibold whitespace-nowrap transition-all ${activeTab === 'operations' ? 'bg-sky-600 text-white shadow-sm shadow-sky-600/30' : 'text-slate-600 hover:bg-slate-200/70 hover:text-slate-900'}`}><Activity className="h-4 w-4"/><span>Operaciones</span></button>
+
+          {permissions.canManage && <button onClick={() => setActiveTab('families')} className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-sm font-semibold whitespace-nowrap transition-all ${activeTab === 'families' ? 'bg-sky-600 text-white shadow-sm shadow-sky-600/30' : 'text-slate-600 hover:bg-slate-200/70 hover:text-slate-900'}`}><UsersRound className="h-4 w-4"/><span>Familias</span></button>}
 
           {permissions.canManage && <button
             onClick={() => setActiveTab('students')}

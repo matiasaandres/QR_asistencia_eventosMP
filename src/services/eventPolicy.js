@@ -1,6 +1,22 @@
 import { ensureRequiredDoors, normalizeCapacityValue, resetStudentAttendance } from './checkinPolicy.js';
 
 export const DEFAULT_EVENT_DOORS = ['Acceso Principal', 'Puerta 1', 'Puerta 2'];
+export const EVENT_STATUSES = ['draft', 'open', 'paused', 'closed'];
+
+export function getEffectiveEventStatus(event = {}, now = new Date()) {
+  const configured = EVENT_STATUSES.includes(event.status) ? event.status : 'open';
+  if (configured === 'paused' || configured === 'closed') return configured;
+  const currentTime = now instanceof Date ? now.getTime() : new Date(now).getTime();
+  const startsAt = event.startsAt ? new Date(event.startsAt).getTime() : NaN;
+  const endsAt = event.endsAt ? new Date(event.endsAt).getTime() : NaN;
+  if (Number.isFinite(startsAt) && currentTime < startsAt) return 'draft';
+  if (Number.isFinite(endsAt) && currentTime >= endsAt) return 'closed';
+  return configured;
+}
+
+export function eventAllowsAccess(event = {}, now = new Date()) {
+  return !event.archived && getEffectiveEventStatus(event, now) === 'open';
+}
 
 export function normalizeEvent(eventData = {}, fallbackEvent = {}) {
   const source = eventData && typeof eventData === 'object' ? eventData : {};
@@ -16,6 +32,9 @@ export function normalizeEvent(eventData = {}, fallbackEvent = {}) {
     name: String(source.name || fallback.name || 'Evento sin nombre').trim(),
     institution: String(source.institution || fallback.institution || 'Institución educativa').trim(),
     date: String(source.date || fallback.date || new Date().toISOString().slice(0, 10)).trim(),
+    status: EVENT_STATUSES.includes(source.status) ? source.status : (EVENT_STATUSES.includes(fallback.status) ? fallback.status : 'open'),
+    startsAt: String(source.startsAt || fallback.startsAt || '').trim(),
+    endsAt: String(source.endsAt || fallback.endsAt || '').trim(),
     defaultCapacity: Math.min(50, Math.max(1, defaultCapacity || 4)),
     archived: source.archived === true,
     studentsInitialized: source.studentsInitialized === true
@@ -53,7 +72,7 @@ export function prepareStudentsForEvent(students = []) {
         familyLastEntryAt, familyExtraGuest,
         ...copy
       } = reset;
-      return { ...copy, enteredCount: 0, status: reset.status };
+      return { ...copy, enteredCount: 0, insideCount: 0, status: reset.status };
     });
 
   return prepared;

@@ -152,7 +152,7 @@ test('la nómina permite eliminar estudiantes y cursos con confirmación', () =>
 test('el historial permite remover un registro con confirmación', () => {
   assert.match(historyLog, /handleDeleteLog/);
   assert.match(historyLog, /Remover registro/);
-  assert.match(historyLog, /Se eliminará de la base de datos y se descontarán/);
+  assert.match(historyLog, /Los contadores de acceso y permanencia se recalcularán/);
   assert.match(historyLog, /await onDeleteLog\(log\)/);
 });
 

@@ -1,13 +1,14 @@
 import { initFirebase } from './firebase';
 import { INITIAL_STUDENTS, INITIAL_EVENT } from '../mock/sampleStudents';
 import {
-  createCheckInPlan,
+  createMovementPlan,
   getCapacityState,
   normalizeExtraPerson,
   resetStudentAttendance
 } from './checkinPolicy';
 import {
   createEventId,
+  eventAllowsAccess,
   normalizeEvent,
   prepareStudentsForEvent,
   selectStudentsForCourses
@@ -41,6 +42,8 @@ const LOCAL_STORAGE_KEY_FAMILIES = 'mp_families_data_';
 const LOCAL_STORAGE_KEY_EVENT = 'mp_current_event';
 const LOCAL_STORAGE_KEY_EVENTS = 'mp_events_catalog';
 const LOCAL_STORAGE_KEY_DOOR = 'mp_current_door';
+const LOCAL_STORAGE_KEY_DOORS = 'mp_event_doors_';
+const LOCAL_STORAGE_KEY_FAMILY_HISTORY = 'mp_family_history_';
 function hydrateStudentRuts(students) {
   return hydrateFamilyCapacities(students);
 }
@@ -208,7 +211,9 @@ export async function updateEvent(organizationId, eventData) {
     ? events.map((event) => event.id === updatedEvent.id ? updatedEvent : event)
     : [...events, updatedEvent];
   saveLocalEvents(organizationId, nextEvents);
-  return saveCurrentEvent(organizationId, updatedEvent);
+  return getCurrentEvent(organizationId).id === updatedEvent.id
+    ? saveCurrentEvent(organizationId, updatedEvent)
+    : updatedEvent;
 }
 
 export async function createEvent(organizationId, eventData, { copyStudents = false, sourceStudents = [], selectedCourses } = {}) {
@@ -457,10 +462,16 @@ export async function deleteLogEntry(organizationId, eventId, log) {
       if (studentSnapshot.exists()) {
         const student = studentSnapshot.data();
         const removedCount = Math.max(1, Number(storedLog.count) || 1);
-        const newEnteredCount = Math.max(0, (Number(student.enteredCount) || 0) - removedCount);
+        const removedAdmissions = storedLog.movementType === 'EXIT' ? 0 : Math.max(0, Number(storedLog.newAdmissions ?? removedCount));
+        const newEnteredCount = Math.max(0, (Number(student.enteredCount) || 0) - removedAdmissions);
+        const currentInside = Math.max(0, Number(student.insideCount ?? student.enteredCount) || 0);
+        const newInsideCount = storedLog.movementType === 'EXIT'
+          ? Math.min(newEnteredCount, currentInside + removedCount)
+          : Math.max(0, currentInside - removedCount);
         const maxCapacity = getCapacityState(student).maxCapacity;
         const update = {
           enteredCount: newEnteredCount,
+          insideCount: newInsideCount,
           status: statusForEnteredCount(newEnteredCount, maxCapacity)
         };
         if (storedLog.isExtra === true) update.extraGuest = deleteField();
@@ -483,13 +494,16 @@ export async function deleteLogEntry(organizationId, eventId, log) {
     const studentsKey = organizationKey(LOCAL_STORAGE_KEY_STUDENTS, organizationId) + eventId;
     const storedStudents = localStorage.getItem(studentsKey);
     if (storedStudents && log.studentId) {
-      const removedCount = Math.max(1, Number(log.count) || 1);
+      const removedCount = log.movementType === 'EXIT' ? 0 : Math.max(0, Number(log.newAdmissions ?? log.count) || 0);
       const localStudents = JSON.parse(storedStudents).map((student) => {
         if (student.id !== (log.capacityOwnerId || log.studentId)) return student;
         const newEnteredCount = Math.max(0, (Number(student.enteredCount) || 0) - removedCount);
+        const movementCount = Math.max(1, Number(log.count) || 1);
+        const currentInside = Math.max(0, Number(student.insideCount ?? student.enteredCount) || 0);
         const updatedStudent = {
           ...student,
           enteredCount: newEnteredCount,
+          insideCount: log.movementType === 'EXIT' ? Math.min(newEnteredCount, currentInside + movementCount) : Math.max(0, currentInside - movementCount),
           status: statusForEnteredCount(newEnteredCount, getCapacityState(student).maxCapacity)
         };
         if (log.isExtra === true) delete updatedStudent.extraGuest;
@@ -500,11 +514,14 @@ export async function deleteLogEntry(organizationId, eventId, log) {
     if (storedStudents && log.familyId) {
       const familiesKey = storedFamiliesKey(organizationId, eventId);
       const families = JSON.parse(localStorage.getItem(familiesKey) || '[]');
-      const removedCount = Math.max(1, Number(log.count) || 1);
+      const removedCount = log.movementType === 'EXIT' ? 0 : Math.max(0, Number(log.newAdmissions ?? log.count) || 0);
       localStorage.setItem(familiesKey, JSON.stringify(families.map((family) => {
         if (normalizeFamilyId(family.id) !== normalizeFamilyId(log.familyId)) return family;
         const enteredCount = Math.max(0, (Number(family.enteredCount) || 0) - removedCount);
-        const updated = { ...family, enteredCount, status: statusForEnteredCount(enteredCount, family.maxCapacity) };
+        const movementCount = Math.max(1, Number(log.count) || 1);
+        const currentInside = Math.max(0, Number(family.insideCount ?? family.enteredCount) || 0);
+        const insideCount = log.movementType === 'EXIT' ? Math.min(enteredCount, currentInside + movementCount) : Math.max(0, currentInside - movementCount);
+        const updated = { ...family, enteredCount, insideCount, status: statusForEnteredCount(enteredCount, family.maxCapacity) };
         if (log.isExtra === true) delete updated.extraGuest;
         return updated;
       })));
@@ -560,7 +577,8 @@ export async function registerCheckIn({
   studentId,
   count,
   doorName,
-  extraPerson = null
+  extraPerson = null,
+  movementType = 'ENTRY'
 }) {
   const { app, db, isConfigured } = initFirebase();
   const now = new Date();
@@ -570,9 +588,14 @@ export async function registerCheckIn({
   const normalizedExtraPerson = normalizeExtraPerson(extraPerson);
   const operator = app ? getAuth(app).currentUser : null;
 
-  const buildPlan = (student) => createCheckInPlan({
+  if (!eventAllowsAccess(getLocalEvents(organizationId).find((item) => item.id === eventId) || {}, now)) {
+    throw new Error('El evento no está abierto para registrar movimientos.');
+  }
+
+  const buildPlan = (student) => createMovementPlan({
     student,
     count,
+    movementType,
     doorName,
     timestampIso,
     extraPerson: normalizedExtraPerson
@@ -586,7 +609,11 @@ export async function registerCheckIn({
     studentName: student.name,
     course: student.course,
     count,
+    movementType: plan.movementType,
+    newAdmissions: plan.newAdmissions,
+    reentries: plan.reentries,
     accumulated: plan.newEntered,
+    insideAfter: plan.newInside,
     maxCapacity: getCapacityState(student).maxCapacity,
     doorName: doorName || 'Acceso Principal',
     timestamp: timestampIso,
@@ -604,8 +631,10 @@ export async function registerCheckIn({
   const buildUpdatedStudent = (student, plan) => ({
     ...student,
     enteredCount: plan.newEntered,
+    insideCount: plan.newInside,
     status: plan.newStatus,
-    lastEntryAt: timestampIso,
+    lastMovementAt: timestampIso,
+    ...(plan.movementType !== 'EXIT' ? { lastEntryAt: timestampIso } : {}),
     ...(plan.extraGuest ? { extraGuest: plan.extraGuest } : {})
   });
 
@@ -615,6 +644,10 @@ export async function registerCheckIn({
     const logRef = doc(eventLogs(db, organizationId, eventId));
 
     return await runTransaction(db, async (transaction) => {
+      const eventSnapshot = await transaction.get(eventDoc(db, organizationId, eventId));
+      if (!eventSnapshot.exists() || !eventAllowsAccess(eventSnapshot.data(), now)) {
+        throw new Error('El evento no está abierto para registrar movimientos.');
+      }
       const studentSnap = await transaction.get(studentRef);
       if (!studentSnap.exists()) {
         throw new Error("Estudiante no encontrado en la base de datos.");
@@ -635,6 +668,7 @@ export async function registerCheckIn({
           familyId,
           familyMaxCapacity: family.maxCapacity,
           familyEnteredCount: family.enteredCount,
+          familyInsideCount: family.insideCount,
           familyExtraGuest: family.extraGuest
         };
       } else if (familyId) {
@@ -642,7 +676,7 @@ export async function registerCheckIn({
         capacitySnapshot = legacyOwnerId === studentId ? studentSnap : await transaction.get(legacyOwnerRef);
         if (!capacitySnapshot.exists()) throw new Error('No se encontró el registro de cupos de la familia.');
         const legacy = capacitySnapshot.data();
-        effectiveStudent = { ...currentData, familyId, familyOwnerId: legacyOwnerId, familyMaxCapacity: legacy.maxCapacity, familyEnteredCount: legacy.enteredCount, familyExtraGuest: legacy.extraGuest };
+        effectiveStudent = { ...currentData, familyId, familyOwnerId: legacyOwnerId, familyMaxCapacity: legacy.maxCapacity, familyEnteredCount: legacy.enteredCount, familyInsideCount: legacy.insideCount, familyExtraGuest: legacy.extraGuest };
       } else {
         effectiveStudent = currentData;
       }
@@ -651,18 +685,32 @@ export async function registerCheckIn({
 
       transaction.update(familyId && capacitySnapshot.ref.path.includes('/families/') ? capacityRef : capacitySnapshot.ref, {
         enteredCount: plan.newEntered,
+        insideCount: plan.newInside,
         status: plan.newStatus,
-        lastEntryAt: timestampIso,
+        lastMovementAt: timestampIso,
+        ...(plan.movementType !== 'EXIT' ? { lastEntryAt: timestampIso } : {}),
         ...(plan.extraGuest ? { extraGuest: plan.extraGuest } : {})
       });
 
       // Student counter and audit log commit together. A transaction retry uses
       // the same log ID, so concurrent scans cannot create duplicate entries.
       transaction.set(logRef, buildLogData(effectiveStudent, plan));
+      transaction.set(eventDoorDoc(db, organizationId, eventId, getDeviceId()), {
+        deviceId: getDeviceId(),
+        deviceLabel: typeof navigator === 'undefined' ? 'Dispositivo local' : `${navigator.platform || 'Dispositivo'} · ${navigator.userAgent.includes('Mobile') ? 'Móvil' : 'Navegador'}`,
+        doorName: doorName || 'Acceso Principal',
+        operatorUid: operator?.uid || 'local',
+        operatorEmail: operator?.email || 'modo-local',
+        lastSeenAt: timestampIso,
+        lastMovementAt: timestampIso,
+        lastMovementType: plan.movementType
+      }, { merge: true });
 
       return {
         student: updatedStudent,
         newEntered: plan.newEntered,
+        newInside: plan.newInside,
+        movementType: plan.movementType,
         remaining: plan.remaining,
         count,
         isExtra: plan.isExtra,
@@ -696,7 +744,7 @@ export async function registerCheckIn({
       const families = JSON.parse(localStorage.getItem(familiesKey) || '[]');
       const familyIndex = families.findIndex((family) => normalizeFamilyId(family.id) === familyId);
       if (familyIndex >= 0) {
-        families[familyIndex] = { ...families[familyIndex], enteredCount: plan.newEntered, status: plan.newStatus, lastEntryAt: timestampIso, ...(plan.extraGuest ? { extraGuest: plan.extraGuest } : {}) };
+        families[familyIndex] = { ...families[familyIndex], enteredCount: plan.newEntered, insideCount: plan.newInside, status: plan.newStatus, lastMovementAt: timestampIso, ...(plan.movementType !== 'EXIT' ? { lastEntryAt: timestampIso } : {}), ...(plan.extraGuest ? { extraGuest: plan.extraGuest } : {}) };
         localStorage.setItem(familiesKey, JSON.stringify(families));
       } else {
         const ownerId = getCapacityOwnerId(student);
@@ -735,6 +783,8 @@ export async function registerCheckIn({
     return {
       student: students[studentIndex],
       newEntered: plan.newEntered,
+      newInside: plan.newInside,
+      movementType: plan.movementType,
       remaining: plan.remaining,
       count,
       isExtra: plan.isExtra,
@@ -789,6 +839,83 @@ export async function saveStudentCapacities(organizationId, eventId, updates) {
   localStorage.setItem(familiesKey, JSON.stringify(families.map((family) => ownerCapacities.has(`family:${family.id}`)
     ? { ...family, maxCapacity: ownerCapacities.get(`family:${family.id}`) } : family)));
   if (localChannel) localChannel.postMessage({ type: 'STUDENTS_UPDATED', organizationId, eventId });
+}
+
+function eventDoors(db, organizationId, eventId) {
+  return collection(db, 'organizations', organizationId, 'events', eventId, 'doorSessions');
+}
+
+function eventDoorDoc(db, organizationId, eventId, sessionId) {
+  return doc(db, 'organizations', organizationId, 'events', eventId, 'doorSessions', sessionId);
+}
+
+function eventFamilyHistory(db, organizationId, eventId) {
+  return collection(db, 'organizations', organizationId, 'events', eventId, 'familyHistory');
+}
+
+export function subscribeToFamilyHistory(organizationId, eventId, onUpdate) {
+  const { db, isConfigured } = initFirebase();
+  const key = organizationKey(LOCAL_STORAGE_KEY_FAMILY_HISTORY, organizationId) + eventId;
+  if (isConfigured && db) {
+    return onSnapshot(query(eventFamilyHistory(db, organizationId, eventId), orderBy('timestamp', 'desc')), (snapshot) => {
+      const items = snapshot.docs.map((item) => ({ ...item.data(), id: item.id }));
+      localStorage.setItem(key, JSON.stringify(items));
+      onUpdate(items);
+    }, () => onUpdate(JSON.parse(localStorage.getItem(key) || '[]')));
+  }
+  onUpdate(JSON.parse(localStorage.getItem(key) || '[]'));
+  return () => {};
+}
+
+function appendLocalFamilyHistory(organizationId, eventId, entry) {
+  const key = organizationKey(LOCAL_STORAGE_KEY_FAMILY_HISTORY, organizationId) + eventId;
+  const current = JSON.parse(localStorage.getItem(key) || '[]');
+  localStorage.setItem(key, JSON.stringify([{ ...entry, id: `local-${Date.now()}` }, ...current]));
+}
+
+function getDeviceId() {
+  const key = 'mp_device_id';
+  let value = localStorage.getItem(key);
+  if (!value) {
+    value = `DEV-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2, 7).toUpperCase()}`;
+    localStorage.setItem(key, value);
+  }
+  return value;
+}
+
+export function subscribeToDoorSessions(organizationId, eventId, onUpdate) {
+  const { db, isConfigured } = initFirebase();
+  const localKey = organizationKey(LOCAL_STORAGE_KEY_DOORS, organizationId) + eventId;
+  if (isConfigured && db) {
+    return onSnapshot(eventDoors(db, organizationId, eventId), (snapshot) => {
+      const sessions = snapshot.docs.map((item) => ({ ...item.data(), id: item.id }));
+      localStorage.setItem(localKey, JSON.stringify(sessions));
+      onUpdate(sessions);
+    }, () => onUpdate(JSON.parse(localStorage.getItem(localKey) || '[]')));
+  }
+  onUpdate(JSON.parse(localStorage.getItem(localKey) || '[]'));
+  return () => {};
+}
+
+export async function registerDoorPresence(organizationId, eventId, doorName) {
+  const { app, db, isConfigured } = initFirebase();
+  const operator = app ? getAuth(app).currentUser : null;
+  const now = new Date().toISOString();
+  const session = {
+    deviceId: getDeviceId(),
+    deviceLabel: typeof navigator === 'undefined' ? 'Dispositivo local' : `${navigator.platform || 'Dispositivo'} · ${navigator.userAgent.includes('Mobile') ? 'Móvil' : 'Navegador'}`,
+    doorName: doorName || 'Acceso Principal',
+    operatorUid: operator?.uid || 'local',
+    operatorEmail: operator?.email || 'modo-local',
+    connectedAt: now,
+    lastSeenAt: now
+  };
+  const id = session.deviceId;
+  if (isConfigured && db) await setDoc(eventDoorDoc(db, organizationId, eventId, id), session, { merge: true });
+  const key = organizationKey(LOCAL_STORAGE_KEY_DOORS, organizationId) + eventId;
+  const current = JSON.parse(localStorage.getItem(key) || '[]').filter((item) => item.id !== id);
+  localStorage.setItem(key, JSON.stringify([{ ...session, id }, ...current]));
+  return session;
 }
 
 // One-time, idempotent migration. Existing family counters remain readable until
@@ -848,12 +975,13 @@ export async function saveStudentFamily(organizationId, eventId, studentId, next
       familyId: groupId,
       maxCapacity: capacity,
       enteredCount: 0,
+      insideCount: 0,
       status: 'PENDIENTE'
     }));
     familyRecords.set(groupId, createFamilyRecord(groupId, members, members[0]));
   });
   if (!familyId) updates.set(studentId, {
-    familyId: deleteField(), familyOwnerId: deleteField(), enteredCount: 0, status: 'PENDIENTE'
+    familyId: deleteField(), familyOwnerId: deleteField(), enteredCount: 0, insideCount: 0, status: 'PENDIENTE'
   });
 
   const { db, isConfigured } = initFirebase();
@@ -912,11 +1040,102 @@ export async function saveStudentFamily(organizationId, eventId, studentId, next
   if (localChannel) localChannel.postMessage({ type: 'STUDENTS_UPDATED', organizationId, eventId });
 }
 
+export async function mergeFamilies(organizationId, eventId, familyIds, visibleStudents = []) {
+  const selectedIds = [...new Set(familyIds)].filter(Boolean);
+  if (selectedIds.length < 2) throw new Error('Selecciona al menos dos familias para unir.');
+  const groups = selectedIds.map((id) => ({
+    id,
+    members: visibleStudents.filter((student) => (student.familyId || `IND-${student.id}`) === id)
+  }));
+  const members = groups.flatMap((group) => group.members);
+  if (members.length < 2) throw new Error('No se encontraron integrantes suficientes.');
+  if (groups.some((group) => group.members.some((student) => getCapacityState(student).enteredCount > 0))) {
+    throw new Error('Solo se pueden unir familias sin movimientos registrados.');
+  }
+  const newFamilyId = `FAM-${new Date().getFullYear()}-${Date.now().toString(36).toUpperCase()}`;
+  const maxCapacity = Math.max(...members.map((student) => getCapacityState(student).maxCapacity), 4);
+  const now = new Date().toISOString();
+  const family = { ...createFamilyRecord(newFamilyId, members, { maxCapacity }), insideCount: 0, createdAt: now, updatedAt: now };
+  const { app, db, isConfigured } = initFirebase();
+  const operator = app ? getAuth(app).currentUser : null;
+  const historyEntry = {
+    action: 'MERGE', sourceFamilyIds: selectedIds, targetFamilyId: newFamilyId,
+    memberIds: members.map((member) => member.id), operatorUid: operator?.uid || 'local',
+    operatorEmail: operator?.email || 'modo-local', timestamp: now
+  };
+
+  if (isConfigured && db) {
+    await runTransaction(db, async (transaction) => {
+      const targetRef = eventFamilyDoc(db, organizationId, eventId, newFamilyId);
+      const targetSnap = await transaction.get(targetRef);
+      if (targetSnap.exists()) throw new Error('El código generado ya existe; vuelve a intentarlo.');
+      const sourceRefs = selectedIds.filter((id) => !id.startsWith('IND-')).map((id) => eventFamilyDoc(db, organizationId, eventId, id));
+      const sourceSnaps = await Promise.all(sourceRefs.map((ref) => transaction.get(ref)));
+      if (sourceSnaps.some((snap) => snap.exists() && ((Number(snap.data().enteredCount) || 0) > 0 || (Number(snap.data().insideCount) || 0) > 0))) {
+        throw new Error('Una familia recibió movimientos mientras se realizaba la unión.');
+      }
+      transaction.set(targetRef, family);
+      members.forEach((member) => transaction.update(eventStudentDoc(db, organizationId, eventId, member.id), { familyId: newFamilyId }));
+      sourceRefs.forEach((ref) => transaction.delete(ref));
+      transaction.set(doc(eventFamilyHistory(db, organizationId, eventId)), historyEntry);
+    });
+  }
+  const updated = visibleStudents.map((student) => members.some((member) => member.id === student.id) ? { ...student, familyId: newFamilyId } : student);
+  localStorage.setItem(storedStudentsKey(organizationId, eventId), JSON.stringify(updated));
+  const localFamilies = deriveFamilyRecords(updated);
+  localStorage.setItem(storedFamiliesKey(organizationId, eventId), JSON.stringify(localFamilies));
+  appendLocalFamilyHistory(organizationId, eventId, historyEntry);
+  if (localChannel) localChannel.postMessage({ type: 'STUDENTS_UPDATED', organizationId, eventId });
+  return newFamilyId;
+}
+
+export async function separateFamilyMember(organizationId, eventId, familyId, studentId, visibleStudents = []) {
+  const normalizedFamilyId = normalizeFamilyId(familyId);
+  const members = visibleStudents.filter((student) => normalizeFamilyId(student.familyId) === normalizedFamilyId);
+  const member = members.find((student) => student.id === studentId);
+  if (!member || members.length < 2) throw new Error('La familia debe tener al menos dos integrantes para separar uno.');
+  if (getCapacityState(member).enteredCount > 0) throw new Error('Solo se puede separar una familia sin movimientos registrados.');
+  const remaining = members.filter((student) => student.id !== studentId);
+  const newFamilyId = `FAM-${new Date().getFullYear()}-${Date.now().toString(36).toUpperCase()}`;
+  const now = new Date().toISOString();
+  const oldFamily = { ...createFamilyRecord(normalizedFamilyId, remaining, member), insideCount: 0, updatedAt: now };
+  const newFamily = { ...createFamilyRecord(newFamilyId, [member], member), insideCount: 0, createdAt: now, updatedAt: now };
+  const { app, db, isConfigured } = initFirebase();
+  const operator = app ? getAuth(app).currentUser : null;
+  const historyEntry = {
+    action: 'SPLIT', sourceFamilyIds: [normalizedFamilyId], targetFamilyId: newFamilyId,
+    memberIds: [studentId], operatorUid: operator?.uid || 'local', operatorEmail: operator?.email || 'modo-local', timestamp: now
+  };
+  if (isConfigured && db) {
+    await runTransaction(db, async (transaction) => {
+      const oldRef = eventFamilyDoc(db, organizationId, eventId, normalizedFamilyId);
+      const newRef = eventFamilyDoc(db, organizationId, eventId, newFamilyId);
+      const [oldSnap, newSnap] = await Promise.all([transaction.get(oldRef), transaction.get(newRef)]);
+      if (!oldSnap.exists()) throw new Error('La familia original ya no existe.');
+      if ((Number(oldSnap.data().enteredCount) || 0) > 0) throw new Error('La familia recibió movimientos y ya no puede separarse.');
+      if (newSnap.exists()) throw new Error('El código generado ya existe; vuelve a intentarlo.');
+      transaction.set(oldRef, oldFamily, { merge: true });
+      transaction.set(newRef, newFamily);
+      transaction.update(eventStudentDoc(db, organizationId, eventId, studentId), { familyId: newFamilyId });
+      transaction.set(doc(eventFamilyHistory(db, organizationId, eventId)), historyEntry);
+    });
+  }
+  const updated = visibleStudents.map((student) => student.id === studentId ? { ...student, familyId: newFamilyId } : student);
+  localStorage.setItem(storedStudentsKey(organizationId, eventId), JSON.stringify(updated));
+  localStorage.setItem(storedFamiliesKey(organizationId, eventId), JSON.stringify(deriveFamilyRecords(updated)));
+  appendLocalFamilyHistory(organizationId, eventId, historyEntry);
+  if (localChannel) localChannel.postMessage({ type: 'STUDENTS_UPDATED', organizationId, eventId });
+  return newFamilyId;
+}
+
 export async function saveStudentsList(organizationId, eventId, newStudents) {
   const key = storedStudentsKey(organizationId, eventId);
   const previousStudents = JSON.parse(localStorage.getItem(key) || '[]');
   const previousStudentIds = new Set(previousStudents.map((student) => student.id));
-  const storedStudents = newStudents.map(stripFamilyCapacityProjection);
+  const storedStudents = newStudents.map((student) => {
+    const stored = stripFamilyCapacityProjection(student);
+    return { ...stored, insideCount: Math.max(0, Number(stored.insideCount) || 0) };
+  });
   const families = new Map();
   storedStudents.forEach((student) => {
     const familyId = normalizeFamilyId(student.familyId);
@@ -951,7 +1170,7 @@ export async function saveStudentsList(organizationId, eventId, newStudents) {
     const operations = storedStudents.map((student) => {
       const studentRef = eventStudentDoc(db, organizationId, eventId, student.id);
       if (!previousStudentIds.has(student.id)) return (batch) => batch.set(studentRef, student, { merge: true });
-      const { enteredCount, status, lastEntryAt, extraGuest, ...rosterFields } = student;
+      const { enteredCount, insideCount, status, lastEntryAt, lastMovementAt, extraGuest, ...rosterFields } = student;
       return (batch) => batch.set(studentRef, { ...rosterFields, familyOwnerId: deleteField() }, { merge: true });
     });
     await commitInChunks(db, operations);
@@ -1067,15 +1286,19 @@ export async function resetEventData(organizationId, eventId) {
       const resetStatus = hasAccess ? 'PENDIENTE' : student.status;
       const needsReset =
         (Number(student.enteredCount) || 0) !== 0 ||
+        (Number(student.insideCount) || 0) !== 0 ||
         student.lastEntryAt != null ||
+        student.lastMovementAt != null ||
         student.extraGuest != null ||
         student.status !== resetStatus;
 
       if (needsReset) {
         operations.push((batch) => batch.update(studentDoc.ref, {
           enteredCount: 0,
+          insideCount: 0,
           status: resetStatus,
           lastEntryAt: deleteField(),
+          lastMovementAt: deleteField(),
           extraGuest: deleteField()
         }));
       }
@@ -1087,8 +1310,10 @@ export async function resetEventData(organizationId, eventId) {
     familiesSnapshot.docs.forEach((familyDoc) => {
       operations.push((batch) => batch.update(familyDoc.ref, {
         enteredCount: 0,
+        insideCount: 0,
         status: 'PENDIENTE',
         lastEntryAt: deleteField(),
+        lastMovementAt: deleteField(),
         extraGuest: deleteField(),
         updatedAt: new Date().toISOString()
       }));
@@ -1105,7 +1330,7 @@ export async function resetEventData(organizationId, eventId) {
     );
     localStorage.setItem(organizationKey(LOCAL_STORAGE_KEY_LOGS, organizationId) + eventId, JSON.stringify([]));
     localStorage.setItem(storedFamiliesKey(organizationId, eventId), JSON.stringify(familiesSnapshot.docs.map((familyDoc) => ({
-      ...familyDoc.data(), id: familyDoc.id, enteredCount: 0, status: 'PENDIENTE', lastEntryAt: undefined, extraGuest: undefined
+      ...familyDoc.data(), id: familyDoc.id, enteredCount: 0, insideCount: 0, status: 'PENDIENTE', lastEntryAt: undefined, lastMovementAt: undefined, extraGuest: undefined
     }))));
     return;
   }
@@ -1123,8 +1348,8 @@ export async function resetEventData(organizationId, eventId) {
   const familiesKey = storedFamiliesKey(organizationId, eventId);
   const families = JSON.parse(localStorage.getItem(familiesKey) || '[]');
   localStorage.setItem(familiesKey, JSON.stringify(families.map((family) => {
-    const { lastEntryAt, extraGuest, ...rest } = family;
-    return { ...rest, enteredCount: 0, status: 'PENDIENTE' };
+    const { lastEntryAt, lastMovementAt, extraGuest, ...rest } = family;
+    return { ...rest, enteredCount: 0, insideCount: 0, status: 'PENDIENTE' };
   })));
 
   if (localChannel) {

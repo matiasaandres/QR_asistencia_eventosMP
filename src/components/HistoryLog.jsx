@@ -27,7 +27,7 @@ export default function HistoryLog({
     if (!onDeleteLog) return;
     const description = `${log.studentName || 'este estudiante'} · ${log.formattedTime || 'sin hora'}`;
     const count = Number(log.count) || 0;
-    if (!window.confirm(`¿Remover el registro de ${description}?\n\nSe eliminará de la base de datos y se descontarán ${count} persona${count === 1 ? '' : 's'} del contador del alumno.`)) return;
+    if (!window.confirm(`¿Remover el movimiento de ${description}?\n\nLos contadores de acceso y permanencia se recalcularán en forma inversa.`)) return;
 
     setDeletingLogId(log.id);
     try {
@@ -68,7 +68,7 @@ export default function HistoryLog({
             Bitácora de Ingresos Registrados
           </h1>
           <p className="text-xs text-slate-500 mt-0.5">
-            Registro cronológico detallado de cada escaneo y acceso
+            Registro cronológico de ingresos, salidas y reingresos
           </p>
         </div>
 
@@ -138,7 +138,7 @@ export default function HistoryLog({
                       <div className="text-[11px] text-slate-500">{log.formattedTime || 'Sin hora'}</div>
                     </td>
                     <td className="py-3 px-4 font-bold text-slate-900">
-                      <div>{log.studentName}</div>
+                      <div>{log.studentName}</div><div className={`mt-1 text-[10px] font-black uppercase ${log.movementType === 'EXIT' ? 'text-amber-700' : log.movementType === 'REENTRY' ? 'text-sky-700' : 'text-emerald-700'}`}>{log.movementType === 'EXIT' ? 'Salida' : log.movementType === 'REENTRY' ? 'Reingreso' : 'Ingreso'}</div>
                       {log.isExtra && (
                         <div className="mt-1 text-[11px] font-semibold text-violet-700">
                           Cupo extra: {log.guestName} ({log.relationship})
@@ -156,11 +156,11 @@ export default function HistoryLog({
                           ? 'bg-violet-100 text-violet-800'
                           : 'bg-emerald-100 text-emerald-800'
                       }`}>
-                        {log.isExtra ? 'Extra +1' : `+${log.count}`}
+                        {log.isExtra ? 'Extra +1' : `${log.movementType === 'EXIT' ? '-' : '+'}${log.count}`}
                       </span>
                     </td>
                     <td className="py-3 px-4 text-center font-semibold text-slate-700">
-                      {log.accumulated} de {log.maxCapacity ?? 5}{log.isExtra ? ' + 1 extra' : ''}
+                      {log.accumulated} autorizadas · {log.insideAfter ?? log.accumulated} dentro
                     </td>
                     <td className="py-3 px-4 text-slate-600 font-medium">
                       {log.doorName}

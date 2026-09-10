@@ -15,7 +15,7 @@ test('aísla los datos por organización y exige membresía activa', () => {
 
 test('reserva la creación y gestión global de escuelas para la cuenta maestra', () => {
   assert.match(rules, /function platformAdmin\(\)/);
-  assert.match(rules, /platformAdmin\(\)[\s\S]*hasOnly\(\['maxCapacity', 'enteredCount', 'status', 'lastEntryAt', 'extraGuest'\]\)[\s\S]*request\.resource\.data\.enteredCount <= request\.resource\.data\.maxCapacity \+ 1/);
+  assert.match(rules, /platformAdmin\(\)[\s\S]*hasOnly\(\['maxCapacity', 'enteredCount', 'insideCount', 'status', 'lastEntryAt', 'lastMovementAt', 'extraGuest'\]\)[\s\S]*request\.resource\.data\.enteredCount <= request\.resource\.data\.maxCapacity \+ 1/);
   assert.match(rules, /matias\.andres\.mh@gmail\.com/);
   assert.match(rules, /allow create: if platformAdmin\(\)/);
   assert.match(rules, /request\.resource\.data\.memberUids\.size\(\) == 1/);
@@ -40,6 +40,14 @@ test('mantiene los cupos familiares en documentos independientes', () => {
   assert.match(rules, /data\.enteredCount <= data\.maxCapacity \+ 1/);
   assert.match(rules, /!\('familyId' in resource\.data\)/);
   assert.match(rules, /families\/\$\(request\.resource\.data\.familyId\)/);
+});
+
+test('protege sesiones de puerta, movimientos y el historial familiar', () => {
+  assert.match(rules, /match \/doorSessions\/\{sessionId\}/);
+  assert.match(rules, /request\.resource\.data\.operatorUid == request\.auth\.uid/);
+  assert.match(rules, /match \/familyHistory\/\{historyId\}/);
+  assert.match(rules, /data\.insideCount <= data\.enteredCount/);
+  assert.match(rules, /data\.status in \['draft', 'open', 'paused', 'closed'\]/);
 });
 
 test('el cupo extraordinario exige identificación y máximo más uno', () => {

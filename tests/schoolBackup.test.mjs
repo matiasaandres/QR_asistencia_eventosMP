@@ -20,8 +20,8 @@ test('crea un respaldo completo con resumen verificable', () => {
   });
 
   assert.equal(backup.format, 'mundopalabra-school-backup');
-  assert.equal(backup.schemaVersion, 2);
-  assert.deepEqual(backup.summary, { members: 1, events: 2, students: 3, families: 1, logs: 1 });
+  assert.equal(backup.schemaVersion, 3);
+  assert.deepEqual(backup.summary, { members: 1, events: 2, students: 3, families: 1, logs: 1, familyChanges: 0 });
   assert.equal(backup.events[0].students[0].familyId, 'FAM-2026-001');
 });
 

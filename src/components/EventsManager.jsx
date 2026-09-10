@@ -4,6 +4,7 @@ import {
   ArchiveRestore,
   CalendarDays,
   CheckCircle2,
+  Clock3,
   ListChecks,
   Plus,
   Users
@@ -23,11 +24,15 @@ export default function EventsManager({
   students,
   onSelectEvent,
   onCreateEvent,
+  onUpdateEvent,
   onArchiveEvent
 }) {
   const [name, setName] = useState('');
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [defaultCapacity, setDefaultCapacity] = useState(4);
+  const [status, setStatus] = useState('draft');
+  const [startsAt, setStartsAt] = useState('');
+  const [endsAt, setEndsAt] = useState('');
   const [copyRoster, setCopyRoster] = useState(true);
   const [selectedCourses, setSelectedCourses] = useState([]);
   const [isSaving, setIsSaving] = useState(false);
@@ -63,6 +68,10 @@ export default function EventsManager({
       alert('Selecciona al menos un curso para incorporar su nómina al evento.');
       return;
     }
+    if (startsAt && endsAt && new Date(endsAt) <= new Date(startsAt)) {
+      alert('El cierre automático debe ser posterior a la apertura.');
+      return;
+    }
     setIsSaving(true);
     setMessage('');
     try {
@@ -71,6 +80,9 @@ export default function EventsManager({
         date,
         institution: currentEvent?.institution || 'Institución educativa',
         defaultCapacity: Number(defaultCapacity),
+        status,
+        startsAt: startsAt ? new Date(startsAt).toISOString() : '',
+        endsAt: endsAt ? new Date(endsAt).toISOString() : '',
         doors: currentEvent?.doors || ['Acceso Principal']
       }, copyRoster, selectedCourses);
       setName('');
@@ -112,7 +124,7 @@ export default function EventsManager({
           <Plus className="h-5 w-5" />
           <h2 className="font-extrabold">Crear un evento nuevo</h2>
         </div>
-        <div className="mt-4 grid gap-3 md:grid-cols-[2fr_1fr_1fr]">
+        <div className="mt-4 grid gap-3 md:grid-cols-2 lg:grid-cols-3">
           <label className="text-xs font-bold text-slate-700">
             Nombre del evento
             <input required value={name} onChange={(event) => setName(event.target.value)} placeholder="Ej: Gala de aniversario 2026" className="mt-1 w-full rounded-xl border border-sky-200 bg-white px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-sky-300" />
@@ -125,6 +137,9 @@ export default function EventsManager({
             Cupo inicial
             <input required type="number" min="1" max="50" value={defaultCapacity} onChange={(event) => setDefaultCapacity(event.target.value)} className="mt-1 w-full rounded-xl border border-sky-200 bg-white px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-sky-300" />
           </label>
+          <label className="text-xs font-bold text-slate-700">Estado inicial<select value={status} onChange={(event) => setStatus(event.target.value)} className="mt-1 w-full rounded-xl border border-sky-200 bg-white px-3 py-2.5 text-sm"><option value="draft">Borrador</option><option value="open">Abierto</option><option value="paused">Pausado</option><option value="closed">Cerrado</option></select></label>
+          <label className="text-xs font-bold text-slate-700">Apertura automática<input type="datetime-local" value={startsAt} onChange={(event) => setStartsAt(event.target.value)} className="mt-1 w-full rounded-xl border border-sky-200 bg-white px-3 py-2.5 text-sm"/></label>
+          <label className="text-xs font-bold text-slate-700">Cierre automático<input type="datetime-local" value={endsAt} min={startsAt} onChange={(event) => setEndsAt(event.target.value)} className="mt-1 w-full rounded-xl border border-sky-200 bg-white px-3 py-2.5 text-sm"/></label>
         </div>
         <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <label className="flex cursor-pointer items-start gap-2 text-xs font-semibold text-slate-700">
@@ -164,15 +179,18 @@ export default function EventsManager({
                       <h3 className="truncate font-extrabold text-slate-950">{event.name}</h3>
                       {isCurrent && <span className="rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-extrabold uppercase text-sky-700">Actual</span>}
                       {event.archived && <span className="rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-extrabold uppercase text-slate-600">Archivado</span>}
+                      {!event.archived && <span className={`rounded-full px-2 py-0.5 text-[10px] font-extrabold uppercase ${event.status === 'open' ? 'bg-emerald-100 text-emerald-800' : event.status === 'paused' ? 'bg-amber-100 text-amber-800' : event.status === 'closed' ? 'bg-rose-100 text-rose-800' : 'bg-slate-100 text-slate-700'}`}>{event.status === 'open' ? 'Abierto' : event.status === 'paused' ? 'Pausado' : event.status === 'closed' ? 'Cerrado' : 'Borrador'}</span>}
                     </div>
                     <p className="mt-1 flex items-center gap-1.5 text-xs text-slate-600"><CalendarDays className="h-3.5 w-3.5" /> {formatEventDate(event.date)}</p>
                     <p className="mt-1 flex items-center gap-1.5 text-xs text-slate-500"><Users className="h-3.5 w-3.5" /> Cupo inicial: {event.defaultCapacity} por alumno</p>
+                    {(event.startsAt || event.endsAt) && <p className="mt-1 flex items-center gap-1.5 text-xs text-slate-500"><Clock3 className="h-3.5 w-3.5" /> {event.startsAt ? `Abre ${new Date(event.startsAt).toLocaleString('es-CL')}` : 'Sin apertura automática'} · {event.endsAt ? `Cierra ${new Date(event.endsAt).toLocaleString('es-CL')}` : 'Sin cierre automático'}</p>}
                     <p className="mt-2 truncate font-mono text-[10px] text-slate-400">{event.id}</p>
                   </div>
                   <div className="flex shrink-0 flex-col gap-2">
                     <button type="button" disabled={isCurrent || event.archived} onClick={() => onSelectEvent(event)} className="rounded-lg bg-sky-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-sky-500 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500">
                       {isCurrent ? 'Seleccionado' : 'Abrir evento'}
                     </button>
+                    {!event.archived && <select aria-label={`Estado de ${event.name}`} value={event.status || 'open'} onChange={(change) => onUpdateEvent({ ...event, status: change.target.value })} className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs font-bold text-slate-700"><option value="draft">Borrador</option><option value="open">Abierto</option><option value="paused">Pausado</option><option value="closed">Cerrado</option></select>}
                     <button type="button" disabled={isCurrent && !event.archived} onClick={() => handleArchive(event)} className="inline-flex items-center justify-center gap-1 rounded-lg bg-slate-100 px-3 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-40" title={isCurrent ? 'Selecciona otro evento antes de archivar este' : ''}>
                       {event.archived ? <ArchiveRestore className="h-3.5 w-3.5" /> : <Archive className="h-3.5 w-3.5" />}
                       {event.archived ? 'Reactivar' : 'Archivar'}

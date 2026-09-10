@@ -27,10 +27,12 @@ export function createFamilyRecord(familyId, members = [], source = {}) {
     .sort((a, b) => a.localeCompare(b));
   const maxCapacity = Math.min(50, Math.max(1, Number(source.familyMaxCapacity ?? source.maxCapacity) || 4));
   const enteredCount = Math.min(maxCapacity + 1, Math.max(0, Number(source.familyEnteredCount ?? source.enteredCount) || 0));
+  const insideCount = Math.min(enteredCount, Math.max(0, Number(source.familyInsideCount ?? source.insideCount ?? enteredCount) || 0));
   return {
     id: normalizedId,
     maxCapacity,
     enteredCount,
+    insideCount,
     status: source.familyStatus || source.status || (enteredCount ? (enteredCount >= maxCapacity ? 'COMPLETO' : 'PARCIAL') : 'PENDIENTE'),
     members: memberIds,
     ...(source.familyLastEntryAt || source.lastEntryAt ? { lastEntryAt: source.familyLastEntryAt || source.lastEntryAt } : {}),
@@ -68,6 +70,7 @@ export function hydrateFamilyCapacities(students = [], families = []) {
         familyId,
         familyMaxCapacity: family.maxCapacity,
         familyEnteredCount: family.enteredCount,
+        familyInsideCount: family.insideCount,
         familyStatus: family.status,
         familyLastEntryAt: family.lastEntryAt,
         familyExtraGuest: family.extraGuest
@@ -83,6 +86,7 @@ export function hydrateFamilyCapacities(students = [], families = []) {
       familyOwnerId: owner.id,
       familyMaxCapacity: owner.maxCapacity,
       familyEnteredCount: owner.enteredCount,
+      familyInsideCount: owner.insideCount,
       familyStatus: owner.status,
       familyLastEntryAt: owner.lastEntryAt,
       familyExtraGuest: owner.extraGuest
@@ -94,6 +98,7 @@ export function stripFamilyCapacityProjection(student = {}) {
   const {
     familyMaxCapacity,
     familyEnteredCount,
+    familyInsideCount,
     familyStatus,
     familyLastEntryAt,
     familyExtraGuest,

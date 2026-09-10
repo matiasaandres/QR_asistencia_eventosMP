@@ -55,11 +55,12 @@ export function createSchoolBackup({ organization, members = [], events = [], ex
     ...serializeValue(event),
     students: (event.students || []).map(serializeValue),
     families: (event.families || []).map(serializeValue),
-    logs: (event.logs || []).map(serializeValue)
+    logs: (event.logs || []).map(serializeValue),
+    familyHistory: (event.familyHistory || []).map(serializeValue)
   }));
   return {
     format: 'mundopalabra-school-backup',
-    schemaVersion: 2,
+    schemaVersion: 3,
     exportedAt,
     organization: serializeValue(organization),
     members: members.map(serializeValue),
@@ -69,7 +70,8 @@ export function createSchoolBackup({ organization, members = [], events = [], ex
       events: normalizedEvents.length,
       students: normalizedEvents.reduce((total, event) => total + event.students.length, 0),
       families: normalizedEvents.reduce((total, event) => total + event.families.length, 0),
-      logs: normalizedEvents.reduce((total, event) => total + event.logs.length, 0)
+      logs: normalizedEvents.reduce((total, event) => total + event.logs.length, 0),
+      familyChanges: normalizedEvents.reduce((total, event) => total + event.familyHistory.length, 0)
     }
   };
 }
@@ -99,16 +101,18 @@ export async function fetchSchoolBackup(organizationId) {
 
   const events = await Promise.all(eventsSnapshot.docs.map(async (eventSnapshot) => {
     const eventRef = eventSnapshot.ref;
-    const [studentsSnapshot, familiesSnapshot, logsSnapshot] = await Promise.all([
+    const [studentsSnapshot, familiesSnapshot, logsSnapshot, familyHistorySnapshot] = await Promise.all([
       getDocs(collection(eventRef, 'students')),
       getDocs(collection(eventRef, 'families')),
-      getDocs(collection(eventRef, 'logs'))
+      getDocs(collection(eventRef, 'logs')),
+      getDocs(collection(eventRef, 'familyHistory'))
     ]);
     return {
       ...documentData(eventSnapshot),
       students: studentsSnapshot.docs.map(documentData),
       families: familiesSnapshot.docs.map(documentData),
-      logs: logsSnapshot.docs.map(documentData)
+      logs: logsSnapshot.docs.map(documentData),
+      familyHistory: familyHistorySnapshot.docs.map(documentData)
     };
   }));
 
@@ -137,7 +141,7 @@ const BATCH_LIMIT = 400;
 const validDocumentId = (value) => typeof value === 'string' && value.length > 0 && value.length <= 500 && !value.includes('/');
 
 export function validateSchoolBackup(backup, organizationId) {
-  if (!backup || backup.format !== 'mundopalabra-school-backup' || ![1, 2].includes(backup.schemaVersion)) {
+  if (!backup || backup.format !== 'mundopalabra-school-backup' || ![1, 2, 3].includes(backup.schemaVersion)) {
     throw new Error('El archivo no es un respaldo válido de MundoPalabra.');
   }
   if (backup.organization?.id !== organizationId) {
@@ -155,6 +159,7 @@ export function validateSchoolBackup(backup, organizationId) {
     }
     if (!Array.isArray(event.students) || !Array.isArray(event.logs)) throw new Error(`El evento ${event.name || event.id} está incompleto.`);
     if (backup.schemaVersion >= 2 && !Array.isArray(event.families)) throw new Error(`El evento ${event.name || event.id} no contiene sus familias.`);
+    if (backup.schemaVersion >= 3 && !Array.isArray(event.familyHistory)) throw new Error(`El evento ${event.name || event.id} no contiene su historial familiar.`);
     const studentIds = new Set();
     event.students.forEach((student) => {
       if (!validDocumentId(student?.id) || studentIds.has(student.id)) throw new Error(`El evento ${event.name || event.id} contiene alumnos inválidos o repetidos.`);
@@ -186,8 +191,8 @@ async function commitOperations(db, operations) {
 }
 
 function restoredEventData(event) {
-  const keys = ['id', 'name', 'institution', 'date', 'defaultCapacity', 'doors', 'archived', 'studentsInitialized', 'initializedAt', 'createdAt', 'updatedAt'];
-  return Object.fromEntries(keys.filter((key) => event[key] !== undefined).map((key) => [key, event[key]]));
+  const keys = ['id', 'name', 'institution', 'date', 'defaultCapacity', 'doors', 'status', 'startsAt', 'endsAt', 'archived', 'studentsInitialized', 'initializedAt', 'createdAt', 'updatedAt'];
+  return { status: 'open', startsAt: '', endsAt: '', ...Object.fromEntries(keys.filter((key) => event[key] !== undefined).map((key) => [key, event[key]])) };
 }
 
 export async function restoreSchoolBackup(organizationId, rawBackup) {
@@ -202,10 +207,11 @@ export async function restoreSchoolBackup(organizationId, rawBackup) {
   for (const event of backup.events) {
     const eventRef = doc(organizationRef, 'events', event.id);
     await setDoc(eventRef, { ...restoredEventData(event), archived: false, studentsInitialized: true }, { merge: true });
-    const [currentStudents, currentFamilies, currentLogs] = await Promise.all([
+    const [currentStudents, currentFamilies, currentLogs, currentFamilyHistory] = await Promise.all([
       getDocs(collection(eventRef, 'students')),
       getDocs(collection(eventRef, 'families')),
-      getDocs(collection(eventRef, 'logs'))
+      getDocs(collection(eventRef, 'logs')),
+      getDocs(collection(eventRef, 'familyHistory'))
     ]);
     const restoredFamilies = event.families || deriveFamilyRecords(event.students || []);
     await commitOperations(db, currentFamilies.docs
@@ -213,12 +219,12 @@ export async function restoreSchoolBackup(organizationId, rawBackup) {
       .map((family) => (batch) => batch.delete(family.ref)));
     await commitOperations(db, restoredFamilies.map((family) => (batch) => {
       const { id, ...data } = family;
-      batch.set(doc(eventRef, 'families', id), { ...data, id });
+      batch.set(doc(eventRef, 'families', id), { ...data, id, insideCount: Math.max(0, Number(data.insideCount ?? data.enteredCount) || 0) });
     }));
     const restoredStudentIds = new Set(event.students.map((student) => student.id));
     const studentOperations = event.students.map((student) => (batch) => {
       const { id, ...data } = student;
-      batch.set(doc(eventRef, 'students', id), { ...data, id });
+      batch.set(doc(eventRef, 'students', id), { ...data, id, insideCount: Math.max(0, Number(data.insideCount ?? data.enteredCount) || 0) });
     });
     currentStudents.docs
       .filter((student) => !restoredStudentIds.has(student.id))
@@ -233,6 +239,11 @@ export async function restoreSchoolBackup(organizationId, rawBackup) {
       const { id, ...data } = log;
       batch.set(doc(eventRef, 'logs', id), data);
     }));
+    await commitOperations(db, currentFamilyHistory.docs.map((item) => (batch) => batch.delete(item.ref)));
+    await commitOperations(db, (event.familyHistory || []).map((item) => (batch) => {
+      const { id, ...data } = item;
+      batch.set(doc(eventRef, 'familyHistory', id), data);
+    }));
     if (event.archived === true) await setDoc(eventRef, { archived: true }, { merge: true });
   }
 
@@ -245,6 +256,7 @@ export async function restoreSchoolBackup(organizationId, rawBackup) {
     events: backup.events.length,
     students: backup.events.reduce((total, event) => total + event.students.length, 0),
     families: backup.events.reduce((total, event) => total + (event.families || []).length, 0),
-    logs: backup.events.reduce((total, event) => total + event.logs.length, 0)
+    logs: backup.events.reduce((total, event) => total + event.logs.length, 0),
+    familyChanges: backup.events.reduce((total, event) => total + (event.familyHistory || []).length, 0)
   };
 }

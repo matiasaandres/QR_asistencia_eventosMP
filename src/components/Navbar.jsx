@@ -27,6 +27,7 @@ export default function Navbar({
   syncMode, 
   onOpenSettings,
   onLogout,
+  onOpenOrganizations,
   organization,
   organizations,
   onOrganizationChange,
@@ -55,6 +56,14 @@ export default function Navbar({
 
           {/* Right Info: Door Selector & Cloud Status */}
           <div className="flex items-center space-x-2 sm:space-x-3">
+            <button
+              onClick={onOpenOrganizations}
+              className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white p-2 text-slate-600 hover:bg-slate-50 hover:text-sky-700"
+              title="Administrar y cambiar escuelas"
+            >
+              <Building2 className="h-5 w-5" />
+              <span className="hidden lg:inline text-xs font-bold">Escuelas</span>
+            </button>
             {organizations?.length > 1 && (
               <select aria-label="Organización actual" value={organization?.id || ''} onChange={(event) => onOrganizationChange(event.target.value)} className="hidden xl:block max-w-48 rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-bold text-slate-700">
                 {organizations.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}

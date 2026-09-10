@@ -11,12 +11,15 @@ import SettingsModal from './components/SettingsModal';
 import LoginScreen from './components/LoginScreen';
 import EventsManager from './components/EventsManager';
 import MembersManager from './components/MembersManager';
+import OrganizationsModal from './components/OrganizationsModal';
 import { sounds } from './services/sound';
 import { clearAuthSession, subscribeToAuth } from './services/auth';
 import { canManageOrganization, canOperateAccess } from './services/organizationPolicy';
 import {
   getSavedOrganizationId,
   saveOrganizationId,
+  createOrganizationForUser,
+  migrateLegacyMundoPalabra,
   subscribeToMembership,
   subscribeToOrganizations
 } from './services/organizations';
@@ -50,6 +53,7 @@ export default function App() {
   const [printStudent, setPrintStudent] = useState(null);
   const [showPrinter, setShowPrinter] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [showOrganizations, setShowOrganizations] = useState(false);
 
   const role = membership?.role || 'viewer';
   const canManage = canManageOrganization(role);
@@ -142,11 +146,25 @@ export default function App() {
     setOrganization(selected);
   };
 
+  const handleCreateOrganization = async (schoolName) => {
+    const created = await createOrganizationForUser({ schoolName, user: authUser });
+    saveOrganizationId(authUser.uid, created.id);
+    setOrganizations((current) => [...current.filter((item) => item.id !== created.id), created]);
+    setOrganization(created);
+    return created;
+  };
+
+  const handleLegacyMigration = () => migrateLegacyMundoPalabra({
+    organizationId: organization.id,
+    user: authUser
+  });
+
   const handleLogout = async () => {
     await clearAuthSession();
     setCheckinStudent(null);
     setShowPrinter(false);
     setShowSettings(false);
+    setShowOrganizations(false);
   };
 
   const handleDoorChange = (newDoor) => {
@@ -222,6 +240,7 @@ export default function App() {
         currentDoor={currentDoor} onDoorChange={handleDoorChange} events={events}
         onEventChange={handleEventChange} syncMode={syncMode}
         onOpenSettings={() => canManage && setShowSettings(true)} onLogout={handleLogout}
+        onOpenOrganizations={() => setShowOrganizations(true)}
         organization={organization} organizations={organizations}
         onOrganizationChange={handleOrganizationChange} role={role} permissions={selectableTabs}
       />
@@ -237,6 +256,15 @@ export default function App() {
       {checkinStudent && canOperate && <CheckinPanel student={students.find((item) => item.id === checkinStudent.id) || checkinStudent} currentDoor={currentDoor} onConfirmCheckIn={handleConfirmCheckIn} onClose={() => setCheckinStudent(null)} />}
       {showPrinter && <QRCardPrinter students={students} selectedStudent={printStudent} event={event} onClose={() => { setShowPrinter(false); setPrintStudent(null); }} />}
       {canManage && <SettingsModal isOpen={showSettings} onClose={() => setShowSettings(false)} event={event} onSaveEvent={handleSaveEvent} currentDoor={currentDoor} onDoorChange={handleDoorChange} onResetData={() => resetEventData(organization.id, event.id)} />}
+      <OrganizationsModal
+        isOpen={showOrganizations}
+        onClose={() => setShowOrganizations(false)}
+        organizations={organizations}
+        currentOrganization={organization}
+        onSelect={handleOrganizationChange}
+        onCreate={handleCreateOrganization}
+        onMigrateLegacy={handleLegacyMigration}
+      />
     </div>
   );
 }

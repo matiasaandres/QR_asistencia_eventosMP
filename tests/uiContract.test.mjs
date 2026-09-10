@@ -34,6 +34,10 @@ const dashboard = await readFile(
   new URL('../src/components/Dashboard.jsx', import.meta.url),
   'utf8'
 );
+const organizationsModal = await readFile(
+  new URL('../src/components/OrganizationsModal.jsx', import.meta.url),
+  'utf8'
+);
 
 test('seleccionar cantidad no registra automáticamente y muestra confirmación', () => {
   assert.match(checkinPanel, /onClick=\{\(\) => setSelectedCount\(num\)\}/);
@@ -84,6 +88,12 @@ test('el login usa cuentas Firebase y permite registrar una escuela aislada', ()
   assert.match(loginScreen, /registerOrganization/);
   assert.match(loginScreen, /Correo electrónico/);
   assert.match(loginScreen, /Cada escuela mantiene sus usuarios, eventos y estudiantes separados/);
+});
+
+test('una cuenta existente puede agregar escuelas y recuperar Mundo Palabra', () => {
+  assert.match(organizationsModal, /Agregar otra escuela/);
+  assert.match(organizationsModal, /Recuperar alumnos de Mundo Palabra/);
+  assert.match(organizationsModal, /onMigrateLegacy/);
 });
 
 test('la nómina permite cambiar cupos globales, individuales y deshabilitar alumnos', () => {

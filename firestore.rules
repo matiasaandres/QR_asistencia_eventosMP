@@ -196,7 +196,7 @@ service cloud.firestore {
               && request.resource.data.enteredCount <= request.resource.data.maxCapacity + 1)
             || (isAdmin()
               && request.resource.data.diff(resource.data).affectedKeys()
-                .hasOnly(['rut', 'name', 'rawName', 'course', 'maxCapacity', 'disabled', 'deleted', 'deletedAt', 'familyId', 'familyOwnerId', 'enteredCount', 'status'])
+                .hasOnly(['rut', 'name', 'rawName', 'course', 'maxCapacity', 'disabled', 'deleted', 'deletedAt', 'familyId', 'familyOwnerId', 'enteredCount', 'status', 'lastEntryAt', 'extraGuest'])
               && request.resource.data.maxCapacity is int
               && request.resource.data.maxCapacity >= 0
               && request.resource.data.maxCapacity <= 50)
@@ -242,22 +242,24 @@ service cloud.firestore {
 
         match /logs/{logId} {
           allow read: if isMember();
-          allow create: if eventWillBeOpen()
-            && request.resource.data.operatorUid == request.auth.uid
-            && request.resource.data.operatorEmail == request.auth.token.email
-            && request.resource.data.count is int
-            && request.resource.data.count >= 1
-            && request.resource.data.count <= 5
-            && (!('isExtra' in request.resource.data)
-              || request.resource.data.isExtra == false
-              || (request.resource.data.isExtra == true
-                && request.resource.data.count == 1
-                && request.resource.data.guestName is string
-                && request.resource.data.guestName.size() >= 2
-                && request.resource.data.guestName.size() <= 80
-                && request.resource.data.relationship is string
-                && request.resource.data.relationship.size() >= 2
-                && request.resource.data.relationship.size() <= 40));
+          allow create: if (isAdmin() && eventWillBeOpen()) || (
+            eventWillBeOpen()
+              && request.resource.data.operatorUid == request.auth.uid
+              && request.resource.data.operatorEmail == request.auth.token.email
+              && request.resource.data.count is int
+              && request.resource.data.count >= 1
+              && request.resource.data.count <= 5
+              && (!('isExtra' in request.resource.data)
+                || request.resource.data.isExtra == false
+                || (request.resource.data.isExtra == true
+                  && request.resource.data.count == 1
+                  && request.resource.data.guestName is string
+                  && request.resource.data.guestName.size() >= 2
+                  && request.resource.data.guestName.size() <= 80
+                  && request.resource.data.relationship is string
+                  && request.resource.data.relationship.size() >= 2
+                  && request.resource.data.relationship.size() <= 40))
+          );
           allow update: if false;
           allow delete: if isAdmin() && eventWillBeOpen();
         }

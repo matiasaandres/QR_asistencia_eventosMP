@@ -1,7 +1,8 @@
 import React, { useMemo, useState } from 'react';
-import { CheckCircle2, ExternalLink, LogOut, Plus, ShieldCheck, XCircle } from 'lucide-react';
+import { CheckCircle2, Download, ExternalLink, LogOut, Plus, ShieldCheck, Upload, XCircle } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import OrganizationLogo from './OrganizationLogo.jsx';
+import { downloadSchoolBackup, restoreSchoolBackup } from '../services/schoolBackup.js';
 
 const PLAN_LABELS = { pilot: 'Piloto', event: 'Por evento', monthly: 'Mensual', annual: 'Anual' };
 
@@ -17,6 +18,8 @@ export default function MasterDashboard({ organizations, user, onCreate, onAssig
   const [assigningSchool, setAssigningSchool] = useState('');
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const [backingUpSchool, setBackingUpSchool] = useState('');
+  const [restoringSchool, setRestoringSchool] = useState('');
 
   const totals = useMemo(() => ({
     all: organizations.length,
@@ -111,6 +114,43 @@ export default function MasterDashboard({ organizations, user, onCreate, onAssig
     }
   };
 
+  const handleBackup = async (organization) => {
+    setError('');
+    setMessage('');
+    setBackingUpSchool(organization.id);
+    try {
+      const summary = await downloadSchoolBackup(organization.id);
+      setMessage(`Respaldo de “${organization.name}” descargado: ${summary.events} eventos, ${summary.students} alumnos y ${summary.logs} registros.`);
+    } catch (backupError) {
+      setError(backupError.message || 'No fue posible descargar el respaldo de la escuela.');
+    } finally {
+      setBackingUpSchool('');
+    }
+  };
+
+  const handleBackupRestore = async (event, organization) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    setError('');
+    setMessage('');
+    if (file.size > 25 * 1024 * 1024) {
+      setError('El respaldo supera el máximo permitido de 25 MB.');
+      return;
+    }
+    if (!confirm(`¿Restaurar el respaldo de “${organization.name}”? Se reemplazarán sus eventos, alumnos, cupos y bitácoras. Las cuentas y permisos actuales se conservarán.`)) return;
+    setRestoringSchool(organization.id);
+    try {
+      const backup = JSON.parse(await file.text());
+      const summary = await restoreSchoolBackup(organization.id, backup);
+      setMessage(`Respaldo de “${organization.name}” restaurado: ${summary.events} eventos, ${summary.students} alumnos y ${summary.logs} registros.`);
+    } catch (restoreError) {
+      setError(restoreError instanceof SyntaxError ? 'El archivo no contiene un JSON válido.' : (restoreError.message || 'No fue posible restaurar el respaldo.'));
+    } finally {
+      setRestoringSchool('');
+    }
+  };
+
   return (
     <main className="min-h-screen bg-slate-100">
       <header className="border-b border-slate-800 bg-slate-950 text-white">
@@ -153,6 +193,8 @@ export default function MasterDashboard({ organizations, user, onCreate, onAssig
                   <span className={`inline-flex w-fit items-center gap-1 rounded-full px-2.5 py-1 text-xs font-bold ${organization.status === 'active' ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'}`}>{organization.status === 'active' ? <CheckCircle2 className="h-3.5 w-3.5" /> : <XCircle className="h-3.5 w-3.5" />}{organization.status === 'active' ? 'Activa' : 'Suspendida'}</span>
                   <div className="flex flex-wrap gap-2">
                   <button type="button" onClick={() => onOpenSchool(organization.id)} className="inline-flex items-center gap-1 rounded-lg bg-sky-600 px-3 py-2 text-xs font-bold text-white"><ExternalLink className="h-3.5 w-3.5" /> Abrir gestión</button>
+                  <button type="button" disabled={Boolean(backingUpSchool)} onClick={() => handleBackup(organization)} className="inline-flex items-center gap-1 rounded-lg bg-emerald-100 px-3 py-2 text-xs font-bold text-emerald-900 disabled:cursor-wait disabled:opacity-60"><Download className="h-3.5 w-3.5" /> {backingUpSchool === organization.id ? 'Preparando…' : 'Descargar respaldo'}</button>
+                  <label className={`inline-flex items-center gap-1 rounded-lg bg-violet-100 px-3 py-2 text-xs font-bold text-violet-900 ${restoringSchool ? 'cursor-wait opacity-60' : 'cursor-pointer'}`}><Upload className="h-3.5 w-3.5" /> {restoringSchool === organization.id ? 'Restaurando…' : 'Subir respaldo'}<input type="file" accept="application/json,.json" className="sr-only" disabled={Boolean(restoringSchool)} onChange={(event) => handleBackupRestore(event, organization)} /></label>
                   {organization.id === 'colegio-mundopalabra' && <button type="button" disabled={Boolean(migratingSchool)} onClick={() => handleMigration(organization)} className="rounded-lg bg-amber-100 px-3 py-2 text-xs font-bold text-amber-900 disabled:opacity-60">{migratingSchool === organization.id ? 'Recuperando…' : 'Recuperar alumnos anteriores'}</button>}
                   {organization.id === 'colegio-mundopalabra' && <label className="cursor-pointer rounded-lg bg-emerald-100 px-3 py-2 text-xs font-bold text-emerald-900">Importar respaldo completo<input type="file" accept=".xlsx" className="sr-only" disabled={Boolean(migratingSchool)} onChange={(event) => handleReportImport(event, organization)} /></label>}
                   {organization.id === 'colegio-mundopalabra' && <button type="button" disabled={Boolean(migratingSchool)} onClick={() => handleStudentStateRestore(organization)} className="rounded-lg bg-violet-100 px-3 py-2 text-xs font-bold text-violet-900 disabled:opacity-60">Restaurar eliminados y deshabilitados</button>}

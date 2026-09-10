@@ -16,13 +16,17 @@ import {
   AlertTriangle,
   ImagePlus,
   Palette,
-  Trash2
+  Trash2,
+  Download,
+  DatabaseBackup,
+  Upload
 } from 'lucide-react';
 import {
   getSavedFirebaseConfig, 
   saveFirebaseConfig, 
   resetFirebase 
 } from '../services/firebase';
+import { downloadSchoolBackup, restoreSchoolBackup } from '../services/schoolBackup';
 
 function optimizeLogo(file) {
   return new Promise((resolve, reject) => {
@@ -77,6 +81,9 @@ export default function SettingsModal({
   const [fbStatus, setFbStatus] = useState(null);
   const [isResetting, setIsResetting] = useState(false);
   const [isSavingGeneral, setIsSavingGeneral] = useState(false);
+  const [isDownloadingBackup, setIsDownloadingBackup] = useState(false);
+  const [isRestoringBackup, setIsRestoringBackup] = useState(false);
+  const [backupMessage, setBackupMessage] = useState('');
 
   useEffect(() => {
     if (isOpen) {
@@ -202,6 +209,41 @@ export default function SettingsModal({
       } finally {
         setIsResetting(false);
       }
+    }
+  };
+
+  const handleDownloadBackup = async () => {
+    setIsDownloadingBackup(true);
+    setBackupMessage('');
+    try {
+      const summary = await downloadSchoolBackup(organization?.id);
+      setBackupMessage(`Respaldo descargado: ${summary.events} eventos, ${summary.students} alumnos y ${summary.logs} registros.`);
+    } catch (error) {
+      setBackupMessage(error.message || 'No fue posible descargar el respaldo.');
+    } finally {
+      setIsDownloadingBackup(false);
+    }
+  };
+
+  const handleRestoreBackup = async (changeEvent) => {
+    const file = changeEvent.target.files?.[0];
+    changeEvent.target.value = '';
+    if (!file) return;
+    if (file.size > 25 * 1024 * 1024) {
+      setBackupMessage('El respaldo supera el máximo permitido de 25 MB.');
+      return;
+    }
+    if (!confirm('¿Restaurar este respaldo? Se reemplazarán eventos, alumnos, cupos y bitácoras de esta escuela. Las cuentas y permisos actuales se conservarán.')) return;
+    setIsRestoringBackup(true);
+    setBackupMessage('');
+    try {
+      const backup = JSON.parse(await file.text());
+      const summary = await restoreSchoolBackup(organization?.id, backup);
+      setBackupMessage(`Restauración completada: ${summary.events} eventos, ${summary.students} alumnos y ${summary.logs} registros.`);
+    } catch (error) {
+      setBackupMessage(error instanceof SyntaxError ? 'El archivo no contiene un JSON válido.' : (error.message || 'No fue posible restaurar el respaldo.'));
+    } finally {
+      setIsRestoringBackup(false);
     }
   };
 
@@ -406,7 +448,28 @@ export default function SettingsModal({
             </div>
           </div>}
 
-          {/* Section 3: Data Reset */}
+          {/* Section 3: School backup */}
+          <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
+            <div className="flex items-start gap-3">
+              <span className="rounded-xl bg-emerald-100 p-2 text-emerald-700"><DatabaseBackup className="h-5 w-5" /></span>
+              <div className="flex-1">
+                <h3 className="text-sm font-extrabold text-emerald-950">Respaldo de la escuela</h3>
+                <p className="mt-1 text-[11px] leading-relaxed text-emerald-800">Descarga un archivo JSON con la configuración institucional, miembros, eventos, alumnos, familias, cupos y bitácoras. Cada archivo incluye verificación de integridad SHA-256.</p>
+                <button type="button" onClick={handleDownloadBackup} disabled={isDownloadingBackup} className="mt-3 inline-flex items-center gap-1.5 rounded-xl bg-emerald-700 px-4 py-2.5 text-xs font-extrabold text-white hover:bg-emerald-600 disabled:cursor-wait disabled:opacity-60">
+                  <Download className="h-4 w-4" />
+                  {isDownloadingBackup ? 'Preparando respaldo…' : 'Descargar respaldo completo'}
+                </button>
+                <label className={`ml-2 mt-3 inline-flex items-center gap-1.5 rounded-xl border border-emerald-300 bg-white px-4 py-2.5 text-xs font-extrabold text-emerald-800 hover:bg-emerald-100 ${isRestoringBackup ? 'cursor-wait opacity-60' : 'cursor-pointer'}`}>
+                  <Upload className="h-4 w-4" />
+                  {isRestoringBackup ? 'Restaurando…' : 'Subir y restaurar respaldo'}
+                  <input type="file" accept="application/json,.json" disabled={isRestoringBackup} onChange={handleRestoreBackup} className="sr-only" />
+                </label>
+                {backupMessage && <p role="status" className="mt-2 text-[11px] font-semibold text-emerald-900">{backupMessage}</p>}
+              </div>
+            </div>
+          </div>
+
+          {/* Section 4: Data Reset */}
           <div className="space-y-2 border-t border-slate-200 pt-4">
             <h4 className="font-bold text-slate-800 flex items-center gap-1.5">
               <RotateCcw className="w-3.5 h-3.5 text-amber-600" />

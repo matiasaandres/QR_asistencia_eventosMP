@@ -42,6 +42,7 @@ const organizationsService = await readFile(
   new URL('../src/services/organizations.js', import.meta.url),
   'utf8'
 );
+const membersManager = await readFile(new URL('../src/components/MembersManager.jsx', import.meta.url), 'utf8');
 const settingsModal = await readFile(new URL('../src/components/SettingsModal.jsx', import.meta.url), 'utf8');
 const app = await readFile(new URL('../src/App.jsx', import.meta.url), 'utf8');
 
@@ -162,4 +163,14 @@ test('cada escuela puede aplicar su logo e identidad en la app y los informes', 
   assert.match(organizationsService, /updateOrganizationBrand/);
   assert.match(app, /organization=\{organization\}/);
   assert.match(dashboard, /OrganizationLogo/);
+});
+
+test('la sección de seguridad explica detalladamente cada rol', () => {
+  assert.match(membersManager, /Guía detallada de permisos/);
+  assert.match(membersManager, /Gestión completa de la escuela/);
+  assert.match(membersManager, /Registro de ingresos durante el evento/);
+  assert.match(membersManager, /Seguimiento sin capacidad de modificación/);
+  assert.match(membersManager, /Comparación rápida de permisos/);
+  assert.match(membersManager, /Buenas prácticas de seguridad/);
+  assert.match(membersManager, /PERMISSION_MATRIX/);
 });

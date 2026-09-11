@@ -1,102 +1,88 @@
-import * as XLSX from 'xlsx';
 import { getCapacityState } from './checkinPolicy';
+import { createExcelDownload } from './spreadsheet.js';
 
-export function exportToExcel({ event, students, logs, organization }) {
-  const wb = XLSX.utils.book_new();
+export async function exportToExcel({ event, students, logs, organization }) {
+  const overviewRows = [
+    { Campo: 'Escuela', Valor: organization?.name || event?.institution || 'Acceso Escolar' },
+    { Campo: 'Evento', Valor: event?.name || 'Evento' },
+    { Campo: 'Fecha del evento', Valor: event?.date || '' },
+    { Campo: 'Generado', Valor: new Date().toLocaleString('es-CL') }
+  ];
 
-  const wsOverview = XLSX.utils.aoa_to_sheet([
-    ['Escuela', organization?.name || event?.institution || 'Acceso Escolar'],
-    ['Evento', event?.name || 'Evento'],
-    ['Fecha del evento', event?.date || ''],
-    ['Generado', new Date().toLocaleString('es-CL')]
-  ]);
-  XLSX.utils.book_append_sheet(wb, wsOverview, 'Información');
-
-  // 1. Resumen por Estudiante
-  const studentsData = students.map((s) => {
-    const capacity = getCapacityState(s);
-    const maxCapacity = capacity.maxCapacity;
-    const enteredCount = capacity.enteredCount;
-    const hasExtraGuest = capacity.hasExtraGuest;
-
+  const studentsData = students.map((student) => {
+    const capacity = getCapacityState(student);
     return {
-      "Código": s.id,
-      "Estudiante": s.name,
-      "Curso": s.course,
-      "Capacidad Autorizada": maxCapacity,
-      "Personas Ingresadas": enteredCount,
-      "Personas Actualmente Dentro": capacity.insideCount,
-      "Cupos Restantes": Math.max(0, maxCapacity - enteredCount),
-      "Estado Acceso": capacity.isDisabled
-        ? "DESHABILITADO"
-        : hasExtraGuest
-        ? "CUPO EXTRA"
-        : enteredCount >= maxCapacity
-          ? "COMPLETO"
-          : enteredCount > 0
-            ? "PARCIAL"
-            : "PENDIENTE",
-      "Cupo Extraordinario": hasExtraGuest ? 'Sí' : 'No',
-      "Nombre Persona Extra": s.extraGuest?.name || '',
-      "Parentesco Persona Extra": s.extraGuest?.relationship || '',
-      "Último Registro": s.lastEntryAt ? new Date(s.lastEntryAt).toLocaleString('es-CL') : 'Sin ingresos'
+      'Código': student.id,
+      'Estudiante': student.name,
+      'Curso': student.course,
+      'Capacidad Autorizada': capacity.maxCapacity,
+      'Personas Ingresadas': capacity.enteredCount,
+      'Personas Actualmente Dentro': capacity.insideCount,
+      'Cupos Restantes': Math.max(0, capacity.maxCapacity - capacity.enteredCount),
+      'Estado Acceso': capacity.isDisabled
+        ? 'DESHABILITADO'
+        : capacity.hasExtraGuest
+          ? 'CUPO EXTRA'
+          : capacity.enteredCount >= capacity.maxCapacity
+            ? 'COMPLETO'
+            : capacity.enteredCount > 0 ? 'PARCIAL' : 'PENDIENTE',
+      'Cupo Extraordinario': capacity.hasExtraGuest ? 'Sí' : 'No',
+      'Nombre Persona Extra': student.extraGuest?.name || '',
+      'Parentesco Persona Extra': student.extraGuest?.relationship || '',
+      'Último Registro': student.lastEntryAt ? new Date(student.lastEntryAt).toLocaleString('es-CL') : 'Sin ingresos'
     };
   });
-  const wsStudents = XLSX.utils.json_to_sheet(studentsData);
-  XLSX.utils.book_append_sheet(wb, wsStudents, "Resumen Estudiantes");
 
-  // 2. Bitácora Detallada de Ingresos (Logs)
-  const logsData = logs.map((l) => ({
-    "Fecha": l.formattedDate || '',
-    "Hora": l.formattedTime || '',
-    "Estudiante": l.studentName || '',
-    "Curso": l.course || '',
-    "Código": l.studentId || '',
-    "Tipo de Movimiento": l.movementType === 'EXIT' ? 'Salida' : l.movementType === 'REENTRY' ? 'Reingreso' : 'Ingreso',
-    "Personas en este Movimiento": l.count || 0,
-    "Total Acumulado": l.accumulated || 0,
-    "Personas Dentro Después": l.insideAfter ?? l.accumulated ?? 0,
-    "Punto / Puerta": l.doorName || 'Acceso Principal',
-    "Cupo Extraordinario": l.isExtra ? 'Sí' : 'No',
-    "Nombre Persona Extra": l.guestName || '',
-    "Parentesco": l.relationship || ''
+  const logsData = logs.map((log) => ({
+    'Fecha': log.formattedDate || '',
+    'Hora': log.formattedTime || '',
+    'Estudiante': log.studentName || '',
+    'Curso': log.course || '',
+    'Código': log.studentId || '',
+    'Tipo de Movimiento': log.movementType === 'EXIT' ? 'Salida' : log.movementType === 'REENTRY' ? 'Reingreso' : 'Ingreso',
+    'Personas en este Movimiento': log.count || 0,
+    'Total Acumulado': log.accumulated || 0,
+    'Personas Dentro Después': log.insideAfter ?? log.accumulated ?? 0,
+    'Punto / Puerta': log.doorName || 'Acceso Principal',
+    'Cupo Extraordinario': log.isExtra ? 'Sí' : 'No',
+    'Nombre Persona Extra': log.guestName || '',
+    'Parentesco': log.relationship || ''
   }));
-  const wsLogs = XLSX.utils.json_to_sheet(logsData);
-  XLSX.utils.book_append_sheet(wb, wsLogs, "Bitácora de Movimientos");
 
-  // 3. Estadísticas por Curso
   const courseStats = {};
-  students.filter((student) => !getCapacityState(student).isAccessBlocked).forEach((s) => {
-    const course = s.course || 'Sin Curso';
+  students.filter((student) => !getCapacityState(student).isAccessBlocked).forEach((student) => {
+    const course = student.course || 'Sin Curso';
     if (!courseStats[course]) {
       courseStats[course] = {
-        "Curso": course,
-        "Total Estudiantes": 0,
-        "Familias que Asistieron": 0,
-        "Familias Pendientes": 0,
-        "Total Personas Ingresadas": 0
+        'Curso': course,
+        'Total Estudiantes': 0,
+        'Familias que Asistieron': 0,
+        'Familias Pendientes': 0,
+        'Total Personas Ingresadas': 0
       };
     }
-    courseStats[course]["Total Estudiantes"] += 1;
-    if ((s.enteredCount || 0) > 0) {
-      courseStats[course]["Familias que Asistieron"] += 1;
-      courseStats[course]["Total Personas Ingresadas"] += s.enteredCount;
-    } else {
-      courseStats[course]["Familias Pendientes"] += 1;
-    }
+    const row = courseStats[course];
+    row['Total Estudiantes'] += 1;
+    if ((student.enteredCount || 0) > 0) {
+      row['Familias que Asistieron'] += 1;
+      row['Total Personas Ingresadas'] += student.enteredCount;
+    } else row['Familias Pendientes'] += 1;
   });
 
   const courseRows = Object.values(courseStats).map((stat) => ({
     ...stat,
-    "% Asistencia Familiar": ((stat["Familias que Asistieron"] / stat["Total Estudiantes"]) * 100).toFixed(1) + "%"
+    '% Asistencia Familiar': `${((stat['Familias que Asistieron'] / stat['Total Estudiantes']) * 100).toFixed(1)}%`
   }));
-  const wsCourses = XLSX.utils.json_to_sheet(courseRows);
-  XLSX.utils.book_append_sheet(wb, wsCourses, "Estadísticas por Curso");
-
-  // Generate file name with event and date
   const cleanEventName = (event?.name || 'Acceso_Escolar').replace(/[^a-zA-Z0-9_-]/g, '_');
   const dateStr = new Date().toISOString().slice(0, 10);
-  const fileName = `Reporte_${cleanEventName}_${dateStr}.xlsx`;
 
-  XLSX.writeFile(wb, fileName);
+  await createExcelDownload({
+    fileName: `Reporte_${cleanEventName}_${dateStr}.xlsx`,
+    sheets: [
+      { name: 'Información', rows: overviewRows },
+      { name: 'Resumen Estudiantes', rows: studentsData },
+      { name: 'Bitácora de Movimientos', rows: logsData },
+      { name: 'Estadísticas por Curso', rows: courseRows }
+    ]
+  });
 }

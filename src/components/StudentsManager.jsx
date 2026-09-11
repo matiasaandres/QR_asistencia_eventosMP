@@ -1,5 +1,4 @@
 import React, { useState } from 'react';
-import * as XLSX from 'xlsx';
 import { 
   Users, 
   UserPlus, 
@@ -21,6 +20,7 @@ import {
 import { getCapacityState, normalizeCapacityValue } from '../services/checkinPolicy';
 import { createStudentCodeGenerator } from '../services/studentCodes';
 import { createFamilyCodeGenerator } from '../services/familyPolicy';
+import { readSpreadsheet, SPREADSHEET_LIMITS } from '../services/spreadsheet';
 
 const BULK_IMPORT_TEMPLATE_PATH = '/Plantilla_Carga_Masiva_MundoPalabra.xlsx';
 const NEW_FAMILY_VALUE = '__NEW_FAMILY__';
@@ -282,18 +282,14 @@ export default function StudentsManager({
     }
   };
 
-  const handleFileUpload = (e) => {
+  const handleFileUpload = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    const reader = new FileReader();
-    reader.onload = (evt) => {
-      try {
-        const data = evt.target.result;
-        const workbook = XLSX.read(data, { type: 'binary' });
-        const sheetName = workbook.SheetNames[0];
-        const sheet = workbook.Sheets[sheetName];
-        const importRows = XLSX.utils.sheet_to_json(sheet);
+    setIsSaving(true);
+    try {
+        const sheets = await readSpreadsheet(file);
+        const importRows = Object.values(sheets)[0] || [];
 
         if (importRows.length === 0) {
           alert("El archivo no contiene estudiantes para importar. Completa al menos una fila.");
@@ -334,15 +330,15 @@ export default function StudentsManager({
         });
 
         const updatedList = Array.from(existingMap.values());
-        onSaveStudents(updatedList);
+        await onSaveStudents(updatedList);
         setImportStatus(`¡Se importaron con éxito ${newEntries.length} estudiantes desde el archivo!`);
         setTimeout(() => setImportStatus(null), 4000);
-      } catch (err) {
-        console.error(err);
-        alert("Error al leer el archivo Excel/CSV: " + err.message);
-      }
-    };
-    reader.readAsBinaryString(file);
+    } catch (err) {
+      console.error(err);
+      alert("Error al leer el archivo Excel/CSV: " + err.message);
+    } finally {
+      setIsSaving(false);
+    }
     e.target.value = '';
   };
 
@@ -377,11 +373,14 @@ export default function StudentsManager({
             <span>Importar Excel / CSV</span>
             <input
               type="file"
-              accept=".xlsx,.xls,.csv"
+              accept=".xlsx,.csv"
               onChange={handleFileUpload}
               className="hidden"
             />
           </label>
+          <span className="text-[10px] font-semibold text-slate-500">
+            Máx. {Math.round(SPREADSHEET_LIMITS.maxBytes / 1024 / 1024)} MB · {SPREADSHEET_LIMITS.maxRows.toLocaleString('es-CL')} filas
+          </span>
 
           {/* Add Student Button */}
           <button

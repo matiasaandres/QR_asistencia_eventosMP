@@ -221,6 +221,37 @@ service cloud.firestore {
           allow delete: if false;
         }
 
+        match /analytics/{analyticsId} {
+          function validMetric(data) {
+            return data.keys().hasOnly(['kind', 'key', 'label', 'people', 'records', 'updatedAt'])
+              && data.kind in ['door', 'hour']
+              && data.key is string
+              && data.key.size() >= 1
+              && data.key.size() <= 120
+              && data.label is string
+              && data.label.size() >= 1
+              && data.label.size() <= 120
+              && data.people is int
+              && data.people >= 0
+              && data.records is int
+              && data.records >= 0;
+          }
+
+          function validMeta(data) {
+            return analyticsId == 'meta'
+              && data.keys().hasOnly(['version', 'sourceLogCount', 'rebuiltAt'])
+              && data.version is int
+              && data.sourceLogCount is int
+              && data.sourceLogCount >= 0
+              && data.rebuiltAt is string;
+          }
+
+          allow read: if isMember();
+          allow create, update: if (canOperate() && analyticsId != 'meta' && validMetric(request.resource.data))
+            || (canOperate() && validMeta(request.resource.data));
+          allow delete: if isAdmin();
+        }
+
         match /families/{familyId} {
           function validFamily(data) {
             return data.keys().hasOnly([

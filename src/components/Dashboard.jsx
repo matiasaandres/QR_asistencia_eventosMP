@@ -49,7 +49,7 @@ function MetricCard({ label, value, detail, icon: Icon, tone = 'sky', progress }
   );
 }
 
-export default function Dashboard({ event, students, logs, organization }) {
+export default function Dashboard({ event, students, logs, analytics, organization, onFetchAllLogs }) {
   const [reportBusy, setReportBusy] = useState(false);
   const [reportError, setReportError] = useState('');
   const handleDownloadReport = async () => {
@@ -58,7 +58,8 @@ export default function Dashboard({ event, students, logs, organization }) {
     setReportError('');
     try {
       const { downloadManagementReport } = await import('../services/managementReport.js');
-      await downloadManagementReport({ event, students, logs, organization });
+      const completeLogs = onFetchAllLogs ? await onFetchAllLogs() : logs;
+      await downloadManagementReport({ event, students, logs: completeLogs, organization });
     } catch (error) {
       console.error('No se pudo generar el informe PDF', error);
       setReportError('No se pudo generar el informe PDF. Intenta descargarlo nuevamente.');
@@ -120,6 +121,8 @@ export default function Dashboard({ event, students, logs, organization }) {
       hourMap[key].records += 1;
     });
 
+    const recentDoors = Object.values(doorMap).sort((a, b) => b.people - a.people);
+    const recentHours = Object.values(hourMap).sort((a, b) => a.key.localeCompare(b.key)).slice(-8);
     return {
       totalStudents,
       totalFamilies,
@@ -135,10 +138,11 @@ export default function Dashboard({ event, students, logs, organization }) {
       averageGroup: familiesEntered > 0 ? (totalPeopleEntered / familiesEntered).toFixed(1) : '0.0',
       extraGuests: activeStudents.filter((student) => student.extraGuest).length,
       coursesList: Object.values(courseMap).sort((a, b) => a.name.localeCompare(b.name, 'es', { numeric: true })),
-      doorsList: Object.values(doorMap).sort((a, b) => b.people - a.people),
-      activityByHour: Object.values(hourMap).sort((a, b) => a.key.localeCompare(b.key)).slice(-8)
+      totalRecords: analytics?.ready ? analytics.totalRecords : logs.length,
+      doorsList: analytics?.ready ? analytics.doorsList : recentDoors,
+      activityByHour: analytics?.ready ? analytics.activityByHour : recentHours
     };
-  }, [students, logs]);
+  }, [students, logs, analytics]);
 
   const peakHourlyPeople = Math.max(1, ...stats.activityByHour.map((hour) => hour.people));
   const peakDoorPeople = Math.max(1, ...stats.doorsList.map((door) => door.people));
@@ -166,7 +170,7 @@ export default function Dashboard({ event, students, logs, organization }) {
               <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-300/30 bg-emerald-400/15 px-3 py-1 text-[11px] font-extrabold uppercase tracking-wider text-emerald-200">
                 <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-400" /> Datos en vivo
               </span>
-              <span className="rounded-full border border-white/15 bg-white/10 px-3 py-1 text-[11px] font-bold text-sky-100">{logs.length} movimientos</span>
+              <span className="rounded-full border border-white/15 bg-white/10 px-3 py-1 text-[11px] font-bold text-sky-100">{stats.totalRecords} movimientos</span>
             </div>
             <p className="mt-3 text-xs font-extrabold uppercase tracking-[0.18em] text-white/55">{organization?.name || event?.institution || 'Acceso Escolar'}</p>
             <h1 className="mt-1 truncate text-2xl font-black tracking-tight sm:text-4xl">{event?.name || 'Control de Acceso'}</h1>

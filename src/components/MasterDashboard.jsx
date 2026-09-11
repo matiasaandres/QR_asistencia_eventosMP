@@ -1,8 +1,8 @@
 import React, { useMemo, useState } from 'react';
 import { CheckCircle2, Download, ExternalLink, LogOut, Plus, ShieldCheck, Upload, XCircle } from 'lucide-react';
-import * as XLSX from 'xlsx';
 import OrganizationLogo from './OrganizationLogo.jsx';
 import { downloadSchoolBackup, restoreSchoolBackup } from '../services/schoolBackup.js';
+import { readSpreadsheet } from '../services/spreadsheet.js';
 
 const PLAN_LABELS = { pilot: 'Piloto', event: 'Por evento', monthly: 'Mensual', annual: 'Anual' };
 
@@ -68,12 +68,11 @@ export default function MasterDashboard({ organizations, user, onCreate, onAssig
     setMessage('');
     setMigratingSchool(organization.id);
     try {
-      const workbook = XLSX.read(await file.arrayBuffer(), { type: 'array' });
-      const studentSheet = workbook.Sheets['Resumen Estudiantes'];
-      const logSheet = workbook.Sheets['Bitácora de Ingresos'];
-      if (!studentSheet || !logSheet) throw new Error('El archivo no es un respaldo completo de Mundo Palabra.');
-      const studentRows = XLSX.utils.sheet_to_json(studentSheet, { defval: '', raw: false });
-      const logRows = XLSX.utils.sheet_to_json(logSheet, { defval: '', raw: false });
+      const sheets = await readSpreadsheet(file, {
+        sheetNames: ['Resumen Estudiantes', 'Bitácora de Ingresos']
+      });
+      const studentRows = sheets['Resumen Estudiantes'];
+      const logRows = sheets['Bitácora de Ingresos'];
       const result = await onImportReport({ organizationId: organization.id, studentRows, logRows });
       setMessage(`Respaldo completo aplicado: ${result.students} alumnos, ${result.logs} ingresos y ${result.people} personas. Se reemplazaron ${result.replacedLogs} registros anteriores.`);
     } catch (importError) {

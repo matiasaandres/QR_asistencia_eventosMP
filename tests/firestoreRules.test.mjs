@@ -81,3 +81,12 @@ test('protege establecimientos y asignaciones de asientos por evento', () => {
   assert.match(rules, /data\.eventId == eventId/);
   assert.match(rules, /data\.assignments is map/);
 });
+
+test('protege los agregados incrementales del historial', () => {
+  assert.match(rules, /match \/analytics\/\{analyticsId\}/);
+  assert.match(rules, /data\.kind in \['door', 'hour'\]/);
+  assert.match(rules, /data\.people >= 0/);
+  assert.match(rules, /data\.records >= 0/);
+  assert.match(rules, /canOperate\(\) && analyticsId != 'meta'/);
+  assert.match(rules, /canOperate\(\) && validMeta/);
+});

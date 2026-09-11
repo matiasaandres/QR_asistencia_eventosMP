@@ -8,7 +8,8 @@ import {
   User, 
   Users,
   FileSpreadsheet,
-  Trash2
+  Trash2,
+  Loader2
 } from 'lucide-react';
 import { exportToExcel } from '../services/export';
 
@@ -17,11 +18,31 @@ export default function HistoryLog({
   event, 
   students,
   organization,
-  onDeleteLog
+  onDeleteLog,
+  hasMore = false,
+  loadingMore = false,
+  onLoadMore,
+  onFetchAllLogs
 }) {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedDoor, setSelectedDoor] = useState('ALL');
   const [deletingLogId, setDeletingLogId] = useState(null);
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState('');
+
+  const handleExport = async () => {
+    if (exporting) return;
+    setExporting(true);
+    setExportError('');
+    try {
+      const completeLogs = onFetchAllLogs ? await onFetchAllLogs() : logs;
+      await exportToExcel({ event, students, logs: completeLogs, organization });
+    } catch (error) {
+      setExportError(error.message || 'No fue posible generar la planilla.');
+    } finally {
+      setExporting(false);
+    }
+  };
 
   const handleDeleteLog = async (log) => {
     if (!onDeleteLog) return;
@@ -73,13 +94,15 @@ export default function HistoryLog({
         </div>
 
         <button
-          onClick={() => exportToExcel({ event, students, logs, organization })}
+          onClick={handleExport}
+          disabled={exporting}
           className="flex items-center justify-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-sm transition-colors"
         >
-          <FileSpreadsheet className="w-4 h-4" />
-          <span>Exportar a Excel</span>
+          {exporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileSpreadsheet className="w-4 h-4" />}
+          <span>{exporting ? 'Preparando historial…' : 'Exportar historial completo'}</span>
         </button>
       </div>
+      {exportError && <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm font-semibold text-rose-700">{exportError}</p>}
 
       {/* Filter and Search */}
       <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-200 flex flex-col sm:flex-row gap-3">
@@ -182,6 +205,19 @@ export default function HistoryLog({
               )}
             </tbody>
           </table>
+        </div>
+        <div className="flex flex-col items-center gap-2 border-t border-slate-100 p-4">
+          <p className="text-xs font-semibold text-slate-500">{logs.length.toLocaleString('es-CL')} movimientos cargados</p>
+          {hasMore && onLoadMore && <button
+            type="button"
+            onClick={onLoadMore}
+            disabled={loadingMore}
+            className="inline-flex items-center gap-2 rounded-xl bg-sky-50 px-4 py-2 text-xs font-extrabold text-sky-800 hover:bg-sky-100 disabled:cursor-wait disabled:opacity-60"
+          >
+            {loadingMore && <Loader2 className="h-4 w-4 animate-spin" />}
+            {loadingMore ? 'Cargando…' : 'Cargar 50 movimientos anteriores'}
+          </button>}
+          {!hasMore && logs.length > 0 && <span className="text-[11px] font-semibold text-emerald-700">Historial completo cargado</span>}
         </div>
       </div>
     </div>

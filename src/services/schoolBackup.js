@@ -1,6 +1,7 @@
 import { collection, doc, getDoc, getDocs, setDoc, writeBatch } from 'firebase/firestore';
 import { initFirebase } from './firebase.js';
 import { deriveFamilyRecords } from './familyPolicy.js';
+import { buildAnalyticsDocuments, LOG_ANALYTICS_VERSION } from './logAnalytics.js';
 
 function serializeValue(value) {
   if (value == null || typeof value !== 'object') return value;
@@ -225,11 +226,12 @@ export async function restoreSchoolBackup(organizationId, rawBackup) {
   for (const event of backup.events) {
     const eventRef = doc(organizationRef, 'events', event.id);
     await setDoc(eventRef, { ...restoredEventData(event), archived: false, studentsInitialized: true }, { merge: true });
-    const [currentStudents, currentFamilies, currentLogs, currentFamilyHistory] = await Promise.all([
+    const [currentStudents, currentFamilies, currentLogs, currentFamilyHistory, currentAnalytics] = await Promise.all([
       getDocs(collection(eventRef, 'students')),
       getDocs(collection(eventRef, 'families')),
       getDocs(collection(eventRef, 'logs')),
-      getDocs(collection(eventRef, 'familyHistory'))
+      getDocs(collection(eventRef, 'familyHistory')),
+      getDocs(collection(eventRef, 'analytics'))
     ]);
     const restoredFamilies = event.families || deriveFamilyRecords(event.students || []);
     await commitOperations(db, currentFamilies.docs
@@ -257,6 +259,19 @@ export async function restoreSchoolBackup(organizationId, rawBackup) {
       const { id, ...data } = log;
       batch.set(doc(eventRef, 'logs', id), data);
     }));
+    await commitOperations(db, currentAnalytics.docs.map((item) => (batch) => batch.delete(item.ref)));
+    const analyticsDocuments = buildAnalyticsDocuments(event.logs);
+    await commitOperations(db, [
+      ...analyticsDocuments.map((item) => (batch) => batch.set(doc(eventRef, 'analytics', item.id), {
+        ...item,
+        updatedAt: new Date().toISOString()
+      })),
+      (batch) => batch.set(doc(eventRef, 'analytics', 'meta'), {
+        version: LOG_ANALYTICS_VERSION,
+        sourceLogCount: event.logs.length,
+        rebuiltAt: new Date().toISOString()
+      })
+    ]);
     await commitOperations(db, currentFamilyHistory.docs.map((item) => (batch) => batch.delete(item.ref)));
     await commitOperations(db, (event.familyHistory || []).map((item) => (batch) => {
       const { id, ...data } = item;

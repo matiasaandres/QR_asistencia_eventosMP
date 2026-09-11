@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Navbar from './components/Navbar';
 import ScannerModal from './components/ScannerModal';
 import CheckinPanel from './components/CheckinPanel';
@@ -39,7 +39,8 @@ import {
   archiveEvent, getCurrentDoor, setCurrentDoor, subscribeToStudents, subscribeToLogs,
   deleteLogEntry, registerCheckIn, saveStudentsList, saveStudentCapacities, saveStudentFamily, deleteStudents,
   resetEventData, migrateLegacyFamilies, subscribeToDoorSessions, registerDoorPresence,
-  mergeFamilies, separateFamilyMember, subscribeToFamilyHistory
+  mergeFamilies, separateFamilyMember, subscribeToFamilyHistory, fetchAllLogs, fetchLogPage,
+  subscribeToEventAnalytics, ensureEventAnalytics
 } from './services/storage';
 import { saveSeatPlan, saveVenue, subscribeToSeatPlan, subscribeToVenues } from './services/seating';
 
@@ -61,6 +62,10 @@ export default function App() {
   const [currentDoor, setCurrentDoorState] = useState('Acceso Principal');
   const [students, setStudents] = useState([]);
   const [logs, setLogs] = useState([]);
+  const [logAnalytics, setLogAnalytics] = useState({ totalRecords: 0, doorsList: [], activityByHour: [] });
+  const [hasMoreLogs, setHasMoreLogs] = useState(false);
+  const [loadingMoreLogs, setLoadingMoreLogs] = useState(false);
+  const allLogsLoadedRef = useRef(false);
   const [doorSessions, setDoorSessions] = useState([]);
   const [familyHistory, setFamilyHistory] = useState([]);
   const [venues, setVenues] = useState([]);
@@ -119,6 +124,8 @@ export default function App() {
     setEvent(null);
     setStudents([]);
     setLogs([]);
+    setHasMoreLogs(false);
+    allLogsLoadedRef.current = false;
     setCurrentDoorState(getCurrentDoor(organizationId));
     return subscribeToEvents(organizationId, (nextEvents, mode) => {
       setEvents(nextEvents);
@@ -187,11 +194,32 @@ export default function App() {
 
   useEffect(() => {
     if (!organization || !event || (!membership && !isMaster)) return undefined;
-    return subscribeToLogs(organization.id, event.id, (data, mode) => {
-      setLogs(data);
+    return subscribeToLogs(organization.id, event.id, (data, mode, hasMore) => {
+      setLogs((current) => {
+        const ids = new Set(data.map((item) => item.id));
+        const boundary = data.at(-1);
+        const older = boundary ? current.filter((item) => !ids.has(item.id) && (
+          String(item.timestamp || '') < String(boundary.timestamp || '')
+          || (item.timestamp === boundary.timestamp && item.id < boundary.id)
+        )) : [];
+        return [...data, ...older];
+      });
+      if (!allLogsLoadedRef.current) setHasMoreLogs(Boolean(hasMore));
       if (mode === 'error') setSyncMode('error');
     });
   }, [organization, event?.id, membership, isMaster]);
+
+  useEffect(() => {
+    if (!organization || !event || (!membership && !isMaster)) return undefined;
+    return subscribeToEventAnalytics(organization.id, event.id, setLogAnalytics);
+  }, [organization, event?.id, membership, isMaster]);
+
+  useEffect(() => {
+    if (!organization || !event || !canOperate) return;
+    ensureEventAnalytics(organization.id, event.id).catch((error) => {
+      console.warn('No fue posible preparar los agregados del evento:', error);
+    });
+  }, [organization, event?.id, canOperate]);
 
   useEffect(() => {
     if (!canManage && (activeTab === 'students' || activeTab === 'events' || activeTab === 'members' || activeTab === 'seating')) setActiveTab('dashboard');
@@ -244,6 +272,9 @@ export default function App() {
     setShowPrinter(false);
     setStudents([]);
     setLogs([]);
+    setLogAnalytics({ totalRecords: 0, doorsList: [], activityByHour: [], ready: false });
+    setHasMoreLogs(false);
+    allLogsLoadedRef.current = false;
     setEvent(saveCurrentEvent(organization.id, selected));
   };
 
@@ -255,6 +286,9 @@ export default function App() {
     setEvent(created);
     setStudents([]);
     setLogs([]);
+    setLogAnalytics({ totalRecords: 0, doorsList: [], activityByHour: [], ready: false });
+    setHasMoreLogs(false);
+    allLogsLoadedRef.current = false;
     return created;
   };
 
@@ -290,6 +324,26 @@ export default function App() {
     organizationId: organization.id, eventId: event.id, studentId, count, doorName, extraPerson, movementType
   });
 
+  const handleLoadMoreLogs = async () => {
+    if (loadingMoreLogs || !hasMoreLogs) return;
+    setLoadingMoreLogs(true);
+    try {
+      const page = await fetchLogPage(organization.id, event.id, { afterLog: logs.at(-1) });
+      setLogs((current) => {
+        const byId = new Map(current.map((item) => [item.id, item]));
+        page.logs.forEach((item) => byId.set(item.id, item));
+        return [...byId.values()].sort((left, right) => String(right.timestamp || '').localeCompare(String(left.timestamp || ''))
+          || String(right.id || '').localeCompare(String(left.id || '')));
+      });
+      setHasMoreLogs(page.hasMore);
+      allLogsLoadedRef.current = !page.hasMore;
+    } finally {
+      setLoadingMoreLogs(false);
+    }
+  };
+
+  const handleFetchAllLogs = () => fetchAllLogs(organization.id, event.id);
+
   if (!authReady) return <LoadingScreen />;
   if (!authUser) return <LoginScreen portal={portal} />;
   if (portal === 'master' && !isMaster) return <main className="flex min-h-screen flex-col items-center justify-center gap-4 bg-slate-950 p-6 text-center text-white"><h1 className="text-2xl font-black">Acceso maestro restringido</h1><p className="text-sm text-slate-300">Esta cuenta corresponde a una escuela.</p><button onClick={handleLogout} className="rounded-xl bg-sky-600 px-4 py-2 text-sm font-bold">Volver al ingreso</button></main>;
@@ -312,14 +366,14 @@ export default function App() {
       <main className="flex-1 pb-16">
         {activeTab === 'scan' && canOperate && <ScannerModal onScanResult={handleScanResult} onSwitchToManualSearch={() => setActiveTab('search')} currentDoor={currentDoor} />}
         {activeTab === 'search' && canOperate && <ManualSearch students={students} onSelectStudent={setCheckinStudent} onViewQR={(student) => { setPrintStudent(student); setShowPrinter(true); }} />}
-        {activeTab === 'dashboard' && <Dashboard event={event} students={students} logs={logs} organization={organization} />}
+        {activeTab === 'dashboard' && <Dashboard event={event} students={students} logs={logs} analytics={logAnalytics} organization={organization} onFetchAllLogs={handleFetchAllLogs} />}
         {activeTab === 'operations' && <OperationalCenter students={students} logs={logs} doors={doorSessions} />}
         {activeTab === 'families' && canManage && <FamiliesCenter students={students} history={familyHistory} onMerge={(ids) => mergeFamilies(organization.id, event.id, ids, students)} onSplit={(familyId, studentId) => separateFamilyMember(organization.id, event.id, familyId, studentId, students)} />}
         {activeTab === 'seating' && canManage && seatPlan && <SeatingManager organization={organization} event={event} students={students} venues={venues} seatPlan={seatPlan} onSaveVenue={async (venue) => { const saved = await saveVenue(organization.id, venue); setVenues((current) => [...current.filter((item) => item.id !== saved.id), saved]); return saved; }} onSavePlan={async (plan) => { const saved = await saveSeatPlan(organization.id, event.id, plan); setSeatPlan(saved); return saved; }} />}
         {activeTab === 'students' && canManage && <StudentsManager students={students} onSaveStudents={(updated) => saveStudentsList(organization.id, event.id, updated)} onSaveCapacities={(updates) => saveStudentCapacities(organization.id, event.id, updates)} onSaveFamily={(studentId, familyId, visibleStudents = students) => saveStudentFamily(organization.id, event.id, studentId, familyId, visibleStudents)} onDeleteStudents={(ids) => deleteStudents(organization.id, event.id, ids)} onOpenCardPrinter={(student) => { setPrintStudent(student); setShowPrinter(true); }} onSelectStudent={setCheckinStudent} />}
         {activeTab === 'events' && canManage && <EventsManager events={events} currentEvent={event} students={students} onSelectEvent={handleEventChange} onCreateEvent={handleCreateEvent} onUpdateEvent={handleSaveEvent} onArchiveEvent={handleArchiveEvent} />}
         {activeTab === 'members' && canManage && <MembersManager organization={organization} currentUserId={authUser.uid} />}
-        {activeTab === 'history' && <HistoryLog logs={logs} event={event} students={students} organization={organization} onDeleteLog={canManage ? (log) => deleteLogEntry(organization.id, event.id, log) : undefined} />}
+        {activeTab === 'history' && <HistoryLog logs={logs} event={event} students={students} organization={organization} hasMore={hasMoreLogs} loadingMore={loadingMoreLogs} onLoadMore={handleLoadMoreLogs} onFetchAllLogs={handleFetchAllLogs} onDeleteLog={canManage ? (log) => deleteLogEntry(organization.id, event.id, log) : undefined} />}
       </main>
       {checkinStudent && canOperate && <CheckinPanel student={students.find((item) => item.id === checkinStudent.id) || checkinStudent} currentDoor={currentDoor} onConfirmCheckIn={handleConfirmCheckIn} onClose={() => setCheckinStudent(null)} seatPlan={seatPlan} venue={venues.find((item) => item.id === seatPlan?.venueId)} />}
       {showPrinter && <QRCardPrinter students={students} selectedStudent={printStudent} event={event} organization={organization} seatPlan={seatPlan} venue={venues.find((item) => item.id === seatPlan?.venueId)} onClose={() => { setShowPrinter(false); setPrintStudent(null); }} />}

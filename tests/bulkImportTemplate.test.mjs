@@ -3,22 +3,30 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import * as XLSX from 'xlsx';
+import ExcelJS from 'exceljs';
+import { readSpreadsheet } from '../src/services/spreadsheet.js';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const templatePath = path.join(repoRoot, 'public', 'Plantilla_Carga_Masiva_MundoPalabra.xlsx');
-const xlsxApi = XLSX.default ?? XLSX;
-
-test('la plantilla de carga masiva contiene el formato reconocido por la app', () => {
+test('la plantilla de carga masiva contiene el formato reconocido por la app', async () => {
   assert.equal(fs.existsSync(templatePath), true, 'Debe existir la plantilla Excel descargable');
 
-  const workbook = xlsxApi.readFile(templatePath);
-  assert.deepEqual(workbook.SheetNames, ['Estudiantes', 'Instrucciones']);
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.readFile(templatePath);
+  assert.deepEqual(workbook.worksheets.map((sheet) => sheet.name), ['Estudiantes', 'Instrucciones']);
 
-  const rows = xlsxApi.utils.sheet_to_json(workbook.Sheets.Estudiantes, { header: 1, defval: null });
+  const rows = workbook.getWorksheet('Estudiantes').getSheetValues().slice(1).map((row) => row.slice(1));
   assert.deepEqual(rows[0], ['Nombre', 'Curso', 'Capacidad']);
-  const populatedDataRows = rows.slice(1).filter((row) => row.some((value) => value !== null && value !== ''));
+  const populatedDataRows = rows.slice(1).filter((row) => row.some((value) => value != null && value !== ''));
   assert.equal(populatedDataRows.length, 0, 'La plantilla no debe incluir códigos ni estudiantes de ejemplo');
+
+  const bytes = fs.readFileSync(templatePath);
+  const parsed = await readSpreadsheet({
+    name: 'Plantilla_Carga_Masiva_MundoPalabra.xlsx',
+    size: bytes.byteLength,
+    arrayBuffer: async () => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength)
+  }, { sheetNames: ['Estudiantes'] });
+  assert.deepEqual(parsed.Estudiantes, []);
 });
 
 test('la interfaz ofrece descargar la plantilla y genera los códigos en la app', () => {

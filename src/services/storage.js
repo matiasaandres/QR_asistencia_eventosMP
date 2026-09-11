@@ -30,11 +30,23 @@ import {
   query,
   orderBy,
   runTransaction,
+  getDoc,
   getDocs,
   writeBatch,
-  deleteField
+  deleteField,
+  documentId,
+  increment,
+  limit as firestoreLimit,
+  startAfter
 } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
+import {
+  analyticsMutationsForLog,
+  buildAnalyticsDocuments,
+  LOG_ANALYTICS_VERSION,
+  LOG_PAGE_SIZE,
+  summarizeAnalytics
+} from './logAnalytics.js';
 
 const LOCAL_STORAGE_KEY_STUDENTS = 'mp_students_data_';
 const LOCAL_STORAGE_KEY_LOGS = 'mp_logs_data_';
@@ -94,6 +106,27 @@ function eventLogs(db, organizationId, eventId) {
 
 function eventLogDoc(db, organizationId, eventId, logId) {
   return doc(db, 'organizations', organizationId, 'events', eventId, 'logs', logId);
+}
+
+function eventAnalytics(db, organizationId, eventId) {
+  return collection(db, 'organizations', organizationId, 'events', eventId, 'analytics');
+}
+
+function eventAnalyticsDoc(db, organizationId, eventId, analyticsId) {
+  return doc(db, 'organizations', organizationId, 'events', eventId, 'analytics', analyticsId);
+}
+
+function applyLogAnalytics(transaction, db, organizationId, eventId, log, logId, direction = 1) {
+  analyticsMutationsForLog(log, logId).forEach((mutation) => {
+    transaction.set(eventAnalyticsDoc(db, organizationId, eventId, mutation.id), {
+      kind: mutation.kind,
+      key: mutation.key,
+      label: mutation.label,
+      people: increment(direction * mutation.people),
+      records: increment(direction * mutation.records),
+      updatedAt: new Date().toISOString()
+    }, { merge: true });
+  });
 }
 
 export function getCurrentDoor(organizationId) {
@@ -409,17 +442,23 @@ export function subscribeToLogs(organizationId, eventId, onUpdate) {
 
   if (isConfigured && db) {
     const logsCol = eventLogs(db, organizationId, eventId);
-    const q = query(logsCol, orderBy('timestamp', 'desc'));
+    const q = query(
+      logsCol,
+      orderBy('timestamp', 'desc'),
+      orderBy(documentId(), 'desc'),
+      firestoreLimit(LOG_PAGE_SIZE + 1)
+    );
     const unsubscribe = onSnapshot(
       q,
       { includeMetadataChanges: true },
       (snapshot) => {
-        const logs = snapshot.docs.map((d) => ({
+        const hasMore = snapshot.docs.length > LOG_PAGE_SIZE;
+        const logs = snapshot.docs.slice(0, LOG_PAGE_SIZE).map((d) => ({
           ...d.data(),
           id: d.id
         }));
         localStorage.setItem(organizationKey(LOCAL_STORAGE_KEY_LOGS, organizationId) + eventId, JSON.stringify(logs));
-        onUpdate(logs, snapshot.metadata.fromCache ? 'offline' : 'cloud');
+        onUpdate(logs, snapshot.metadata.fromCache ? 'offline' : 'cloud', hasMore);
       },
       (err) => {
         console.warn("Firestore logs error:", err);
@@ -430,6 +469,94 @@ export function subscribeToLogs(organizationId, eventId, onUpdate) {
   } else {
     return fallbackToLocalLogs(organizationId, eventId, onUpdate);
   }
+}
+
+function sortLogs(logs) {
+  return [...logs].sort((left, right) => String(right.timestamp || '').localeCompare(String(left.timestamp || ''))
+    || String(right.id || '').localeCompare(String(left.id || '')));
+}
+
+export async function fetchLogPage(organizationId, eventId, { afterLog = null, pageSize = LOG_PAGE_SIZE } = {}) {
+  const safePageSize = Math.min(200, Math.max(1, Number(pageSize) || LOG_PAGE_SIZE));
+  const { db, isConfigured } = initFirebase();
+  if (isConfigured && db) {
+    const constraints = [orderBy('timestamp', 'desc'), orderBy(documentId(), 'desc')];
+    if (afterLog?.timestamp && afterLog?.id) constraints.push(startAfter(afterLog.timestamp, afterLog.id));
+    constraints.push(firestoreLimit(safePageSize + 1));
+    const snapshot = await getDocs(query(eventLogs(db, organizationId, eventId), ...constraints));
+    return {
+      logs: snapshot.docs.slice(0, safePageSize).map((item) => ({ ...item.data(), id: item.id })),
+      hasMore: snapshot.docs.length > safePageSize
+    };
+  }
+
+  const cached = sortLogs(JSON.parse(localStorage.getItem(organizationKey(LOCAL_STORAGE_KEY_LOGS, organizationId) + eventId) || '[]'));
+  const start = afterLog?.id ? Math.max(0, cached.findIndex((item) => item.id === afterLog.id) + 1) : 0;
+  const logs = cached.slice(start, start + safePageSize);
+  return { logs, hasMore: start + safePageSize < cached.length };
+}
+
+export async function fetchAllLogs(organizationId, eventId) {
+  const allLogs = [];
+  let afterLog = null;
+  let hasMore = true;
+  while (hasMore) {
+    const page = await fetchLogPage(organizationId, eventId, { afterLog, pageSize: 200 });
+    allLogs.push(...page.logs);
+    hasMore = page.hasMore;
+    afterLog = page.logs.at(-1) || null;
+    if (hasMore && !afterLog) break;
+  }
+  return allLogs;
+}
+
+export function subscribeToEventAnalytics(organizationId, eventId, onUpdate) {
+  const { db, isConfigured } = initFirebase();
+  if (!isConfigured || !db) {
+    const load = () => {
+      const logs = JSON.parse(localStorage.getItem(organizationKey(LOCAL_STORAGE_KEY_LOGS, organizationId) + eventId) || '[]');
+      onUpdate({ ...summarizeAnalytics(buildAnalyticsDocuments(logs)), ready: true }, 'local');
+    };
+    const handleMessage = (message) => {
+      if (message.data?.type === 'LOGS_UPDATED' && message.data.organizationId === organizationId && message.data.eventId === eventId) load();
+    };
+    load();
+    if (localChannel) localChannel.addEventListener('message', handleMessage);
+    return () => localChannel?.removeEventListener('message', handleMessage);
+  }
+  return onSnapshot(eventAnalytics(db, organizationId, eventId), (snapshot) => {
+    const documents = snapshot.docs.map((item) => ({ ...item.data(), id: item.id }));
+    onUpdate(summarizeAnalytics(documents), snapshot.metadata.fromCache ? 'offline' : 'cloud');
+  }, () => onUpdate({ totalRecords: 0, doorsList: [], activityByHour: [] }, 'error'));
+}
+
+export async function ensureEventAnalytics(organizationId, eventId) {
+  const { db, isConfigured } = initFirebase();
+  if (!isConfigured || !db) return;
+  const metaRef = eventAnalyticsDoc(db, organizationId, eventId, 'meta');
+  const existingMeta = await getDoc(metaRef);
+  if (existingMeta.data()?.version === LOG_ANALYTICS_VERSION) return;
+
+  const [logsSnapshot, analyticsSnapshot] = await Promise.all([
+    getDocs(eventLogs(db, organizationId, eventId)),
+    getDocs(eventAnalytics(db, organizationId, eventId))
+  ]);
+  const logs = logsSnapshot.docs.map((item) => ({ ...item.data(), id: item.id }));
+  const documents = buildAnalyticsDocuments(logs);
+  const targetIds = new Set(['meta', ...documents.map((item) => item.id)]);
+  const operations = analyticsSnapshot.docs
+    .filter((item) => !targetIds.has(item.id))
+    .map((item) => (batch) => batch.delete(item.ref));
+  documents.forEach((document) => operations.push((batch) => batch.set(
+    eventAnalyticsDoc(db, organizationId, eventId, document.id),
+    { ...document, updatedAt: new Date().toISOString() }
+  )));
+  operations.push((batch) => batch.set(metaRef, {
+    version: LOG_ANALYTICS_VERSION,
+    sourceLogCount: logs.length,
+    rebuiltAt: new Date().toISOString()
+  }));
+  await commitInChunks(db, operations);
 }
 
 function statusForEnteredCount(enteredCount, maxCapacity) {
@@ -478,6 +605,7 @@ export async function deleteLogEntry(organizationId, eventId, log) {
         transaction.update(storedStudentRef, update);
       }
 
+      applyLogAnalytics(transaction, db, organizationId, eventId, storedLog, logId, -1);
       transaction.delete(logRef);
     });
   }
@@ -549,9 +677,10 @@ function fallbackToLocalLogs(organizationId, eventId, onUpdate) {
   const loadLogs = () => {
     try {
       const raw = localStorage.getItem(organizationKey(LOCAL_STORAGE_KEY_LOGS, organizationId) + eventId);
-      onUpdate(raw ? JSON.parse(raw) : []);
+      const logs = raw ? sortLogs(JSON.parse(raw)) : [];
+      onUpdate(logs.slice(0, LOG_PAGE_SIZE), 'local', logs.length > LOG_PAGE_SIZE);
     } catch (e) {
-      onUpdate([]);
+      onUpdate([], 'local', false);
     }
   };
 
@@ -694,7 +823,9 @@ export async function registerCheckIn({
 
       // Student counter and audit log commit together. A transaction retry uses
       // the same log ID, so concurrent scans cannot create duplicate entries.
-      transaction.set(logRef, buildLogData(effectiveStudent, plan));
+      const logData = buildLogData(effectiveStudent, plan);
+      transaction.set(logRef, logData);
+      applyLogAnalytics(transaction, db, organizationId, eventId, logData, logRef.id);
       transaction.set(eventDoorDoc(db, organizationId, eventId, getDeviceId()), {
         deviceId: getDeviceId(),
         deviceLabel: typeof navigator === 'undefined' ? 'Dispositivo local' : `${navigator.platform || 'Dispositivo'} · ${navigator.userAgent.includes('Mobile') ? 'Móvil' : 'Navegador'}`,
@@ -1272,10 +1403,12 @@ export async function resetEventData(organizationId, eventId) {
     const studentsCol = eventStudents(db, organizationId, eventId);
     const familiesCol = eventFamilies(db, organizationId, eventId);
     const logsCol = eventLogs(db, organizationId, eventId);
-    const [studentsSnapshot, familiesSnapshot, logsSnapshot] = await Promise.all([
+    const analyticsCol = eventAnalytics(db, organizationId, eventId);
+    const [studentsSnapshot, familiesSnapshot, logsSnapshot, analyticsSnapshot] = await Promise.all([
       getDocs(studentsCol),
       getDocs(familiesCol),
-      getDocs(logsCol)
+      getDocs(logsCol),
+      getDocs(analyticsCol)
     ]);
 
     const operations = [];
@@ -1307,6 +1440,14 @@ export async function resetEventData(organizationId, eventId) {
     logsSnapshot.docs.forEach((logDoc) => {
       operations.push((batch) => batch.delete(logDoc.ref));
     });
+    analyticsSnapshot.docs.filter((analyticsDoc) => analyticsDoc.id !== 'meta').forEach((analyticsDoc) => {
+      operations.push((batch) => batch.delete(analyticsDoc.ref));
+    });
+    operations.push((batch) => batch.set(eventAnalyticsDoc(db, organizationId, eventId, 'meta'), {
+      version: LOG_ANALYTICS_VERSION,
+      sourceLogCount: 0,
+      rebuiltAt: new Date().toISOString()
+    }));
     familiesSnapshot.docs.forEach((familyDoc) => {
       operations.push((batch) => batch.update(familyDoc.ref, {
         enteredCount: 0,

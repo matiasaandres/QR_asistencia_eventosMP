@@ -127,6 +127,10 @@ test('la cuenta maestra administra escuelas y recupera Mundo Palabra', () => {
   assert.match(masterDashboard, /onMigrateLegacy/);
   assert.match(masterDashboard, /Importar respaldo completo/);
   assert.match(masterDashboard, /Asignar cuenta escolar/);
+  assert.match(masterDashboard, /Detalle de planes/);
+  assert.match(masterDashboard, /Plan activo/);
+  assert.match(masterDashboard, /totals\.byPlan/);
+  assert.match(masterDashboard, /getOrganizationPlanDetails/);
   assert.match(masterDashboard, /Respaldo completo aplicado/);
   assert.match(masterDashboard, /Restaurar eliminados y deshabilitados/);
   assert.match(organizationsService, /restoreMundoPalabraStudentStates/);

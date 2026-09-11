@@ -1,10 +1,16 @@
 import React, { useMemo, useState } from 'react';
-import { CheckCircle2, Download, ExternalLink, LogOut, Plus, ShieldCheck, Upload, XCircle } from 'lucide-react';
+import { Check, CheckCircle2, Download, ExternalLink, LogOut, Plus, ShieldCheck, Upload, XCircle } from 'lucide-react';
 import OrganizationLogo from './OrganizationLogo.jsx';
 import { downloadSchoolBackup, restoreSchoolBackup } from '../services/schoolBackup.js';
 import { readSpreadsheet } from '../services/spreadsheet.js';
+import { ORGANIZATION_PLANS, getOrganizationPlanDetails } from '../services/organizationPolicy.js';
 
-const PLAN_LABELS = { pilot: 'Piloto', event: 'Por evento', monthly: 'Mensual', annual: 'Anual' };
+const PLAN_STYLES = {
+  pilot: 'border-amber-200 bg-amber-50 text-amber-950',
+  event: 'border-violet-200 bg-violet-50 text-violet-950',
+  monthly: 'border-sky-200 bg-sky-50 text-sky-950',
+  annual: 'border-emerald-200 bg-emerald-50 text-emerald-950'
+};
 
 export default function MasterDashboard({ organizations, user, onCreate, onAssignAccount, onStatusChange, onOpenSchool, onMigrateLegacy, onImportReport, onRestoreStudentStates, onLogout }) {
   const [schoolName, setSchoolName] = useState('');
@@ -24,7 +30,8 @@ export default function MasterDashboard({ organizations, user, onCreate, onAssig
   const totals = useMemo(() => ({
     all: organizations.length,
     active: organizations.filter((item) => item.status === 'active').length,
-    suspended: organizations.filter((item) => item.status === 'suspended').length
+    suspended: organizations.filter((item) => item.status === 'suspended').length,
+    byPlan: Object.fromEntries(ORGANIZATION_PLANS.map((planId) => [planId, organizations.filter((item) => item.plan === planId).length]))
   }), [organizations]);
 
   const handleCreate = async (event) => {
@@ -166,13 +173,39 @@ export default function MasterDashboard({ organizations, user, onCreate, onAssig
           <div className="rounded-2xl bg-white p-5 shadow-sm"><p className="text-xs font-bold uppercase text-rose-600">Suspendidas</p><p className="mt-1 text-3xl font-black text-rose-700">{totals.suspended}</p></div>
         </section>
 
+        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm" aria-labelledby="plans-title">
+          <div>
+            <h2 id="plans-title" className="text-lg font-black text-slate-950">Detalle de planes</h2>
+            <p className="mt-1 text-sm text-slate-600">Modalidades comerciales disponibles y cantidad de escuelas que tienen cada plan activo.</p>
+          </div>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            {ORGANIZATION_PLANS.map((planId) => {
+              const details = getOrganizationPlanDetails(planId);
+              return (
+                <article key={planId} className={`rounded-2xl border p-4 ${PLAN_STYLES[planId]}`}>
+                  <div className="flex items-start justify-between gap-3">
+                    <div><h3 className="font-black">{details.label}</h3><p className="mt-0.5 text-xs font-bold opacity-70">{details.cadence}</p></div>
+                    <span className="rounded-full bg-white/80 px-2.5 py-1 text-xs font-black shadow-sm">{totals.byPlan[planId]} {totals.byPlan[planId] === 1 ? 'escuela' : 'escuelas'}</span>
+                  </div>
+                  <p className="mt-3 text-sm leading-relaxed opacity-90">{details.description}</p>
+                  <ul className="mt-3 space-y-1.5 text-xs font-semibold">
+                    {details.features.map((feature) => <li key={feature} className="flex gap-2"><Check className="mt-0.5 h-3.5 w-3.5 shrink-0" /> <span>{feature}</span></li>)}
+                  </ul>
+                  <button type="button" onClick={() => setPlan(planId)} className="mt-4 rounded-lg bg-white/80 px-3 py-2 text-xs font-black shadow-sm hover:bg-white">Seleccionar para nueva escuela</button>
+                </article>
+              );
+            })}
+          </div>
+          <p className="mt-3 text-xs text-slate-500">La aplicación registra la modalidad asignada. Las fechas de inicio, vencimiento y restricciones automáticas todavía no forman parte del modelo de suscripción.</p>
+        </section>
+
         <form onSubmit={handleCreate} className="rounded-2xl border border-sky-200 bg-sky-50 p-5 shadow-sm">
           <h2 className="flex items-center gap-2 text-lg font-black text-sky-950"><Plus className="h-5 w-5" /> Crear escuela y cuenta administradora</h2>
           <div className="mt-4 grid gap-3 md:grid-cols-2 lg:grid-cols-4">
             <label className="text-xs font-bold text-slate-700">Nombre de la escuela<input required minLength="2" maxLength="100" value={schoolName} onChange={(event) => setSchoolName(event.target.value)} className="mt-1 w-full rounded-xl border border-sky-200 bg-white px-3 py-2.5 text-sm" /></label>
             <label className="text-xs font-bold text-slate-700">Correo administrador<input required type="email" value={adminEmail} onChange={(event) => setAdminEmail(event.target.value)} className="mt-1 w-full rounded-xl border border-sky-200 bg-white px-3 py-2.5 text-sm" /></label>
             <label className="text-xs font-bold text-slate-700">Contraseña temporal<input required type="password" minLength="6" value={temporaryPassword} onChange={(event) => setTemporaryPassword(event.target.value)} className="mt-1 w-full rounded-xl border border-sky-200 bg-white px-3 py-2.5 text-sm" /></label>
-            <label className="text-xs font-bold text-slate-700">Plan<select value={plan} onChange={(event) => setPlan(event.target.value)} className="mt-1 w-full rounded-xl border border-sky-200 bg-white px-3 py-2.5 text-sm"><option value="pilot">Piloto</option><option value="event">Por evento</option><option value="monthly">Mensual</option><option value="annual">Anual</option></select></label>
+            <label className="text-xs font-bold text-slate-700">Plan<select value={plan} onChange={(event) => setPlan(event.target.value)} className="mt-1 w-full rounded-xl border border-sky-200 bg-white px-3 py-2.5 text-sm">{ORGANIZATION_PLANS.map((planId) => <option key={planId} value={planId}>{getOrganizationPlanDetails(planId).label}</option>)}</select></label>
           </div>
           <button disabled={isSaving} className="mt-4 rounded-xl bg-sky-600 px-4 py-2.5 text-sm font-extrabold text-white disabled:opacity-60">{isSaving ? 'Creando…' : 'Crear escuela'}</button>
           <p className="mt-2 text-xs text-slate-600">Entrega la contraseña temporal por un medio seguro. La escuela ingresará desde la pantalla normal.</p>
@@ -184,12 +217,17 @@ export default function MasterDashboard({ organizations, user, onCreate, onAssig
         <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
           <div className="border-b border-slate-200 p-5"><h2 className="text-lg font-black text-slate-950">Escuelas registradas</h2></div>
           <div className="divide-y divide-slate-100">
-            {organizations.map((organization) => (
-              <article key={organization.id} className="p-4">
+            {organizations.map((organization) => {
+              const activePlan = getOrganizationPlanDetails(organization.plan);
+              return <article key={organization.id} className="p-4">
                 <div className="grid min-w-0 gap-3 sm:grid-cols-[auto_minmax(0,1fr)_auto] sm:items-start">
                   <OrganizationLogo organization={organization} className="hidden h-11 w-11 shrink-0 rounded-xl border sm:flex" iconClassName="h-6 w-6" />
-                  <div className="min-w-0"><h3 className="break-words pr-2 font-extrabold leading-snug text-slate-950">{organization.name}</h3><p className="mt-0.5 truncate text-xs text-slate-500">{organization.contactEmail || 'Cuenta escolar pendiente de asignar'} · {PLAN_LABELS[organization.plan] || organization.plan}</p></div>
+                  <div className="min-w-0"><h3 className="break-words pr-2 font-extrabold leading-snug text-slate-950">{organization.name}</h3><p className="mt-0.5 truncate text-xs text-slate-500">{organization.contactEmail || 'Cuenta escolar pendiente de asignar'}</p></div>
                   <span className={`inline-flex w-fit shrink-0 items-center gap-1 whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-bold ${organization.status === 'active' ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'}`}>{organization.status === 'active' ? <CheckCircle2 className="h-3.5 w-3.5" /> : <XCircle className="h-3.5 w-3.5" />}{organization.status === 'active' ? 'Activa' : 'Suspendida'}</span>
+                  <div className={`rounded-xl border px-3 py-2 sm:col-span-3 sm:ml-14 ${PLAN_STYLES[organization.plan] || PLAN_STYLES.pilot}`}>
+                    <div className="flex flex-wrap items-center justify-between gap-2"><p className="text-[11px] font-black uppercase tracking-wide opacity-70">Plan activo</p><span className="rounded-full bg-white/80 px-2.5 py-1 text-xs font-black">{activePlan.label}</span></div>
+                    <p className="mt-1 text-xs font-semibold">{activePlan.cadence} · {activePlan.description}</p>
+                  </div>
                   <div className="flex min-w-0 flex-wrap gap-2 sm:col-span-3 sm:pl-14">
                   <button type="button" onClick={() => onOpenSchool(organization.id)} className="inline-flex items-center gap-1 rounded-lg bg-sky-600 px-3 py-2 text-xs font-bold text-white"><ExternalLink className="h-3.5 w-3.5" /> Abrir gestión</button>
                   <button type="button" disabled={Boolean(backingUpSchool)} onClick={() => handleBackup(organization)} className="inline-flex items-center gap-1 rounded-lg bg-emerald-100 px-3 py-2 text-xs font-bold text-emerald-900 disabled:cursor-wait disabled:opacity-60"><Download className="h-3.5 w-3.5" /> {backingUpSchool === organization.id ? 'Preparando…' : 'Descargar respaldo'}</button>
@@ -201,8 +239,8 @@ export default function MasterDashboard({ organizations, user, onCreate, onAssig
                   </div>
                 </div>
                 {!organization.contactEmail && <form onSubmit={(event) => handleAccountAssignment(event, organization)} className="mt-4 grid gap-3 rounded-xl border border-indigo-200 bg-indigo-50 p-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end"><label className="text-xs font-bold text-slate-700">Correo de la escuela<input required type="email" value={accountEmail} onChange={(event) => setAccountEmail(event.target.value)} className="mt-1 w-full rounded-lg border border-indigo-200 bg-white px-3 py-2" /></label><label className="text-xs font-bold text-slate-700">Contraseña inicial<input required type="password" minLength="6" value={accountPassword} onChange={(event) => setAccountPassword(event.target.value)} className="mt-1 w-full rounded-lg border border-indigo-200 bg-white px-3 py-2" /></label><button disabled={Boolean(assigningSchool)} className="rounded-lg bg-indigo-600 px-3 py-2 text-xs font-bold text-white disabled:opacity-60">{assigningSchool === organization.id ? 'Asignando…' : 'Asignar cuenta escolar'}</button></form>}
-              </article>
-            ))}
+              </article>;
+            })}
             {!organizations.length && <p className="p-8 text-center text-sm text-slate-500">Aún no hay escuelas registradas.</p>}
           </div>
         </section>

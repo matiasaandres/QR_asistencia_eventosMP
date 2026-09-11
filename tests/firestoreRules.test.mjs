@@ -73,3 +73,11 @@ test('los administradores pueden deshabilitar o eliminar miembros sin afectar al
 test('no permite eliminar organizaciones, eventos ni estudiantes', () => {
   assert.ok((rules.match(/allow delete: if false;/g) || []).length >= 3);
 });
+
+test('protege establecimientos y asignaciones de asientos por evento', () => {
+  assert.match(rules, /match \/venues\/\{venueId\}/);
+  assert.match(rules, /allow create, update: if isAdmin\(\) && validVenue/);
+  assert.match(rules, /match \/seatPlans\/\{seatPlanId\}/);
+  assert.match(rules, /data\.eventId == eventId/);
+  assert.match(rules, /data\.assignments is map/);
+});

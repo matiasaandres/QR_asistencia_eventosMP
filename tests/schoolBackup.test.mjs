@@ -12,16 +12,17 @@ test('crea un respaldo completo con resumen verificable', () => {
   const backup = createSchoolBackup({
     organization: { id: 'colegio-prueba', name: 'Colegio Prueba' },
     members: [{ id: 'admin-1', role: 'admin' }],
+    venues: [{ id: 'auditorio', name: 'Auditorio', floors: [{}], seatCount: 10 }],
     events: [
-      { id: 'evento-1', students: [{ id: 'alumno-1', familyId: 'FAM-2026-001' }], families: [{ id: 'FAM-2026-001', maxCapacity: 4, enteredCount: 2, members: ['alumno-1'] }], logs: [{ id: 'log-1', count: 2 }] },
+      { id: 'evento-1', students: [{ id: 'alumno-1', familyId: 'FAM-2026-001' }], families: [{ id: 'FAM-2026-001', maxCapacity: 4, enteredCount: 2, members: ['alumno-1'] }], logs: [{ id: 'log-1', count: 2 }], seatPlan: { id: 'current', eventId: 'evento-1', assignments: { a1: { course: '1°' } } } },
       { id: 'evento-2', students: [{ id: 'alumno-2' }, { id: 'alumno-3' }], logs: [] }
     ],
     exportedAt: '2026-09-10T12:00:00.000Z'
   });
 
   assert.equal(backup.format, 'mundopalabra-school-backup');
-  assert.equal(backup.schemaVersion, 3);
-  assert.deepEqual(backup.summary, { members: 1, events: 2, students: 3, families: 1, logs: 1, familyChanges: 0 });
+  assert.equal(backup.schemaVersion, 4);
+  assert.deepEqual(backup.summary, { members: 1, events: 2, students: 3, families: 1, logs: 1, familyChanges: 0, venues: 1, seatAssignments: 1 });
   assert.equal(backup.events[0].students[0].familyId, 'FAM-2026-001');
 });
 

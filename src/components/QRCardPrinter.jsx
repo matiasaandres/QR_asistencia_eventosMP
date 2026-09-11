@@ -1,7 +1,8 @@
 import React, { useState, useMemo } from 'react';
 import QRCode from 'qrcode';
 import { getCapacityState } from '../services/checkinPolicy';
-import { createStudentQrArchive, createStudentQrPdf } from '../services/qrArchive';
+import { createStudentQrArchive, createStudentQrPdf, createStudentsQrPdf, safeFilePart } from '../services/qrArchive';
+import { getStudentSeats } from '../services/seatingPolicy';
 import OrganizationLogo from './OrganizationLogo.jsx';
 import { 
   Printer, 
@@ -57,10 +58,13 @@ export default function QRCardPrinter({
   selectedStudent = null, 
   event, 
   organization,
+  seatPlan,
+  venue,
   onClose 
 }) {
   const [filterCourse, setFilterCourse] = useState('ALL');
   const [archiveProgress, setArchiveProgress] = useState(null);
+  const [pdfProgress, setPdfProgress] = useState(null);
   const [archiveError, setArchiveError] = useState('');
   const eligibleStudents = useMemo(
     () => students.filter((student) => !getCapacityState(student).isAccessBlocked),
@@ -83,7 +87,7 @@ export default function QRCardPrinter({
   const handlePrint = async () => {
     if (selectedStudent) {
       try {
-        const bytes = await createStudentQrPdf({ student: selectedStudent, event, organization });
+        const bytes = await createStudentQrPdf({ student: selectedStudent, event, organization, seats: getStudentSeats(selectedStudent, seatPlan, venue) });
         const cleanName = (selectedStudent.name || 'Estudiante').replace(/[^a-zA-Z0-9áéíóúÁÉÍÓÚñÑ_-]+/g, '_');
         const downloadUrl = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
         const anchor = document.createElement('a');
@@ -99,15 +103,30 @@ export default function QRCardPrinter({
       }
       return;
     }
-    if (document.fonts?.ready) {
-      await document.fonts.ready;
+    setArchiveError('');
+    setPdfProgress({ current: 0, total: studentsToPrint.length });
+    try {
+      const bytes = await createStudentsQrPdf({
+        students: studentsToPrint,
+        event,
+        organization,
+        getSeatsForStudent: (student) => getStudentSeats(student, seatPlan, venue),
+        onProgress: setPdfProgress
+      });
+      const downloadUrl = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
+      const anchor = document.createElement('a');
+      anchor.href = downloadUrl;
+      anchor.download = `Credenciales_QR_${safeFilePart(event?.name, 'Evento', 80).replace(/\s+/g, '_')}.pdf`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      setTimeout(() => URL.revokeObjectURL(downloadUrl), 1000);
+    } catch (error) {
+      console.error('Error generating combined QR PDF:', error);
+      setArchiveError(error?.message || 'No fue posible crear el PDF con los códigos QR.');
+    } finally {
+      setPdfProgress(null);
     }
-
-    // Let the browser finish the current paint before opening the print preview.
-    await new Promise((resolve) => {
-      requestAnimationFrame(() => requestAnimationFrame(resolve));
-    });
-    window.print();
   };
 
   const handleDownloadPNG = async (studentId, studentName) => {
@@ -140,6 +159,7 @@ export default function QRCardPrinter({
         students: eligibleStudents,
         event,
         organization,
+        getSeatsForStudent: (student) => getStudentSeats(student, seatPlan, venue),
         onProgress: setArchiveProgress
       });
       const blob = new Blob([archive.bytes], { type: 'application/zip' });
@@ -213,10 +233,11 @@ export default function QRCardPrinter({
 
           <button
             onClick={handlePrint}
+            disabled={Boolean(pdfProgress)}
             title={selectedStudent
                 ? 'Descarga solamente la credencial seleccionada en PDF'
               : 'Abre la ventana para guardar todos los códigos QR como PDF'}
-            className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-5 py-2 bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold rounded-xl shadow-md shadow-sky-600/30 transition-all active:scale-95"
+            className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-5 py-2 bg-sky-600 hover:bg-sky-500 disabled:bg-sky-300 disabled:cursor-wait text-white text-xs font-bold rounded-xl shadow-md shadow-sky-600/30 transition-all active:scale-95"
           >
             {selectedStudent
               ? <Printer className="w-4 h-4" />
@@ -224,7 +245,7 @@ export default function QRCardPrinter({
             <span>
               {selectedStudent
                 ? 'Descargar credencial PDF'
-                : 'Descargar todos los QR en PDF'}
+                : pdfProgress ? `Creando PDF ${pdfProgress.current} de ${pdfProgress.total}` : 'Descargar todos los QR en PDF'}
             </span>
           </button>
 
@@ -260,6 +281,7 @@ export default function QRCardPrinter({
         {studentsToPrint.map((student) => {
           const capacity = getCapacityState(student);
           const maxCap = capacity.maxCapacity;
+          const assignedSeats = getStudentSeats(student, seatPlan, venue);
 
           return (
             <div
@@ -300,6 +322,7 @@ export default function QRCardPrinter({
                   <Users className="w-3.5 h-3.5 text-amber-600" />
                   <span>{capacity.isAccessBlocked ? 'Credencial deshabilitada' : `Válido para hasta ${maxCap} personas autorizadas`}</span>
                 </div>
+                {assignedSeats.length > 0 && <p className="mt-2 text-xs font-extrabold text-sky-800">Asientos: {assignedSeats.map((seat) => seat.label || seat.id).join(' · ')}</p>}
               </div>
 
               {/* Footer / Instructions */}

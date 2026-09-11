@@ -50,20 +50,22 @@ function documentData(snapshot) {
   return serializeValue({ ...snapshot.data(), id: snapshot.id });
 }
 
-export function createSchoolBackup({ organization, members = [], events = [], exportedAt = new Date().toISOString() }) {
+export function createSchoolBackup({ organization, members = [], venues = [], events = [], exportedAt = new Date().toISOString() }) {
   const normalizedEvents = events.map((event) => ({
     ...serializeValue(event),
     students: (event.students || []).map(serializeValue),
     families: (event.families || []).map(serializeValue),
     logs: (event.logs || []).map(serializeValue),
-    familyHistory: (event.familyHistory || []).map(serializeValue)
+    familyHistory: (event.familyHistory || []).map(serializeValue),
+    seatPlan: event.seatPlan ? serializeValue(event.seatPlan) : null
   }));
   return {
     format: 'mundopalabra-school-backup',
-    schemaVersion: 3,
+    schemaVersion: 4,
     exportedAt,
     organization: serializeValue(organization),
     members: members.map(serializeValue),
+    venues: venues.map(serializeValue),
     events: normalizedEvents,
     summary: {
       members: members.length,
@@ -71,7 +73,9 @@ export function createSchoolBackup({ organization, members = [], events = [], ex
       students: normalizedEvents.reduce((total, event) => total + event.students.length, 0),
       families: normalizedEvents.reduce((total, event) => total + event.families.length, 0),
       logs: normalizedEvents.reduce((total, event) => total + event.logs.length, 0),
-      familyChanges: normalizedEvents.reduce((total, event) => total + event.familyHistory.length, 0)
+      familyChanges: normalizedEvents.reduce((total, event) => total + event.familyHistory.length, 0),
+      venues: venues.length,
+      seatAssignments: normalizedEvents.reduce((total, event) => total + Object.keys(event.seatPlan?.assignments || {}).length, 0)
     }
   };
 }
@@ -92,33 +96,37 @@ export async function fetchSchoolBackup(organizationId) {
   if (!organizationId) throw new Error('Selecciona una escuela válida.');
 
   const organizationRef = doc(db, 'organizations', organizationId);
-  const [organizationSnapshot, membersSnapshot, eventsSnapshot] = await Promise.all([
+  const [organizationSnapshot, membersSnapshot, eventsSnapshot, venuesSnapshot] = await Promise.all([
     getDoc(organizationRef),
     getDocs(collection(organizationRef, 'members')),
-    getDocs(collection(organizationRef, 'events'))
+    getDocs(collection(organizationRef, 'events')),
+    getDocs(collection(organizationRef, 'venues'))
   ]);
   if (!organizationSnapshot.exists()) throw new Error('La escuela ya no existe en la base de datos.');
 
   const events = await Promise.all(eventsSnapshot.docs.map(async (eventSnapshot) => {
     const eventRef = eventSnapshot.ref;
-    const [studentsSnapshot, familiesSnapshot, logsSnapshot, familyHistorySnapshot] = await Promise.all([
+    const [studentsSnapshot, familiesSnapshot, logsSnapshot, familyHistorySnapshot, seatPlanSnapshot] = await Promise.all([
       getDocs(collection(eventRef, 'students')),
       getDocs(collection(eventRef, 'families')),
       getDocs(collection(eventRef, 'logs')),
-      getDocs(collection(eventRef, 'familyHistory'))
+      getDocs(collection(eventRef, 'familyHistory')),
+      getDoc(doc(eventRef, 'seatPlans', 'current'))
     ]);
     return {
       ...documentData(eventSnapshot),
       students: studentsSnapshot.docs.map(documentData),
       families: familiesSnapshot.docs.map(documentData),
       logs: logsSnapshot.docs.map(documentData),
-      familyHistory: familyHistorySnapshot.docs.map(documentData)
+      familyHistory: familyHistorySnapshot.docs.map(documentData),
+      seatPlan: seatPlanSnapshot.exists() ? documentData(seatPlanSnapshot) : null
     };
   }));
 
   return addBackupIntegrity(createSchoolBackup({
     organization: documentData(organizationSnapshot),
     members: membersSnapshot.docs.map(documentData),
+    venues: venuesSnapshot.docs.map(documentData),
     events
   }));
 }
@@ -141,7 +149,7 @@ const BATCH_LIMIT = 400;
 const validDocumentId = (value) => typeof value === 'string' && value.length > 0 && value.length <= 500 && !value.includes('/');
 
 export function validateSchoolBackup(backup, organizationId) {
-  if (!backup || backup.format !== 'mundopalabra-school-backup' || ![1, 2, 3].includes(backup.schemaVersion)) {
+  if (!backup || backup.format !== 'mundopalabra-school-backup' || ![1, 2, 3, 4].includes(backup.schemaVersion)) {
     throw new Error('El archivo no es un respaldo válido de MundoPalabra.');
   }
   if (backup.organization?.id !== organizationId) {
@@ -150,6 +158,7 @@ export function validateSchoolBackup(backup, organizationId) {
   if (!Array.isArray(backup.events) || !Array.isArray(backup.members)) {
     throw new Error('El respaldo está incompleto o dañado.');
   }
+  if (backup.schemaVersion >= 4 && !Array.isArray(backup.venues)) throw new Error('El respaldo no contiene sus establecimientos.');
   const eventIds = new Set();
   backup.events.forEach((event) => {
     if (!validDocumentId(event?.id) || eventIds.has(event.id)) throw new Error('El respaldo contiene eventos con identificadores inválidos o repetidos.');
@@ -160,6 +169,7 @@ export function validateSchoolBackup(backup, organizationId) {
     if (!Array.isArray(event.students) || !Array.isArray(event.logs)) throw new Error(`El evento ${event.name || event.id} está incompleto.`);
     if (backup.schemaVersion >= 2 && !Array.isArray(event.families)) throw new Error(`El evento ${event.name || event.id} no contiene sus familias.`);
     if (backup.schemaVersion >= 3 && !Array.isArray(event.familyHistory)) throw new Error(`El evento ${event.name || event.id} no contiene su historial familiar.`);
+    if (backup.schemaVersion >= 4 && event.seatPlan != null && (event.seatPlan.id !== 'current' || event.seatPlan.eventId !== event.id || typeof event.seatPlan.assignments !== 'object')) throw new Error(`El evento ${event.name || event.id} contiene un plano de asientos inválido.`);
     const studentIds = new Set();
     event.students.forEach((student) => {
       if (!validDocumentId(student?.id) || studentIds.has(student.id)) throw new Error(`El evento ${event.name || event.id} contiene alumnos inválidos o repetidos.`);
@@ -178,6 +188,9 @@ export function validateSchoolBackup(backup, organizationId) {
       logIds.add(log.id);
       if (!Number.isInteger(log.count) || log.count < 1 || log.count > 5) throw new Error(`El registro ${log.id} tiene una cantidad inválida.`);
     });
+  });
+  (backup.venues || []).forEach((venue) => {
+    if (!validDocumentId(venue?.id) || typeof venue.name !== 'string' || !Array.isArray(venue.floors) || !Number.isInteger(venue.seatCount) || venue.seatCount < 1 || venue.seatCount > 1000) throw new Error('El respaldo contiene un establecimiento inválido.');
   });
   return backup;
 }
@@ -203,6 +216,11 @@ export async function restoreSchoolBackup(organizationId, rawBackup) {
   const organizationRef = doc(db, 'organizations', organizationId);
   const currentEventsSnapshot = await getDocs(collection(organizationRef, 'events'));
   const restoredEventIds = new Set(backup.events.map((event) => event.id));
+
+  await commitOperations(db, (backup.venues || []).map((venue) => (batch) => {
+    const { id, ...data } = venue;
+    batch.set(doc(organizationRef, 'venues', id), { ...data, id });
+  }));
 
   for (const event of backup.events) {
     const eventRef = doc(organizationRef, 'events', event.id);
@@ -245,6 +263,7 @@ export async function restoreSchoolBackup(organizationId, rawBackup) {
       batch.set(doc(eventRef, 'familyHistory', id), data);
     }));
     if (event.archived === true) await setDoc(eventRef, { archived: true }, { merge: true });
+    if (event.seatPlan) await setDoc(doc(eventRef, 'seatPlans', 'current'), event.seatPlan);
   }
 
   const archiveOperations = currentEventsSnapshot.docs
@@ -257,6 +276,8 @@ export async function restoreSchoolBackup(organizationId, rawBackup) {
     students: backup.events.reduce((total, event) => total + event.students.length, 0),
     families: backup.events.reduce((total, event) => total + (event.families || []).length, 0),
     logs: backup.events.reduce((total, event) => total + event.logs.length, 0),
-    familyChanges: backup.events.reduce((total, event) => total + (event.familyHistory || []).length, 0)
+    familyChanges: backup.events.reduce((total, event) => total + (event.familyHistory || []).length, 0),
+    venues: (backup.venues || []).length,
+    seatAssignments: backup.events.reduce((total, event) => total + Object.keys(event.seatPlan?.assignments || {}).length, 0)
   };
 }

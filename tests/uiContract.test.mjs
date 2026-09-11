@@ -83,7 +83,8 @@ test('la impresión masiva usa QR vectoriales y un flujo paginable', () => {
 
 test('la impresión masiva muestra un botón explícito para descargar todos los QR', () => {
   assert.match(qrPrinter, /Descargar todos los QR en PDF/);
-  assert.match(qrPrinter, /guardar todos los códigos QR como PDF/);
+  assert.match(qrPrinter, /createStudentsQrPdf/);
+  assert.match(qrPrinter, /application\/pdf/);
 });
 
 test('ofrece un ZIP con un PDF individual por alumno y progreso visible', () => {

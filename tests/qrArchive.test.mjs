@@ -4,6 +4,7 @@ import JSZip from 'jszip';
 import {
   createStudentQrArchive,
   createStudentQrPdf,
+  createStudentsQrPdf,
   getStudentPdfPath,
   safeFilePart
 } from '../src/services/qrArchive.js';
@@ -48,6 +49,23 @@ test('el PDF conserva el cupo familiar de la credencial en pantalla', async () =
   assert.equal(pdfText.slice(0, 5), '%PDF-');
   assert.equal((pdfText.match(/\/Type\s*\/Page\b/g) || []).length, 1);
   assert.ok(bytes.length > 10_000);
+});
+
+test('el PDF masivo incrusta los QR y pagina las credenciales', async () => {
+  const students = Array.from({ length: 5 }, (_, index) => ({
+    id: `ID-${index + 1}`,
+    name: `Estudiante ${index + 1}`,
+    course: '1° Básico A',
+    maxCapacity: 2
+  }));
+  const progress = [];
+  const bytes = await createStudentsQrPdf({ students, event, onProgress: (value) => progress.push(value) });
+  const pdfText = Buffer.from(bytes).toString('latin1');
+
+  assert.equal(pdfText.slice(0, 5), '%PDF-');
+  assert.equal((pdfText.match(/\/Type\s*\/Page\b/g) || []).length, 2);
+  assert.ok((pdfText.match(/\/Subtype\s*\/Image\b/g) || []).length >= 5);
+  assert.deepEqual(progress.at(-1), { current: 5, total: 5 });
 });
 
 test('el ZIP agrupa los PDF por curso y evita sobrescribir homónimos', async () => {

@@ -14,6 +14,7 @@ import MembersManager from './components/MembersManager';
 import MasterDashboard from './components/MasterDashboard';
 import OperationalCenter from './components/OperationalCenter';
 import FamiliesCenter from './components/FamiliesCenter';
+import SeatingManager from './components/SeatingManager';
 import { sounds } from './services/sound';
 import { clearAuthSession, subscribeToAuth } from './services/auth';
 import { canManageOrganization, canOperateAccess, isPlatformAdmin } from './services/organizationPolicy';
@@ -40,6 +41,7 @@ import {
   resetEventData, migrateLegacyFamilies, subscribeToDoorSessions, registerDoorPresence,
   mergeFamilies, separateFamilyMember, subscribeToFamilyHistory
 } from './services/storage';
+import { saveSeatPlan, saveVenue, subscribeToSeatPlan, subscribeToVenues } from './services/seating';
 
 function LoadingScreen({ message = 'Cargando acceso seguro…' }) {
   return <main className="flex min-h-screen items-center justify-center bg-slate-950 text-sm font-bold text-sky-100">{message}</main>;
@@ -61,6 +63,8 @@ export default function App() {
   const [logs, setLogs] = useState([]);
   const [doorSessions, setDoorSessions] = useState([]);
   const [familyHistory, setFamilyHistory] = useState([]);
+  const [venues, setVenues] = useState([]);
+  const [seatPlan, setSeatPlan] = useState(null);
   const [syncMode, setSyncMode] = useState('local');
   const [checkinStudent, setCheckinStudent] = useState(null);
   const [printStudent, setPrintStudent] = useState(null);
@@ -140,6 +144,23 @@ export default function App() {
   }, [organization, event?.id]);
 
   useEffect(() => {
+    if (!organization) return undefined;
+    return subscribeToVenues(organization.id, (data, mode) => {
+      setVenues(data);
+      if (mode) setSyncMode(mode);
+    });
+  }, [organization]);
+
+  useEffect(() => {
+    if (!organization || !event) return undefined;
+    setSeatPlan(null);
+    return subscribeToSeatPlan(organization.id, event.id, (data, mode) => {
+      setSeatPlan(data);
+      if (mode) setSyncMode(mode);
+    });
+  }, [organization, event?.id]);
+
+  useEffect(() => {
     if (!organization || !event) return undefined;
     return subscribeToDoorSessions(organization.id, event.id, setDoorSessions);
   }, [organization, event?.id]);
@@ -173,7 +194,7 @@ export default function App() {
   }, [organization, event?.id, membership, isMaster]);
 
   useEffect(() => {
-    if (!canManage && (activeTab === 'students' || activeTab === 'events' || activeTab === 'members')) setActiveTab('dashboard');
+    if (!canManage && (activeTab === 'students' || activeTab === 'events' || activeTab === 'members' || activeTab === 'seating')) setActiveTab('dashboard');
     if (!canOperate && (activeTab === 'scan' || activeTab === 'search')) setActiveTab('dashboard');
   }, [role, activeTab, canManage, canOperate]);
 
@@ -294,13 +315,14 @@ export default function App() {
         {activeTab === 'dashboard' && <Dashboard event={event} students={students} logs={logs} organization={organization} />}
         {activeTab === 'operations' && <OperationalCenter students={students} logs={logs} doors={doorSessions} />}
         {activeTab === 'families' && canManage && <FamiliesCenter students={students} history={familyHistory} onMerge={(ids) => mergeFamilies(organization.id, event.id, ids, students)} onSplit={(familyId, studentId) => separateFamilyMember(organization.id, event.id, familyId, studentId, students)} />}
+        {activeTab === 'seating' && canManage && seatPlan && <SeatingManager organization={organization} event={event} students={students} venues={venues} seatPlan={seatPlan} onSaveVenue={async (venue) => { const saved = await saveVenue(organization.id, venue); setVenues((current) => [...current.filter((item) => item.id !== saved.id), saved]); return saved; }} onSavePlan={async (plan) => { const saved = await saveSeatPlan(organization.id, event.id, plan); setSeatPlan(saved); return saved; }} />}
         {activeTab === 'students' && canManage && <StudentsManager students={students} onSaveStudents={(updated) => saveStudentsList(organization.id, event.id, updated)} onSaveCapacities={(updates) => saveStudentCapacities(organization.id, event.id, updates)} onSaveFamily={(studentId, familyId, visibleStudents = students) => saveStudentFamily(organization.id, event.id, studentId, familyId, visibleStudents)} onDeleteStudents={(ids) => deleteStudents(organization.id, event.id, ids)} onOpenCardPrinter={(student) => { setPrintStudent(student); setShowPrinter(true); }} onSelectStudent={setCheckinStudent} />}
         {activeTab === 'events' && canManage && <EventsManager events={events} currentEvent={event} students={students} onSelectEvent={handleEventChange} onCreateEvent={handleCreateEvent} onUpdateEvent={handleSaveEvent} onArchiveEvent={handleArchiveEvent} />}
         {activeTab === 'members' && canManage && <MembersManager organization={organization} currentUserId={authUser.uid} />}
         {activeTab === 'history' && <HistoryLog logs={logs} event={event} students={students} organization={organization} onDeleteLog={canManage ? (log) => deleteLogEntry(organization.id, event.id, log) : undefined} />}
       </main>
-      {checkinStudent && canOperate && <CheckinPanel student={students.find((item) => item.id === checkinStudent.id) || checkinStudent} currentDoor={currentDoor} onConfirmCheckIn={handleConfirmCheckIn} onClose={() => setCheckinStudent(null)} />}
-      {showPrinter && <QRCardPrinter students={students} selectedStudent={printStudent} event={event} organization={organization} onClose={() => { setShowPrinter(false); setPrintStudent(null); }} />}
+      {checkinStudent && canOperate && <CheckinPanel student={students.find((item) => item.id === checkinStudent.id) || checkinStudent} currentDoor={currentDoor} onConfirmCheckIn={handleConfirmCheckIn} onClose={() => setCheckinStudent(null)} seatPlan={seatPlan} venue={venues.find((item) => item.id === seatPlan?.venueId)} />}
+      {showPrinter && <QRCardPrinter students={students} selectedStudent={printStudent} event={event} organization={organization} seatPlan={seatPlan} venue={venues.find((item) => item.id === seatPlan?.venueId)} onClose={() => { setShowPrinter(false); setPrintStudent(null); }} />}
       {canManage && <SettingsModal isOpen={showSettings} onClose={() => setShowSettings(false)} event={event} organization={organization} onSaveOrganization={handleSaveOrganizationBrand} onSaveEvent={handleSaveEvent} currentDoor={currentDoor} onDoorChange={handleDoorChange} onResetData={() => resetEventData(organization.id, event.id)} />}
     </div>
   );

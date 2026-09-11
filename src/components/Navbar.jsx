@@ -16,7 +16,8 @@ import {
   CalendarDays,
   UserCog,
   Activity,
-  UsersRound
+  UsersRound,
+  Armchair
 } from 'lucide-react';
 
 export default function Navbar({ 
@@ -223,6 +224,8 @@ export default function Navbar({
           <button onClick={() => setActiveTab('operations')} className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-sm font-semibold whitespace-nowrap transition-all ${activeTab === 'operations' ? 'bg-sky-600 text-white shadow-sm shadow-sky-600/30' : 'text-slate-600 hover:bg-slate-200/70 hover:text-slate-900'}`}><Activity className="h-4 w-4"/><span>Operaciones</span></button>
 
           {permissions.canManage && <button onClick={() => setActiveTab('families')} className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-sm font-semibold whitespace-nowrap transition-all ${activeTab === 'families' ? 'bg-sky-600 text-white shadow-sm shadow-sky-600/30' : 'text-slate-600 hover:bg-slate-200/70 hover:text-slate-900'}`}><UsersRound className="h-4 w-4"/><span>Familias</span></button>}
+
+          {permissions.canManage && <button onClick={() => setActiveTab('seating')} className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-sm font-semibold whitespace-nowrap transition-all ${activeTab === 'seating' ? 'bg-sky-600 text-white shadow-sm shadow-sky-600/30' : 'text-slate-600 hover:bg-slate-200/70 hover:text-slate-900'}`}><Armchair className="h-4 w-4"/><span>Asientos</span></button>}
 
           {permissions.canManage && <button
             onClick={() => setActiveTab('students')}

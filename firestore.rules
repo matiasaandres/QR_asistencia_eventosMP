@@ -133,6 +133,31 @@ service cloud.firestore {
           && userId != get(/databases/$(database)/documents/organizations/$(organizationId)).data.ownerUid;
       }
 
+      match /venues/{venueId} {
+        function validVenue(data) {
+          return data.keys().hasOnly([
+              'id', 'name', 'description', 'templateKey', 'floors', 'seatCount', 'createdAt', 'updatedAt'
+            ])
+            && data.id == venueId
+            && data.name is string
+            && data.name.size() >= 2
+            && data.name.size() <= 120
+            && data.description is string
+            && data.description.size() <= 300
+            && data.templateKey is string
+            && data.floors is list
+            && data.floors.size() >= 1
+            && data.floors.size() <= 10
+            && data.seatCount is int
+            && data.seatCount >= 1
+            && data.seatCount <= 1000;
+        }
+
+        allow read: if isMember();
+        allow create, update: if isAdmin() && validVenue(request.resource.data);
+        allow delete: if false;
+      }
+
       match /events/{eventId} {
         function validEvent(data) {
           return data.keys().hasOnly([
@@ -175,6 +200,26 @@ service cloud.firestore {
             ])
           && validEvent(request.resource.data);
         allow delete: if false;
+
+        match /seatPlans/{seatPlanId} {
+          function validSeatPlan(data) {
+            return data.keys().hasOnly([
+                'id', 'eventId', 'venueId', 'venueName', 'assignments', 'updatedAt'
+              ])
+              && seatPlanId == 'current'
+              && data.id == seatPlanId
+              && data.eventId == eventId
+              && data.venueId is string
+              && data.venueName is string
+              && data.venueName.size() <= 120
+              && data.assignments is map
+              && data.assignments.size() <= 2000;
+          }
+
+          allow read: if isMember();
+          allow create, update: if isAdmin() && validSeatPlan(request.resource.data);
+          allow delete: if false;
+        }
 
         match /families/{familyId} {
           function validFamily(data) {

@@ -9,17 +9,21 @@ import {
   DoorClosed, 
   ShieldCheck,
   AlertOctagon,
-  UserPlus
+  UserPlus,
+  Armchair
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { sounds } from '../services/sound';
 import { getCapacityState } from '../services/checkinPolicy';
+import { getStudentSeats } from '../services/seatingPolicy';
 
 export default function CheckinPanel({ 
   student, 
   currentDoor, 
   onConfirmCheckIn, 
-  onClose 
+  onClose,
+  seatPlan,
+  venue
 }) {
   const [selectedCount, setSelectedCount] = useState(null);
   const [movementType, setMovementType] = useState('ENTRY');
@@ -39,6 +43,7 @@ export default function CheckinPanel({
   const isFull = capacity.isFull;
   const hasExtraGuest = capacity.hasExtraGuest;
   const canAddExtra = capacity.canAddExtra;
+  const assignedSeats = getStudentSeats(student, seatPlan, venue);
   const remainingAfterSelection = selectedCount == null
     ? remaining
     : Math.max(0, remaining - Math.max(0, selectedCount - outside));
@@ -209,6 +214,16 @@ export default function CheckinPanel({
               </div>
             </div>
           </div>
+
+          {assignedSeats.length > 0 && (
+            <div className="rounded-xl border border-sky-200 bg-sky-50 p-4">
+              <div className="flex items-center gap-2 text-sm font-extrabold text-sky-950"><Armchair className="h-5 w-5 text-sky-700" />Asientos asignados · {venue?.name}</div>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {assignedSeats.map((seat) => <span key={seat.id} className="rounded-lg bg-white px-2.5 py-1.5 font-mono text-xs font-black text-sky-900 shadow-sm ring-1 ring-sky-200">{seat.label || seat.id}</span>)}
+              </div>
+              <p className="mt-2 text-[11px] font-semibold text-sky-800">Indica estos puestos a la familia después de registrar su ingreso.</p>
+            </div>
+          )}
 
           {/* Current Door badge */}
           <div className="flex items-center justify-between text-xs text-slate-500 bg-slate-100/70 px-3.5 py-2 rounded-lg">

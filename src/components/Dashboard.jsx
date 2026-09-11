@@ -104,9 +104,14 @@ export default function Dashboard({ event, students, logs, analytics, organizati
     const doorMap = {};
     logs.forEach((log) => {
       const doorName = log.doorName || 'Sin puerta';
-      if (!doorMap[doorName]) doorMap[doorName] = { name: doorName, records: 0, people: 0 };
+      if (!doorMap[doorName]) doorMap[doorName] = { name: doorName, records: 0, people: 0, exits: 0, reentries: 0, movements: 0 };
+      const count = Math.max(0, Number(log.count) || 0);
+      const admissions = log.movementType === 'EXIT' ? 0 : Math.max(0, Number(log.newAdmissions ?? (log.movementType === 'REENTRY' ? 0 : count)) || 0);
       doorMap[doorName].records += 1;
-      doorMap[doorName].people += Number(log.count) || 0;
+      doorMap[doorName].people += admissions;
+      doorMap[doorName].exits += log.movementType === 'EXIT' ? count : 0;
+      doorMap[doorName].reentries += log.movementType === 'REENTRY' ? Math.max(0, Number(log.reentries ?? (count - admissions)) || 0) : 0;
+      doorMap[doorName].movements += count;
     });
 
     const hourMap = {};
@@ -117,12 +122,14 @@ export default function Dashboard({ event, students, logs, analytics, organizati
       if (!hourMap[key]) {
         hourMap[key] = { key, label: `${String(date.getHours()).padStart(2, '0')}:00`, people: 0, records: 0 };
       }
-      hourMap[key].people += Number(log.count) || 0;
+      hourMap[key].people += log.movementType === 'EXIT' ? 0 : Math.max(0, Number(log.newAdmissions ?? (log.movementType === 'REENTRY' ? 0 : log.count)) || 0);
       hourMap[key].records += 1;
     });
 
     const recentDoors = Object.values(doorMap).sort((a, b) => b.people - a.people);
     const recentHours = Object.values(hourMap).sort((a, b) => a.key.localeCompare(b.key)).slice(-8);
+    const analyticsIsCurrent = Boolean(analytics?.ready)
+      && (!logs[0]?.id || analytics.lastLogId === logs[0].id);
     return {
       totalStudents,
       totalFamilies,
@@ -136,11 +143,11 @@ export default function Dashboard({ event, students, logs, analytics, organizati
       capacityPercentage,
       availableCapacity: Math.max(0, totalCapacity - totalPeopleEntered),
       averageGroup: familiesEntered > 0 ? (totalPeopleEntered / familiesEntered).toFixed(1) : '0.0',
-      extraGuests: activeStudents.filter((student) => student.extraGuest).length,
+      extraGuests: capacityGroups.filter((student) => getCapacityState(student).hasExtraGuest).length,
       coursesList: Object.values(courseMap).sort((a, b) => a.name.localeCompare(b.name, 'es', { numeric: true })),
-      totalRecords: analytics?.ready ? analytics.totalRecords : logs.length,
-      doorsList: analytics?.ready ? analytics.doorsList : recentDoors,
-      activityByHour: analytics?.ready ? analytics.activityByHour : recentHours
+      totalRecords: analyticsIsCurrent ? analytics.totalRecords : logs.length,
+      doorsList: analyticsIsCurrent ? analytics.doorsList : recentDoors,
+      activityByHour: analyticsIsCurrent ? analytics.activityByHour : recentHours
     };
   }, [students, logs, analytics]);
 

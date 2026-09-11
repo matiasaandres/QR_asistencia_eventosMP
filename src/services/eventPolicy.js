@@ -14,8 +14,17 @@ export function getEffectiveEventStatus(event = {}, now = new Date()) {
   return configured;
 }
 
+function timestampForFirestore(value) {
+  if (!value) return null;
+  if (typeof value?.toDate === 'function') return value;
+  const parsed = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
 export function eventAllowsAccess(event = {}, now = new Date()) {
-  return !event.archived && getEffectiveEventStatus(event, now) === 'open';
+  return !event.archived
+    && !event.maintenanceState
+    && getEffectiveEventStatus(event, now) === 'open';
 }
 
 export function normalizeEvent(eventData = {}, fallbackEvent = {}) {
@@ -42,6 +51,10 @@ export function normalizeEvent(eventData = {}, fallbackEvent = {}) {
 
   return {
     ...normalized,
+    // Firestore rules cannot safely compare ISO strings with request.time. Keep
+    // the strings for forms and add server-comparable timestamps for enforcement.
+    startsAtTimestamp: timestampForFirestore(normalized.startsAt),
+    endsAtTimestamp: timestampForFirestore(normalized.endsAt),
     doors: normalized.doors.length ? normalized.doors : DEFAULT_EVENT_DOORS
   };
 }

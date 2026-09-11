@@ -81,6 +81,7 @@ export default function App() {
   const role = isMaster && schoolViewForMaster ? 'admin' : membership?.role || 'viewer';
   const canManage = canManageOrganization(role);
   const canOperate = canOperateAccess(role);
+  const canRegister = canOperate && syncMode !== 'offline' && syncMode !== 'error';
 
   useEffect(() => subscribeToAuth((user) => {
     setAuthUser(user);
@@ -215,18 +216,18 @@ export default function App() {
   }, [organization, event?.id, membership, isMaster]);
 
   useEffect(() => {
-    if (!organization || !event || !canOperate) return;
+    if (!organization || !event || !canManage) return;
     ensureEventAnalytics(organization.id, event.id).catch((error) => {
       console.warn('No fue posible preparar los agregados del evento:', error);
     });
-  }, [organization, event?.id, canOperate]);
+  }, [organization, event?.id, canManage]);
 
   useEffect(() => {
     if (!canManage && (activeTab === 'students' || activeTab === 'events' || activeTab === 'members' || activeTab === 'seating')) setActiveTab('dashboard');
-    if (!canOperate && (activeTab === 'scan' || activeTab === 'search')) setActiveTab('dashboard');
-  }, [role, activeTab, canManage, canOperate]);
+    if (!canRegister && (activeTab === 'scan' || activeTab === 'search')) setActiveTab('dashboard');
+  }, [role, activeTab, canManage, canRegister]);
 
-  const selectableTabs = useMemo(() => ({ canManage, canOperate }), [canManage, canOperate]);
+  const selectableTabs = useMemo(() => ({ canManage, canOperate: canRegister }), [canManage, canRegister]);
 
   const handleOrganizationChange = (organizationId) => {
     const selected = organizations.find((item) => item.id === organizationId);
@@ -320,9 +321,13 @@ export default function App() {
     setCheckinStudent(student);
   };
 
-  const handleConfirmCheckIn = ({ studentId, count, doorName, extraPerson, movementType }) => registerCheckIn({
-    organizationId: organization.id, eventId: event.id, studentId, count, doorName, extraPerson, movementType
-  });
+  const handleConfirmCheckIn = ({ studentId, count, doorName, extraPerson, movementType }) => {
+    if (!canRegister) throw new Error('Los movimientos requieren conexión activa con Firebase.');
+    return registerCheckIn({
+      organizationId: organization.id, eventId: event.id, studentId, count, doorName, extraPerson,
+      movementType, updateAnalytics: canManage
+    });
+  };
 
   const handleLoadMoreLogs = async () => {
     if (loadingMoreLogs || !hasMoreLogs) return;
@@ -364,8 +369,8 @@ export default function App() {
         onOrganizationChange={handleOrganizationChange} role={role} permissions={selectableTabs}
       />
       <main className="flex-1 pb-16">
-        {activeTab === 'scan' && canOperate && <ScannerModal onScanResult={handleScanResult} onSwitchToManualSearch={() => setActiveTab('search')} currentDoor={currentDoor} />}
-        {activeTab === 'search' && canOperate && <ManualSearch students={students} onSelectStudent={setCheckinStudent} onViewQR={(student) => { setPrintStudent(student); setShowPrinter(true); }} />}
+        {activeTab === 'scan' && canRegister && <ScannerModal onScanResult={handleScanResult} onSwitchToManualSearch={() => setActiveTab('search')} currentDoor={currentDoor} />}
+        {activeTab === 'search' && canRegister && <ManualSearch students={students} onSelectStudent={setCheckinStudent} onViewQR={(student) => { setPrintStudent(student); setShowPrinter(true); }} />}
         {activeTab === 'dashboard' && <Dashboard event={event} students={students} logs={logs} analytics={logAnalytics} organization={organization} onFetchAllLogs={handleFetchAllLogs} />}
         {activeTab === 'operations' && <OperationalCenter students={students} logs={logs} doors={doorSessions} />}
         {activeTab === 'families' && canManage && <FamiliesCenter students={students} history={familyHistory} onMerge={(ids) => mergeFamilies(organization.id, event.id, ids, students)} onSplit={(familyId, studentId) => separateFamilyMember(organization.id, event.id, familyId, studentId, students)} />}
@@ -375,7 +380,7 @@ export default function App() {
         {activeTab === 'members' && canManage && <MembersManager organization={organization} currentUserId={authUser.uid} />}
         {activeTab === 'history' && <HistoryLog logs={logs} event={event} students={students} organization={organization} hasMore={hasMoreLogs} loadingMore={loadingMoreLogs} onLoadMore={handleLoadMoreLogs} onFetchAllLogs={handleFetchAllLogs} onDeleteLog={canManage ? (log) => deleteLogEntry(organization.id, event.id, log) : undefined} />}
       </main>
-      {checkinStudent && canOperate && <CheckinPanel student={students.find((item) => item.id === checkinStudent.id) || checkinStudent} currentDoor={currentDoor} onConfirmCheckIn={handleConfirmCheckIn} onClose={() => setCheckinStudent(null)} seatPlan={seatPlan} venue={venues.find((item) => item.id === seatPlan?.venueId)} />}
+      {checkinStudent && canRegister && <CheckinPanel student={students.find((item) => item.id === checkinStudent.id) || checkinStudent} currentDoor={currentDoor} onConfirmCheckIn={handleConfirmCheckIn} onClose={() => setCheckinStudent(null)} seatPlan={seatPlan} venue={venues.find((item) => item.id === seatPlan?.venueId)} />}
       {showPrinter && <QRCardPrinter students={students} selectedStudent={printStudent} event={event} organization={organization} seatPlan={seatPlan} venue={venues.find((item) => item.id === seatPlan?.venueId)} onClose={() => { setShowPrinter(false); setPrintStudent(null); }} />}
       {canManage && <SettingsModal isOpen={showSettings} onClose={() => setShowSettings(false)} event={event} organization={organization} onSaveOrganization={handleSaveOrganizationBrand} onSaveEvent={handleSaveEvent} currentDoor={currentDoor} onDoorChange={handleDoorChange} onResetData={() => resetEventData(organization.id, event.id)} />}
     </div>

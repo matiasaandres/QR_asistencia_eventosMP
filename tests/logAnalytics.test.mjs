@@ -38,3 +38,16 @@ test('consolida shards horarios y puertas en estadísticas globales', () => {
   assert.equal(summary.activityByHour.length, 2);
   assert.deepEqual(summary.activityByHour.map((hour) => hour.people), [4, 2]);
 });
+
+test('separa admisiones nuevas, reingresos y salidas', () => {
+  const summary = summarizeAnalytics(buildAnalyticsDocuments([
+    { id: 'entry', timestamp: '2026-09-11T12:00:00Z', doorName: 'Puerta 1', count: 3, movementType: 'ENTRY', newAdmissions: 3, reentries: 0 },
+    { id: 'exit', timestamp: '2026-09-11T12:10:00Z', doorName: 'Puerta 1', count: 2, movementType: 'EXIT', newAdmissions: 0, reentries: 0 },
+    { id: 'return', timestamp: '2026-09-11T12:20:00Z', doorName: 'Puerta 1', count: 2, movementType: 'REENTRY', newAdmissions: 0, reentries: 2 }
+  ]));
+  assert.equal(summary.totalEntries, 3);
+  assert.equal(summary.totalExits, 2);
+  assert.equal(summary.totalReentries, 2);
+  assert.equal(summary.totalMovements, 7);
+  assert.equal(summary.doorsList[0].people, 3);
+});

@@ -15,7 +15,8 @@ test('aísla los datos por organización y exige membresía activa', () => {
 
 test('reserva la creación y gestión global de escuelas para la cuenta maestra', () => {
   assert.match(rules, /function platformAdmin\(\)/);
-  assert.match(rules, /platformAdmin\(\)[\s\S]*hasOnly\(\['maxCapacity', 'enteredCount', 'insideCount', 'status', 'lastEntryAt', 'lastMovementAt', 'extraGuest'\]\)[\s\S]*request\.resource\.data\.enteredCount <= request\.resource\.data\.maxCapacity \+ 1/);
+  assert.match(rules, /function validStudentCounters\(data\)/);
+  assert.match(rules, /data\.enteredCount <= data\.maxCapacity \+ 1/);
   assert.match(rules, /matias\.andres\.mh@gmail\.com/);
   assert.match(rules, /allow create: if platformAdmin\(\)/);
   assert.match(rules, /request\.resource\.data\.memberUids\.size\(\) == 1/);
@@ -29,9 +30,11 @@ test('reserva eventos y nóminas para administradores', () => {
 });
 
 test('permite operar accesos sin superar el cupo normal', () => {
-  assert.match(rules, /enteredCount <= resource\.data\.maxCapacity/);
-  assert.match(rules, /resource\.data\.disabled == false/);
-  assert.match(rules, /resource\.data\.deleted == false/);
+  assert.match(rules, /request\.resource\.data\.enteredCount == resource\.data\.enteredCount \+ log\.newAdmissions/);
+  assert.match(rules, /request\.resource\.data\.insideCount == resource\.data\.insideCount \+ log\.count/);
+  assert.match(rules, /get\('lastLogId', ''\) == logId/);
+  assert.match(rules, /!\('disabled' in resource\.data\) \|\| resource\.data\.disabled == false/);
+  assert.match(rules, /!\('deleted' in resource\.data\) \|\| resource\.data\.deleted == false/);
 });
 
 test('mantiene los cupos familiares en documentos independientes', () => {
@@ -51,16 +54,15 @@ test('protege sesiones de puerta, movimientos y el historial familiar', () => {
 });
 
 test('el cupo extraordinario exige identificación y máximo más uno', () => {
-  assert.match(rules, /enteredCount == resource\.data\.maxCapacity \+ 1/);
-  assert.match(rules, /status == 'CUPO_EXTRA'/);
-  assert.match(rules, /extraGuest\.name\.size\(\) >= 2/);
-  assert.match(rules, /extraGuest\.relationship\.size\(\) >= 2/);
+  assert.match(rules, /data\.enteredCount <= data\.maxCapacity \+ 1/);
+  assert.match(rules, /'CUPO_EXTRA'/);
+  assert.match(rules, /guestName\.size\(\) >= 2/);
+  assert.match(rules, /relationship\.size\(\) >= 2/);
 });
 
 test('solo un administrador puede corregir historial y reiniciar asistencia', () => {
-  assert.match(rules, /isAdmin\(\)[\s\S]*enteredCount == 0/);
-  assert.match(rules, /enteredCount >= resource\.data\.enteredCount - 5/);
-  assert.match(rules, /allow delete: if isAdmin\(\) && eventWillBeOpen\(\)/);
+  assert.match(rules, /allow delete: if isAdmin\(\);/);
+  assert.match(rules, /function adminMaintenance\(operation\)/);
 });
 
 test('los administradores pueden deshabilitar o eliminar miembros sin afectar al propietario ni a su propia cuenta', () => {
@@ -87,6 +89,7 @@ test('protege los agregados incrementales del historial', () => {
   assert.match(rules, /data\.kind in \['door', 'hour'\]/);
   assert.match(rules, /data\.people >= 0/);
   assert.match(rules, /data\.records >= 0/);
-  assert.match(rules, /canOperate\(\) && analyticsId != 'meta'/);
-  assert.match(rules, /canOperate\(\) && validMeta/);
+  assert.match(rules, /allow create, update: if isAdmin\(\)/);
+  assert.match(rules, /'entries', 'exits', 'reentries', 'movements'/);
+  assert.doesNotMatch(rules, /canOperate\(\) && analyticsId != 'meta'/);
 });

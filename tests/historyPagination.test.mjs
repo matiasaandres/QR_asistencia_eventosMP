@@ -19,7 +19,9 @@ test('la interfaz carga páginas adicionales y exporta el historial completo baj
 });
 
 test('el panel usa agregados en vez de inferir totales desde una página', () => {
-  assert.match(dashboard, /analytics\?\.ready \? analytics\.totalRecords/);
-  assert.match(dashboard, /analytics\?\.ready \? analytics\.doorsList/);
-  assert.match(dashboard, /analytics\?\.ready \? analytics\.activityByHour/);
+  assert.match(dashboard, /const analyticsIsCurrent = Boolean\(analytics\?\.ready\)/);
+  assert.match(dashboard, /analytics\.lastLogId === logs\[0\]\.id/);
+  assert.match(dashboard, /analyticsIsCurrent \? analytics\.totalRecords/);
+  assert.match(dashboard, /analyticsIsCurrent \? analytics\.doorsList/);
+  assert.match(dashboard, /analyticsIsCurrent \? analytics\.activityByHour/);
 });

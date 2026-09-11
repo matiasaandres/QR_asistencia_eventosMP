@@ -30,6 +30,9 @@ test('aplica estados manuales y horario automático al evento', () => {
   assert.equal(getEffectiveEventStatus(event, '2026-09-10T21:00:00Z'), 'open');
   assert.equal(getEffectiveEventStatus(event, '2026-09-10T23:01:00Z'), 'closed');
   assert.equal(eventAllowsAccess({ ...event, status: 'paused' }, '2026-09-10T21:00:00Z'), false);
+  assert.equal(event.startsAtTimestamp instanceof Date, true);
+  assert.equal(event.endsAtTimestamp instanceof Date, true);
+  assert.equal(eventAllowsAccess({ ...event, maintenanceState: 'running' }, '2026-09-10T21:00:00Z'), false);
 });
 
 test('resume familias, personas dentro, puertas y alertas operativas', () => {

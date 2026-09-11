@@ -206,7 +206,35 @@ async function commitOperations(db, operations) {
 
 function restoredEventData(event) {
   const keys = ['id', 'name', 'institution', 'date', 'defaultCapacity', 'doors', 'status', 'startsAt', 'endsAt', 'archived', 'studentsInitialized', 'initializedAt', 'createdAt', 'updatedAt'];
-  return { status: 'open', startsAt: '', endsAt: '', ...Object.fromEntries(keys.filter((key) => event[key] !== undefined).map((key) => [key, event[key]])) };
+  const restored = { status: 'open', startsAt: '', endsAt: '', ...Object.fromEntries(keys.filter((key) => event[key] !== undefined).map((key) => [key, event[key]])) };
+  const startsAt = restored.startsAt ? new Date(restored.startsAt) : null;
+  const endsAt = restored.endsAt ? new Date(restored.endsAt) : null;
+  return {
+    ...restored,
+    startsAtTimestamp: startsAt && !Number.isNaN(startsAt.getTime()) ? startsAt : null,
+    endsAtTimestamp: endsAt && !Number.isNaN(endsAt.getTime()) ? endsAt : null
+  };
+}
+
+async function restoreEventSafely(eventRef, eventData, work) {
+  const startedAt = new Date().toISOString();
+  await setDoc(eventRef, {
+    ...eventData,
+    maintenanceState: 'running', maintenanceOperation: 'restore', maintenanceStartedAt: startedAt, updatedAt: startedAt
+  }, { merge: true });
+  try {
+    const result = await work();
+    await setDoc(eventRef, {
+      maintenanceState: '', maintenanceOperation: '', maintenanceStartedAt: '',
+      maintenanceCompletedAt: new Date().toISOString(), updatedAt: new Date().toISOString()
+    }, { merge: true });
+    return result;
+  } catch (error) {
+    await setDoc(eventRef, {
+      maintenanceState: 'failed', maintenanceOperation: 'restore', updatedAt: new Date().toISOString()
+    }, { merge: true }).catch(() => {});
+    throw new Error(`La restauración del evento quedó incompleta y fue bloqueada para evitar movimientos sobre datos parciales. Reintenta el respaldo. ${error.message}`);
+  }
 }
 
 export async function restoreSchoolBackup(organizationId, rawBackup) {
@@ -225,7 +253,7 @@ export async function restoreSchoolBackup(organizationId, rawBackup) {
 
   for (const event of backup.events) {
     const eventRef = doc(organizationRef, 'events', event.id);
-    await setDoc(eventRef, { ...restoredEventData(event), archived: false, studentsInitialized: true }, { merge: true });
+    await restoreEventSafely(eventRef, { ...restoredEventData(event), archived: false, studentsInitialized: true }, async () => {
     const [currentStudents, currentFamilies, currentLogs, currentFamilyHistory, currentAnalytics] = await Promise.all([
       getDocs(collection(eventRef, 'students')),
       getDocs(collection(eventRef, 'families')),
@@ -269,6 +297,8 @@ export async function restoreSchoolBackup(organizationId, rawBackup) {
       (batch) => batch.set(doc(eventRef, 'analytics', 'meta'), {
         version: LOG_ANALYTICS_VERSION,
         sourceLogCount: event.logs.length,
+        lastLogId: [...event.logs].sort((left, right) => String(right.timestamp || '').localeCompare(String(left.timestamp || ''))
+          || String(right.id || '').localeCompare(String(left.id || '')))[0]?.id || '',
         rebuiltAt: new Date().toISOString()
       })
     ]);
@@ -279,6 +309,7 @@ export async function restoreSchoolBackup(organizationId, rawBackup) {
     }));
     if (event.archived === true) await setDoc(eventRef, { archived: true }, { merge: true });
     if (event.seatPlan) await setDoc(doc(eventRef, 'seatPlans', 'current'), event.seatPlan);
+    });
   }
 
   const archiveOperations = currentEventsSnapshot.docs

@@ -110,7 +110,7 @@ export default function Navbar({
                 syncMode === 'cloud'
                   ? 'Sincronizado en la nube (Firebase)'
                   : syncMode === 'offline'
-                    ? 'Sin conexión: usando la copia persistente de Firebase'
+                    ? 'Sin conexión: copia de solo lectura. Los movimientos requieren conexión con Firebase.'
                     : syncMode === 'error'
                       ? 'Error de sincronización: revisa Firebase'
                       : 'Modo local (Haz clic para configurar Firebase)'

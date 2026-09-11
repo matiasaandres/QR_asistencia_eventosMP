@@ -1,4 +1,5 @@
 import { getCapacityState } from './checkinPolicy';
+import { getUniqueCapacityStudents } from './familyPolicy.js';
 import { createExcelDownload } from './spreadsheet.js';
 
 export async function exportToExcel({ event, students, logs, organization }) {
@@ -11,6 +12,7 @@ export async function exportToExcel({ event, students, logs, organization }) {
 
   const studentsData = students.map((student) => {
     const capacity = getCapacityState(student);
+    const extraGuest = student.familyExtraGuest || student.extraGuest;
     return {
       'Código': student.id,
       'Estudiante': student.name,
@@ -27,9 +29,9 @@ export async function exportToExcel({ event, students, logs, organization }) {
             ? 'COMPLETO'
             : capacity.enteredCount > 0 ? 'PARCIAL' : 'PENDIENTE',
       'Cupo Extraordinario': capacity.hasExtraGuest ? 'Sí' : 'No',
-      'Nombre Persona Extra': student.extraGuest?.name || '',
-      'Parentesco Persona Extra': student.extraGuest?.relationship || '',
-      'Último Registro': student.lastEntryAt ? new Date(student.lastEntryAt).toLocaleString('es-CL') : 'Sin ingresos'
+      'Nombre Persona Extra': extraGuest?.name || '',
+      'Parentesco Persona Extra': extraGuest?.relationship || '',
+      'Último Registro': (student.familyLastEntryAt || student.lastEntryAt) ? new Date(student.familyLastEntryAt || student.lastEntryAt).toLocaleString('es-CL') : 'Sin ingresos'
     };
   });
 
@@ -50,7 +52,8 @@ export async function exportToExcel({ event, students, logs, organization }) {
   }));
 
   const courseStats = {};
-  students.filter((student) => !getCapacityState(student).isAccessBlocked).forEach((student) => {
+  getUniqueCapacityStudents(students.filter((student) => !getCapacityState(student).isAccessBlocked)).forEach((student) => {
+    const capacity = getCapacityState(student);
     const course = student.course || 'Sin Curso';
     if (!courseStats[course]) {
       courseStats[course] = {
@@ -63,9 +66,9 @@ export async function exportToExcel({ event, students, logs, organization }) {
     }
     const row = courseStats[course];
     row['Total Estudiantes'] += 1;
-    if ((student.enteredCount || 0) > 0) {
+    if (capacity.enteredCount > 0) {
       row['Familias que Asistieron'] += 1;
-      row['Total Personas Ingresadas'] += student.enteredCount;
+      row['Total Personas Ingresadas'] += capacity.enteredCount;
     } else row['Familias Pendientes'] += 1;
   });
 

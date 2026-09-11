@@ -162,7 +162,9 @@ service cloud.firestore {
         function validEvent(data) {
           return data.keys().hasOnly([
               'id', 'name', 'institution', 'date', 'defaultCapacity', 'doors',
-              'status', 'startsAt', 'endsAt', 'archived', 'studentsInitialized', 'initializedAt', 'createdAt', 'updatedAt'
+              'status', 'startsAt', 'endsAt', 'startsAtTimestamp', 'endsAtTimestamp',
+              'archived', 'studentsInitialized', 'initializedAt', 'createdAt', 'updatedAt',
+              'maintenanceState', 'maintenanceOperation', 'maintenanceStartedAt', 'maintenanceCompletedAt'
             ])
             && data.id == eventId
             && data.name is string
@@ -179,16 +181,29 @@ service cloud.firestore {
             && data.status in ['draft', 'open', 'paused', 'closed']
             && data.startsAt is string
             && data.endsAt is string
+            && (data.startsAt == '' || (data.startsAtTimestamp is timestamp))
+            && (data.endsAt == '' || (data.endsAtTimestamp is timestamp))
+            && (!('maintenanceState' in data) || data.maintenanceState in ['', 'running', 'failed'])
             && data.archived is bool
             && data.studentsInitialized == true;
         }
 
         function eventWillBeOpen() {
+          let event = getAfter(/databases/$(database)/documents/organizations/$(organizationId)/events/$(eventId)).data;
           return canOperate()
             && existsAfter(/databases/$(database)/documents/organizations/$(organizationId)/events/$(eventId))
-            && getAfter(/databases/$(database)/documents/organizations/$(organizationId)/events/$(eventId)).data.archived == false
-            && (!('status' in getAfter(/databases/$(database)/documents/organizations/$(organizationId)/events/$(eventId)).data)
-              || getAfter(/databases/$(database)/documents/organizations/$(organizationId)/events/$(eventId)).data.status == 'open');
+            && event.archived == false
+            && (!('maintenanceState' in event) || event.maintenanceState == '')
+            && (!('status' in event) || event.status == 'open')
+            && (event.startsAt == '' || request.time >= event.startsAtTimestamp)
+            && (event.endsAt == '' || request.time < event.endsAtTimestamp);
+        }
+
+        function adminMaintenance(operation) {
+          return isAdmin()
+            && existsAfter(/databases/$(database)/documents/organizations/$(organizationId)/events/$(eventId))
+            && getAfter(/databases/$(database)/documents/organizations/$(organizationId)/events/$(eventId)).data.maintenanceState == 'running'
+            && getAfter(/databases/$(database)/documents/organizations/$(organizationId)/events/$(eventId)).data.maintenanceOperation == operation;
         }
 
         allow read: if isMember();
@@ -196,7 +211,9 @@ service cloud.firestore {
         allow update: if isAdmin()
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
               'name', 'institution', 'date', 'defaultCapacity', 'doors', 'archived',
-              'status', 'startsAt', 'endsAt', 'studentsInitialized', 'initializedAt', 'createdAt', 'updatedAt'
+              'status', 'startsAt', 'endsAt', 'startsAtTimestamp', 'endsAtTimestamp',
+              'studentsInitialized', 'initializedAt', 'createdAt', 'updatedAt',
+              'maintenanceState', 'maintenanceOperation', 'maintenanceStartedAt', 'maintenanceCompletedAt'
             ])
           && validEvent(request.resource.data);
         allow delete: if false;
@@ -223,7 +240,7 @@ service cloud.firestore {
 
         match /analytics/{analyticsId} {
           function validMetric(data) {
-            return data.keys().hasOnly(['kind', 'key', 'label', 'people', 'records', 'updatedAt'])
+            return data.keys().hasOnly(['kind', 'key', 'label', 'people', 'entries', 'exits', 'reentries', 'movements', 'records', 'lastLogId', 'updatedAt'])
               && data.kind in ['door', 'hour']
               && data.key is string
               && data.key.size() >= 1
@@ -233,22 +250,37 @@ service cloud.firestore {
               && data.label.size() <= 120
               && data.people is int
               && data.people >= 0
+              && data.entries is int
+              && data.entries >= 0
+              && data.exits is int
+              && data.exits >= 0
+              && data.reentries is int
+              && data.reentries >= 0
+              && data.movements is int
+              && data.movements >= 0
+              && (!('lastLogId' in data) || data.lastLogId is string)
               && data.records is int
               && data.records >= 0;
           }
 
           function validMeta(data) {
             return analyticsId == 'meta'
-              && data.keys().hasOnly(['version', 'sourceLogCount', 'rebuiltAt'])
+              && data.keys().hasOnly(['version', 'sourceLogCount', 'lastLogId', 'rebuiltAt'])
               && data.version is int
               && data.sourceLogCount is int
               && data.sourceLogCount >= 0
+              && data.lastLogId is string
               && data.rebuiltAt is string;
           }
 
           allow read: if isMember();
-          allow create, update: if (canOperate() && analyticsId != 'meta' && validMetric(request.resource.data))
-            || (canOperate() && validMeta(request.resource.data));
+          // Aggregate documents are privileged materialized views. Operators
+          // write only the immutable log and capacity transition; an admin
+          // rebuilds aggregates from that authoritative history.
+          allow create, update: if isAdmin() && (
+            (analyticsId != 'meta' && validMetric(request.resource.data))
+            || validMeta(request.resource.data)
+          );
           allow delete: if isAdmin();
         }
 
@@ -256,7 +288,7 @@ service cloud.firestore {
           function validFamily(data) {
             return data.keys().hasOnly([
                 'id', 'maxCapacity', 'enteredCount', 'status', 'members',
-                'insideCount', 'lastEntryAt', 'lastMovementAt', 'extraGuest', 'createdAt', 'updatedAt'
+                'insideCount', 'lastEntryAt', 'lastMovementAt', 'extraGuest', 'lastLogId', 'createdAt', 'updatedAt'
               ])
               && data.id == familyId
               && data.maxCapacity is int
@@ -268,116 +300,128 @@ service cloud.firestore {
               && data.insideCount is int
               && data.insideCount >= 0
               && data.insideCount <= data.enteredCount
+              && data.status in ['PENDIENTE', 'PARCIAL', 'COMPLETO', 'CUPO_EXTRA']
               && data.members is list
               && data.members.size() >= 1
-              && data.members.size() <= 100;
+              && data.members.size() <= 100
+              && (!('extraGuest' in data) || (
+                data.extraGuest is map
+                && data.extraGuest.keys().hasOnly(['name', 'relationship', 'addedAt', 'doorName'])
+                && data.extraGuest.name is string
+                && data.extraGuest.name.size() >= 2
+                && data.extraGuest.name.size() <= 80
+                && data.extraGuest.relationship is string
+                && data.extraGuest.relationship.size() >= 2
+                && data.extraGuest.relationship.size() <= 40
+              ));
+          }
+
+          function validOperatorFamilyMovement() {
+            let logId = request.resource.data.get('lastLogId', '');
+            let logPath = /databases/$(database)/documents/organizations/$(organizationId)/events/$(eventId)/logs/$(logId);
+            let log = getAfter(logPath).data;
+            return eventWillBeOpen()
+              && logId is string
+              && existsAfter(logPath)
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+                'enteredCount', 'insideCount', 'status', 'lastEntryAt', 'lastMovementAt', 'extraGuest', 'lastLogId'
+              ])
+              && log.familyId == familyId
+              && log.operatorUid == request.auth.uid
+              && log.operatorEmail == request.auth.token.email
+              && log.accumulated == request.resource.data.enteredCount
+              && log.insideAfter == request.resource.data.insideCount
+              && log.count is int
+              && log.count >= 1
+              && log.count <= 5
+              && log.movementType in ['ENTRY', 'EXIT', 'REENTRY']
+              && log.newAdmissions is int
+              && log.reentries is int
+              && (
+                (log.movementType == 'EXIT'
+                  && log.newAdmissions == 0
+                  && log.reentries == 0
+                  && request.resource.data.enteredCount == resource.data.enteredCount
+                  && request.resource.data.insideCount == resource.data.insideCount - log.count)
+                || (log.movementType in ['ENTRY', 'REENTRY']
+                  && log.newAdmissions >= 0
+                  && log.newAdmissions <= log.count
+                  && log.reentries == log.count - log.newAdmissions
+                  && request.resource.data.enteredCount == resource.data.enteredCount + log.newAdmissions
+                  && request.resource.data.insideCount == resource.data.insideCount + log.count)
+              );
           }
 
           allow read: if isMember();
           allow create: if isAdmin() && validFamily(request.resource.data);
           allow update: if validFamily(request.resource.data) && (
             isAdmin()
-            || (eventWillBeOpen() && canOperate()
-              && request.resource.data.diff(resource.data).affectedKeys()
-                .hasOnly(['enteredCount', 'insideCount', 'status', 'lastEntryAt', 'lastMovementAt', 'extraGuest'])
-              && (
-                (request.resource.data.enteredCount >= resource.data.enteredCount
-                  && request.resource.data.enteredCount <= resource.data.maxCapacity
-                  && request.resource.data.insideCount >= resource.data.insideCount)
-                || (request.resource.data.enteredCount == resource.data.enteredCount
-                  && request.resource.data.insideCount < resource.data.insideCount)
-                || (resource.data.enteredCount == resource.data.maxCapacity + 1
-                  && request.resource.data.enteredCount == resource.data.enteredCount
-                  && request.resource.data.insideCount > resource.data.insideCount
-                  && resource.data.extraGuest is map)
-                || (resource.data.enteredCount == resource.data.maxCapacity
-                  && !('extraGuest' in resource.data)
-                  && request.resource.data.enteredCount == resource.data.maxCapacity + 1
-                  && request.resource.data.status == 'CUPO_EXTRA'
-                  && request.resource.data.extraGuest is map)
-              ))
+            || validOperatorFamilyMovement()
           );
           allow delete: if isAdmin();
         }
 
         match /students/{studentId} {
+          function validStudentCounters(data) {
+            return data.enteredCount is int
+              && data.insideCount is int
+              && data.maxCapacity is int
+              && data.enteredCount >= 0
+              && data.insideCount >= 0
+              && data.insideCount <= data.enteredCount
+              && data.maxCapacity >= 0
+              && data.maxCapacity <= 50
+              && data.enteredCount <= data.maxCapacity + 1;
+          }
+
+          function validOperatorStudentMovement() {
+            let logId = request.resource.data.get('lastLogId', '');
+            let logPath = /databases/$(database)/documents/organizations/$(organizationId)/events/$(eventId)/logs/$(logId);
+            let log = getAfter(logPath).data;
+            return eventWillBeOpen()
+              && !('familyId' in resource.data)
+              && (!('disabled' in resource.data) || resource.data.disabled == false)
+              && (!('deleted' in resource.data) || resource.data.deleted == false)
+              && logId is string
+              && existsAfter(logPath)
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+                'enteredCount', 'insideCount', 'status', 'lastEntryAt', 'lastMovementAt', 'extraGuest', 'lastLogId'
+              ])
+              && log.studentId == studentId
+              && !('familyId' in log)
+              && log.operatorUid == request.auth.uid
+              && log.operatorEmail == request.auth.token.email
+              && log.accumulated == request.resource.data.enteredCount
+              && log.insideAfter == request.resource.data.insideCount
+              && log.count is int
+              && log.count >= 1
+              && log.count <= 5
+              && log.movementType in ['ENTRY', 'EXIT', 'REENTRY']
+              && log.newAdmissions is int
+              && log.reentries is int
+              && (
+                (log.movementType == 'EXIT'
+                  && log.newAdmissions == 0
+                  && log.reentries == 0
+                  && request.resource.data.enteredCount == resource.data.enteredCount
+                  && request.resource.data.insideCount == resource.data.insideCount - log.count)
+                || (log.movementType in ['ENTRY', 'REENTRY']
+                  && log.newAdmissions >= 0
+                  && log.newAdmissions <= log.count
+                  && log.reentries == log.count - log.newAdmissions
+                  && request.resource.data.enteredCount == resource.data.enteredCount + log.newAdmissions
+                  && request.resource.data.insideCount == resource.data.insideCount + log.count)
+              );
+          }
+
           allow read: if isMember();
-          allow create: if isAdmin()
-            && request.resource.data.enteredCount is int
-            && request.resource.data.insideCount is int
-            && request.resource.data.maxCapacity is int
-            && request.resource.data.enteredCount >= 0
-            && request.resource.data.insideCount >= 0
-            && request.resource.data.insideCount <= request.resource.data.enteredCount
-            && request.resource.data.maxCapacity >= 0
-              && request.resource.data.enteredCount <= request.resource.data.maxCapacity + 1;
+          allow create: if isAdmin() && validStudentCounters(request.resource.data);
           allow update: if (
-            (platformAdmin()
-              && request.resource.data.diff(resource.data).affectedKeys()
-                .hasOnly(['maxCapacity', 'enteredCount', 'insideCount', 'status', 'lastEntryAt', 'lastMovementAt', 'extraGuest'])
-              && request.resource.data.enteredCount is int
-              && request.resource.data.insideCount is int
-              && request.resource.data.insideCount >= 0
-              && request.resource.data.insideCount <= request.resource.data.enteredCount
-              && request.resource.data.maxCapacity is int
-              && request.resource.data.enteredCount >= 0
-              && request.resource.data.maxCapacity >= 0
-              && request.resource.data.maxCapacity <= 50
-              && request.resource.data.enteredCount <= request.resource.data.maxCapacity + 1)
+            validOperatorStudentMovement()
             || (isAdmin()
               && request.resource.data.diff(resource.data).affectedKeys()
-                .hasOnly(['rut', 'name', 'rawName', 'course', 'maxCapacity', 'disabled', 'deleted', 'deletedAt', 'familyId', 'familyOwnerId', 'enteredCount', 'insideCount', 'status', 'lastEntryAt', 'lastMovementAt', 'extraGuest'])
-              && request.resource.data.maxCapacity is int
-              && request.resource.data.maxCapacity >= 0
-              && request.resource.data.maxCapacity <= 50)
-            || (
-              eventWillBeOpen()
-              && canOperate()
-              && !('familyId' in resource.data)
-              && request.resource.data.diff(resource.data).affectedKeys()
-                .hasOnly(['enteredCount', 'insideCount', 'status', 'lastEntryAt', 'lastMovementAt', 'extraGuest'])
-              && request.resource.data.enteredCount is int
-              && request.resource.data.insideCount is int
-              && request.resource.data.insideCount >= 0
-              && request.resource.data.insideCount <= request.resource.data.enteredCount
-              && (!('disabled' in resource.data) || resource.data.disabled == false || 'familyId' in resource.data)
-              && (!('deleted' in resource.data) || resource.data.deleted == false)
-              && (
-                (request.resource.data.enteredCount >= resource.data.enteredCount
-                  && request.resource.data.enteredCount <= resource.data.maxCapacity
-                  && (!('insideCount' in resource.data) || request.resource.data.insideCount >= resource.data.insideCount))
-                || (request.resource.data.enteredCount == resource.data.enteredCount
-                  && request.resource.data.insideCount < resource.data.insideCount)
-                || (resource.data.enteredCount == resource.data.maxCapacity + 1
-                  && request.resource.data.enteredCount == resource.data.enteredCount
-                  && request.resource.data.insideCount > resource.data.insideCount
-                  && resource.data.extraGuest is map)
-                || (
-                  resource.data.maxCapacity > 0
-                  && resource.data.enteredCount == resource.data.maxCapacity
-                  && !('extraGuest' in resource.data)
-                  && request.resource.data.enteredCount == resource.data.maxCapacity + 1
-                  && request.resource.data.status == 'CUPO_EXTRA'
-                  && request.resource.data.extraGuest is map
-                  && request.resource.data.extraGuest.keys().hasOnly(['name', 'relationship', 'addedAt', 'doorName'])
-                  && request.resource.data.extraGuest.name is string
-                  && request.resource.data.extraGuest.name.size() >= 2
-                  && request.resource.data.extraGuest.name.size() <= 80
-                  && request.resource.data.extraGuest.relationship is string
-                  && request.resource.data.extraGuest.relationship.size() >= 2
-                  && request.resource.data.extraGuest.relationship.size() <= 40
-                )
-                || (isAdmin()
-                  && request.resource.data.enteredCount == 0
-                  && request.resource.data.status == 'PENDIENTE'
-                  && !('lastEntryAt' in request.resource.data)
-                  && !('extraGuest' in request.resource.data))
-                || (isAdmin()
-                  && request.resource.data.enteredCount >= 0
-                  && request.resource.data.enteredCount < resource.data.enteredCount
-                  && request.resource.data.enteredCount >= resource.data.enteredCount - 5)
-              )
-            )
+                .hasOnly(['rut', 'name', 'rawName', 'course', 'maxCapacity', 'disabled', 'deleted', 'deletedAt', 'familyId', 'familyOwnerId', 'enteredCount', 'insideCount', 'status', 'lastEntryAt', 'lastMovementAt', 'extraGuest', 'lastLogId'])
+              && validStudentCounters(request.resource.data))
           );
           allow delete: if false;
         }
@@ -399,39 +443,64 @@ service cloud.firestore {
         }
 
         match /logs/{logId} {
-          allow read: if isMember();
-          allow create: if (isAdmin() && eventWillBeOpen()) || (
-            eventWillBeOpen()
-              && request.resource.data.operatorUid == request.auth.uid
-              && request.resource.data.operatorEmail == request.auth.token.email
-              && ((('familyId' in request.resource.data) && (
-                get(/databases/$(database)/documents/organizations/$(organizationId)/events/$(eventId)/students/$(request.resource.data.studentId)).data.familyId == request.resource.data.familyId
-                && get(/databases/$(database)/documents/organizations/$(organizationId)/events/$(eventId)/students/$(request.resource.data.studentId)).data.disabled != true
-                && get(/databases/$(database)/documents/organizations/$(organizationId)/events/$(eventId)/students/$(request.resource.data.studentId)).data.deleted != true
-                && getAfter(/databases/$(database)/documents/organizations/$(organizationId)/events/$(eventId)/families/$(request.resource.data.familyId)).data.enteredCount == request.resource.data.accumulated
-                && getAfter(/databases/$(database)/documents/organizations/$(organizationId)/events/$(eventId)/families/$(request.resource.data.familyId)).data.insideCount == request.resource.data.insideAfter
-              )) || (!('familyId' in request.resource.data)
-                && get(/databases/$(database)/documents/organizations/$(organizationId)/events/$(eventId)/students/$(request.resource.data.studentId)).data.disabled != true
-                && get(/databases/$(database)/documents/organizations/$(organizationId)/events/$(eventId)/students/$(request.resource.data.studentId)).data.deleted != true
-                && getAfter(/databases/$(database)/documents/organizations/$(organizationId)/events/$(eventId)/students/$(request.resource.data.studentId)).data.enteredCount == request.resource.data.accumulated
-                && getAfter(/databases/$(database)/documents/organizations/$(organizationId)/events/$(eventId)/students/$(request.resource.data.studentId)).data.insideCount == request.resource.data.insideAfter
-              ))
+          function validOperatorLog() {
+            return request.resource.data.keys().hasOnly([
+                'studentId', 'familyId', 'studentName', 'course', 'count', 'movementType',
+                'newAdmissions', 'reentries', 'accumulated', 'insideAfter', 'maxCapacity',
+                'doorName', 'timestamp', 'formattedTime', 'formattedDate', 'operatorUid',
+                'operatorEmail', 'isExtra', 'guestName', 'relationship'
+              ])
+              && request.resource.data.studentId is string
+              && request.resource.data.studentName is string
+              && request.resource.data.course is string
               && request.resource.data.count is int
               && request.resource.data.count >= 1
               && request.resource.data.count <= 5
-              && (!('isExtra' in request.resource.data)
-                || request.resource.data.isExtra == false
-                || (request.resource.data.isExtra == true
-                  && request.resource.data.count == 1
-                  && request.resource.data.guestName is string
-                  && request.resource.data.guestName.size() >= 2
-                  && request.resource.data.guestName.size() <= 80
-                  && request.resource.data.relationship is string
-                  && request.resource.data.relationship.size() >= 2
-                  && request.resource.data.relationship.size() <= 40))
-          );
+              && request.resource.data.movementType in ['ENTRY', 'EXIT', 'REENTRY']
+              && request.resource.data.newAdmissions is int
+              && request.resource.data.newAdmissions >= 0
+              && request.resource.data.newAdmissions <= request.resource.data.count
+              && request.resource.data.reentries is int
+              && request.resource.data.reentries == request.resource.data.count - request.resource.data.newAdmissions
+              && request.resource.data.accumulated is int
+              && request.resource.data.insideAfter is int
+              && request.resource.data.timestamp is string
+              && request.resource.data.doorName is string
+              && request.resource.data.doorName.size() >= 1
+              && request.resource.data.doorName.size() <= 120
+              && request.resource.data.operatorUid == request.auth.uid
+              && request.resource.data.operatorEmail == request.auth.token.email
+              && (request.resource.data.movementType != 'EXIT' || request.resource.data.newAdmissions == 0)
+              && (!request.resource.data.isExtra || (
+                request.resource.data.count == 1
+                && request.resource.data.newAdmissions == 1
+                && request.resource.data.guestName is string
+                && request.resource.data.guestName.size() >= 2
+                && request.resource.data.guestName.size() <= 80
+                && request.resource.data.relationship is string
+                && request.resource.data.relationship.size() >= 2
+                && request.resource.data.relationship.size() <= 40
+              ));
+          }
+
+          function logIsLinkedToCapacityUpdate() {
+            let student = get(/databases/$(database)/documents/organizations/$(organizationId)/events/$(eventId)/students/$(request.resource.data.studentId)).data;
+            let studentAfter = getAfter(/databases/$(database)/documents/organizations/$(organizationId)/events/$(eventId)/students/$(request.resource.data.studentId)).data;
+            return (!('disabled' in student) || student.disabled == false)
+              && (!('deleted' in student) || student.deleted == false)
+              && ((('familyId' in request.resource.data)
+                  && ('familyId' in student)
+                  && student.familyId == request.resource.data.familyId
+                  && getAfter(/databases/$(database)/documents/organizations/$(organizationId)/events/$(eventId)/families/$(request.resource.data.familyId)).data.get('lastLogId', '') == logId)
+                || (!('familyId' in request.resource.data)
+                  && studentAfter.get('lastLogId', '') == logId));
+          }
+
+          allow read: if isMember();
+          allow create: if (eventWillBeOpen() && validOperatorLog() && logIsLinkedToCapacityUpdate())
+            || (adminMaintenance('restore') && request.resource.data.count is int && request.resource.data.count >= 1 && request.resource.data.count <= 5);
           allow update: if false;
-          allow delete: if isAdmin() && eventWillBeOpen();
+          allow delete: if isAdmin();
         }
       }
     }

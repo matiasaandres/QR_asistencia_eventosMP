@@ -25,6 +25,7 @@ export default function ScannerModal({
   const [isLoadingCamera, setIsLoadingCamera] = useState(false);
   const html5QrCodeRef = useRef(null);
   const fileInputRef = useRef(null);
+  const lastScanRef = useRef({ value: '', at: 0 });
 
   // Safely stop scanner
   const stopScannerSafe = async () => {
@@ -78,8 +79,12 @@ export default function ScannerModal({
         cameraConfig,
         config,
         (decodedText) => {
+          const value = decodedText.trim();
+          const now = Date.now();
+          if (lastScanRef.current.value === value && now - lastScanRef.current.at < 2500) return;
+          lastScanRef.current = { value, at: now };
           sounds.playBeep();
-          onScanResult(decodedText.trim());
+          onScanResult(value);
         },
         () => {} // suppress normal scan frames
       );

@@ -43,7 +43,10 @@ export function buildManagementReportData({ students = [], logs = [] }) {
   const capacity = courseRows.reduce((sum, row) => sum + row.capacity, 0);
   const doors = new Map();
   const hours = new Map();
-  let logPeople = 0;
+  let logAdmissions = 0;
+  let logExits = 0;
+  let logReentries = 0;
+  let logMovements = 0;
   let invalidCounts = 0;
   let undatedPeople = 0;
   const hourFormatter = new Intl.DateTimeFormat('sv-SE', {
@@ -52,13 +55,19 @@ export function buildManagementReportData({ students = [], logs = [] }) {
   for (const log of logs) {
     const count = Number(log.count);
     if (!Number.isInteger(count) || count <= 0) { invalidCounts += 1; continue; }
-    logPeople += count;
+    const movementType = ['ENTRY', 'EXIT', 'REENTRY'].includes(log.movementType) ? log.movementType : 'ENTRY';
+    const admissions = movementType === 'EXIT' ? 0 : Math.max(0, Math.min(count, Number(log.newAdmissions ?? (movementType === 'ENTRY' ? count : 0)) || 0));
+    const reentries = movementType === 'EXIT' ? 0 : Math.max(0, Math.min(count - admissions, Number(log.reentries ?? (count - admissions)) || 0));
+    logAdmissions += admissions;
+    logExits += movementType === 'EXIT' ? count : 0;
+    logReentries += reentries;
+    logMovements += count;
     const door = String(log.doorName || 'Sin puerta');
-    doors.set(door, (doors.get(door) || 0) + count);
+    doors.set(door, (doors.get(door) || 0) + admissions);
     const date = log.timestamp ? new Date(log.timestamp) : null;
-    if (!date || Number.isNaN(date.getTime())) { undatedPeople += count; continue; }
+    if (!date || Number.isNaN(date.getTime())) { undatedPeople += admissions; continue; }
     const key = hourFormatter.format(date);
-    hours.set(key, (hours.get(key) || 0) + count);
+    hours.set(key, (hours.get(key) || 0) + admissions);
   }
   return {
     courses: courseRows, families, present, pending: families - present, people, capacity,
@@ -66,7 +75,8 @@ export function buildManagementReportData({ students = [], logs = [] }) {
     available, aboveCapacity, excluded, extraFamilies,
     attendance: percent(present, families), usage: percent(people, capacity),
     average: present > 0 ? (people / present).toFixed(1).replace('.', ',') : 'Sin ingresos',
-    logPeople, invalidCounts, undatedPeople, logCount: logs.length,
+    logPeople: logAdmissions, logAdmissions, logExits, logReentries, logMovements,
+    invalidCounts, undatedPeople, logCount: logs.length,
     doors: [...doors].map(([name, people]) => ({ name, people })).sort((a, b) => b.people - a.people),
     hours: [...hours].sort(([a], [b]) => a.localeCompare(b)).map(([name, people]) => ({ name: `${name}:00`, people }))
   };
@@ -217,8 +227,8 @@ export async function createManagementReportPdf({ event, organization, students 
   paragraph('Sugerencia de seguimiento: contrastar la participación con el contexto de cada curso y registrar acuerdos de comunicación para futuras actividades. Las diferencias entre cursos, por sí solas, no explican las causas de participación.');
   heading('7. Fuente, alcance y calidad de los datos');
   paragraph(`Fuente: nómina y bitácora cargadas en el panel en vivo. Se consideran ${number(data.families)} alumnos habilitados y se excluyen ${number(data.excluded)} alumnos retirados o deshabilitados del resumen y del detalle por curso. El anexo nominal identifica a los alumnos cuyas familias no registran ingresos, para seguimiento de Dirección y UTP.`);
-  paragraph(`La bitácora contiene ${number(data.logCount)} movimientos y ${number(data.logPeople)} ingresos con cantidades válidas. Los gráficos de hora y puerta utilizan esta bitácora, que puede incluir alumnos actualmente excluidos de la nómina habilitada.`);
-  if (data.logPeople !== data.people) paragraph(`Diferencia de fuentes: la bitácora registra ${number(data.logPeople)} ingresos y la nómina habilitada acumula ${number(data.people)}. Revisar exclusiones, modificaciones o registros disponibles antes de conciliar ambas cifras.`, { bold: true });
+  paragraph(`La bitácora contiene ${number(data.logCount)} registros: ${number(data.logAdmissions)} nuevas admisiones, ${number(data.logReentries)} reingresos, ${number(data.logExits)} salidas y ${number(data.logMovements)} movimientos de personas. Los gráficos de hora y puerta muestran únicamente nuevas admisiones.`);
+  if (data.logAdmissions !== data.people) paragraph(`Diferencia de fuentes: la bitácora registra ${number(data.logAdmissions)} nuevas admisiones y la nómina habilitada acumula ${number(data.people)} personas autorizadas. Revisar exclusiones, modificaciones o registros disponibles antes de conciliar ambas cifras.`, { bold: true });
   if (data.invalidCounts) paragraph(`Se omitieron ${data.invalidCounts} movimientos con cantidad inválida de los gráficos operativos.`, { bold: true });
   if (data.undatedPeople) paragraph(`${number(data.undatedPeople)} ingresos no tienen una fecha válida: se incluyen en puertas y se excluyen del gráfico por hora.`, { bold: true });
   paragraph('Porcentajes redondeados al entero más cercano. Sin denominador, el porcentaje se informa como no calculable. Este documento es una fotografía de los datos disponibles al generarlo y no se actualiza después de su descarga.', { size: 9 });

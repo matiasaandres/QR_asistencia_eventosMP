@@ -36,6 +36,7 @@ import {
   deleteField,
   documentId,
   increment,
+  where,
   limit as firestoreLimit,
   startAfter
 } from 'firebase/firestore';
@@ -47,6 +48,9 @@ import {
   LOG_PAGE_SIZE,
   summarizeAnalytics
 } from './logAnalytics.js';
+import { rebuildAttendanceFromLogs } from './attendanceReplay.js';
+
+export { rebuildAttendanceFromLogs } from './attendanceReplay.js';
 
 const LOCAL_STORAGE_KEY_STUDENTS = 'mp_students_data_';
 const LOCAL_STORAGE_KEY_LOGS = 'mp_logs_data_';
@@ -123,10 +127,23 @@ function applyLogAnalytics(transaction, db, organizationId, eventId, log, logId,
       key: mutation.key,
       label: mutation.label,
       people: increment(direction * mutation.people),
+      entries: increment(direction * mutation.entries),
+      exits: increment(direction * mutation.exits),
+      reentries: increment(direction * mutation.reentries),
+      movements: increment(direction * mutation.movements),
       records: increment(direction * mutation.records),
+      ...(direction > 0 ? { lastLogId: logId } : {}),
       updatedAt: new Date().toISOString()
     }, { merge: true });
   });
+  if (direction > 0) {
+    transaction.set(eventAnalyticsDoc(db, organizationId, eventId, 'meta'), {
+      version: LOG_ANALYTICS_VERSION,
+      sourceLogCount: increment(1),
+      lastLogId: logId,
+      rebuiltAt: new Date().toISOString()
+    }, { merge: true });
+  }
 }
 
 export function getCurrentDoor(organizationId) {
@@ -534,8 +551,6 @@ export async function ensureEventAnalytics(organizationId, eventId) {
   const { db, isConfigured } = initFirebase();
   if (!isConfigured || !db) return;
   const metaRef = eventAnalyticsDoc(db, organizationId, eventId, 'meta');
-  const existingMeta = await getDoc(metaRef);
-  if (existingMeta.data()?.version === LOG_ANALYTICS_VERSION) return;
 
   const [logsSnapshot, analyticsSnapshot] = await Promise.all([
     getDocs(eventLogs(db, organizationId, eventId)),
@@ -554,15 +569,37 @@ export async function ensureEventAnalytics(organizationId, eventId) {
   operations.push((batch) => batch.set(metaRef, {
     version: LOG_ANALYTICS_VERSION,
     sourceLogCount: logs.length,
+    lastLogId: [...logs].sort((left, right) => String(right.timestamp || '').localeCompare(String(left.timestamp || ''))
+      || String(right.id || '').localeCompare(String(left.id || '')))[0]?.id || '',
     rebuiltAt: new Date().toISOString()
   }));
   await commitInChunks(db, operations);
 }
 
-function statusForEnteredCount(enteredCount, maxCapacity) {
-  if (enteredCount <= 0) return 'PENDIENTE';
-  if (enteredCount >= maxCapacity) return 'COMPLETO';
-  return 'PARCIAL';
+function attendanceUpdateFromReplay(rebuilt) {
+  return {
+    enteredCount: rebuilt.enteredCount,
+    insideCount: rebuilt.insideCount,
+    status: rebuilt.status,
+    extraGuest: rebuilt.extraGuest || deleteField(),
+    lastEntryAt: rebuilt.lastEntryAt || deleteField(),
+    lastMovementAt: rebuilt.lastMovementAt || deleteField(),
+    lastLogId: rebuilt.lastLogId || deleteField()
+  };
+}
+
+function applyReplayToLocal(record, rebuilt) {
+  const updated = {
+    ...record,
+    enteredCount: rebuilt.enteredCount,
+    insideCount: rebuilt.insideCount,
+    status: rebuilt.status
+  };
+  ['extraGuest', 'lastEntryAt', 'lastMovementAt', 'lastLogId'].forEach((field) => {
+    if (rebuilt[field]) updated[field] = rebuilt[field];
+    else delete updated[field];
+  });
+  return updated;
 }
 
 // Remove one audit entry and adjust its student's counter atomically.
@@ -573,6 +610,13 @@ export async function deleteLogEntry(organizationId, eventId, log) {
   const { db, isConfigured } = initFirebase();
   if (isConfigured && db) {
     const logRef = eventLogDoc(db, organizationId, eventId, logId);
+    const initialLogSnapshot = await getDoc(logRef);
+    if (!initialLogSnapshot.exists()) throw new Error('El registro ya no existe en la base de datos.');
+    const initialLog = { ...initialLogSnapshot.data(), id: initialLogSnapshot.id };
+    const ownerField = initialLog.familyId ? 'familyId' : 'studentId';
+    const ownerId = initialLog.familyId || initialLog.capacityOwnerId || initialLog.studentId;
+    const relatedSnapshot = await getDocs(query(eventLogs(db, organizationId, eventId), where(ownerField, '==', ownerId)));
+    const relatedLogs = relatedSnapshot.docs.map((item) => ({ ...item.data(), id: item.id }));
 
     await runTransaction(db, async (transaction) => {
       const logSnapshot = await transaction.get(logRef);
@@ -588,70 +632,48 @@ export async function deleteLogEntry(organizationId, eventId, log) {
 
       if (studentSnapshot.exists()) {
         const student = studentSnapshot.data();
-        const removedCount = Math.max(1, Number(storedLog.count) || 1);
-        const removedAdmissions = storedLog.movementType === 'EXIT' ? 0 : Math.max(0, Number(storedLog.newAdmissions ?? removedCount));
-        const newEnteredCount = Math.max(0, (Number(student.enteredCount) || 0) - removedAdmissions);
-        const currentInside = Math.max(0, Number(student.insideCount ?? student.enteredCount) || 0);
-        const newInsideCount = storedLog.movementType === 'EXIT'
-          ? Math.min(newEnteredCount, currentInside + removedCount)
-          : Math.max(0, currentInside - removedCount);
         const maxCapacity = getCapacityState(student).maxCapacity;
-        const update = {
-          enteredCount: newEnteredCount,
-          insideCount: newInsideCount,
-          status: statusForEnteredCount(newEnteredCount, maxCapacity)
-        };
-        if (storedLog.isExtra === true) update.extraGuest = deleteField();
-        transaction.update(storedStudentRef, update);
+        const expectedCurrent = rebuildAttendanceFromLogs(relatedLogs, maxCapacity);
+        if ((Number(student.enteredCount) || 0) !== expectedCurrent.enteredCount
+          || (Number(student.insideCount ?? student.enteredCount) || 0) !== expectedCurrent.insideCount) {
+          throw new Error('La asistencia cambió durante la corrección. Actualiza la vista e inténtalo nuevamente.');
+        }
+        const rebuilt = rebuildAttendanceFromLogs(relatedLogs.filter((item) => item.id !== logId), maxCapacity);
+        transaction.update(storedStudentRef, attendanceUpdateFromReplay(rebuilt));
       }
 
-      applyLogAnalytics(transaction, db, organizationId, eventId, storedLog, logId, -1);
       transaction.delete(logRef);
     });
+    await ensureEventAnalytics(organizationId, eventId);
   }
 
   const storageKey = organizationKey(LOCAL_STORAGE_KEY_LOGS, organizationId) + eventId;
   try {
     const stored = localStorage.getItem(storageKey);
     const localLogs = stored ? JSON.parse(stored) : [];
+    const remainingLogs = localLogs.filter((item) => item.id !== logId);
     localStorage.setItem(
       storageKey,
-      JSON.stringify(localLogs.filter((log) => log.id !== logId))
+      JSON.stringify(remainingLogs)
     );
 
     const studentsKey = organizationKey(LOCAL_STORAGE_KEY_STUDENTS, organizationId) + eventId;
     const storedStudents = localStorage.getItem(studentsKey);
-    if (storedStudents && log.studentId) {
-      const removedCount = log.movementType === 'EXIT' ? 0 : Math.max(0, Number(log.newAdmissions ?? log.count) || 0);
+    if (storedStudents && log.studentId && !log.familyId) {
       const localStudents = JSON.parse(storedStudents).map((student) => {
         if (student.id !== (log.capacityOwnerId || log.studentId)) return student;
-        const newEnteredCount = Math.max(0, (Number(student.enteredCount) || 0) - removedCount);
-        const movementCount = Math.max(1, Number(log.count) || 1);
-        const currentInside = Math.max(0, Number(student.insideCount ?? student.enteredCount) || 0);
-        const updatedStudent = {
-          ...student,
-          enteredCount: newEnteredCount,
-          insideCount: log.movementType === 'EXIT' ? Math.min(newEnteredCount, currentInside + movementCount) : Math.max(0, currentInside - movementCount),
-          status: statusForEnteredCount(newEnteredCount, getCapacityState(student).maxCapacity)
-        };
-        if (log.isExtra === true) delete updatedStudent.extraGuest;
-        return updatedStudent;
+        const related = remainingLogs.filter((item) => !item.familyId && (item.capacityOwnerId || item.studentId) === student.id);
+        return applyReplayToLocal(student, rebuildAttendanceFromLogs(related, getCapacityState(student).maxCapacity));
       });
       localStorage.setItem(studentsKey, JSON.stringify(localStudents));
     }
     if (storedStudents && log.familyId) {
       const familiesKey = storedFamiliesKey(organizationId, eventId);
       const families = JSON.parse(localStorage.getItem(familiesKey) || '[]');
-      const removedCount = log.movementType === 'EXIT' ? 0 : Math.max(0, Number(log.newAdmissions ?? log.count) || 0);
       localStorage.setItem(familiesKey, JSON.stringify(families.map((family) => {
         if (normalizeFamilyId(family.id) !== normalizeFamilyId(log.familyId)) return family;
-        const enteredCount = Math.max(0, (Number(family.enteredCount) || 0) - removedCount);
-        const movementCount = Math.max(1, Number(log.count) || 1);
-        const currentInside = Math.max(0, Number(family.insideCount ?? family.enteredCount) || 0);
-        const insideCount = log.movementType === 'EXIT' ? Math.min(enteredCount, currentInside + movementCount) : Math.max(0, currentInside - movementCount);
-        const updated = { ...family, enteredCount, insideCount, status: statusForEnteredCount(enteredCount, family.maxCapacity) };
-        if (log.isExtra === true) delete updated.extraGuest;
-        return updated;
+        const related = remainingLogs.filter((item) => normalizeFamilyId(item.familyId) === normalizeFamilyId(family.id));
+        return applyReplayToLocal(family, rebuildAttendanceFromLogs(related, family.maxCapacity));
       })));
     }
   } catch (error) {
@@ -707,7 +729,8 @@ export async function registerCheckIn({
   count,
   doorName,
   extraPerson = null,
-  movementType = 'ENTRY'
+  movementType = 'ENTRY',
+  updateAnalytics = false
 }) {
   const { app, db, isConfigured } = initFirebase();
   const now = new Date();
@@ -818,14 +841,15 @@ export async function registerCheckIn({
         status: plan.newStatus,
         lastMovementAt: timestampIso,
         ...(plan.movementType !== 'EXIT' ? { lastEntryAt: timestampIso } : {}),
-        ...(plan.extraGuest ? { extraGuest: plan.extraGuest } : {})
+        ...(plan.extraGuest ? { extraGuest: plan.extraGuest } : {}),
+        lastLogId: logRef.id
       });
 
       // Student counter and audit log commit together. A transaction retry uses
       // the same log ID, so concurrent scans cannot create duplicate entries.
       const logData = buildLogData(effectiveStudent, plan);
       transaction.set(logRef, logData);
-      applyLogAnalytics(transaction, db, organizationId, eventId, logData, logRef.id);
+      if (updateAnalytics) applyLogAnalytics(transaction, db, organizationId, eventId, logData, logRef.id);
       transaction.set(eventDoorDoc(db, organizationId, eventId, getDeviceId()), {
         deviceId: getDeviceId(),
         deviceLabel: typeof navigator === 'undefined' ? 'Dispositivo local' : `${navigator.platform || 'Dispositivo'} · ${navigator.userAgent.includes('Mobile') ? 'Móvil' : 'Navegador'}`,
@@ -1391,6 +1415,35 @@ async function commitInChunks(db, operations) {
   }
 }
 
+async function runEventMaintenance(db, organizationId, eventId, operation, work) {
+  const reference = eventDoc(db, organizationId, eventId);
+  const startedAt = new Date().toISOString();
+  await setDoc(reference, {
+    maintenanceState: 'running',
+    maintenanceOperation: operation,
+    maintenanceStartedAt: startedAt,
+    updatedAt: startedAt
+  }, { merge: true });
+  try {
+    const result = await work();
+    await setDoc(reference, {
+      maintenanceState: '',
+      maintenanceOperation: '',
+      maintenanceStartedAt: '',
+      maintenanceCompletedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    }, { merge: true });
+    return result;
+  } catch (error) {
+    await setDoc(reference, {
+      maintenanceState: 'failed',
+      maintenanceOperation: operation,
+      updatedAt: new Date().toISOString()
+    }, { merge: true }).catch(() => {});
+    throw new Error(`La operación ${operation} quedó incompleta y el evento fue bloqueado para evitar nuevos movimientos. Reintenta la operación. ${error.message}`);
+  }
+}
+
 function resetLocalStudent(student) {
   return resetStudentAttendance(student);
 }
@@ -1400,6 +1453,7 @@ export async function resetEventData(organizationId, eventId) {
   const { db, isConfigured } = initFirebase();
 
   if (isConfigured && db) {
+    return runEventMaintenance(db, organizationId, eventId, 'reset', async () => {
     const studentsCol = eventStudents(db, organizationId, eventId);
     const familiesCol = eventFamilies(db, organizationId, eventId);
     const logsCol = eventLogs(db, organizationId, eventId);
@@ -1432,7 +1486,8 @@ export async function resetEventData(organizationId, eventId) {
           status: resetStatus,
           lastEntryAt: deleteField(),
           lastMovementAt: deleteField(),
-          extraGuest: deleteField()
+          extraGuest: deleteField(),
+          lastLogId: deleteField()
         }));
       }
     });
@@ -1456,6 +1511,7 @@ export async function resetEventData(organizationId, eventId) {
         lastEntryAt: deleteField(),
         lastMovementAt: deleteField(),
         extraGuest: deleteField(),
+        lastLogId: deleteField(),
         updatedAt: new Date().toISOString()
       }));
     });
@@ -1473,7 +1529,8 @@ export async function resetEventData(organizationId, eventId) {
     localStorage.setItem(storedFamiliesKey(organizationId, eventId), JSON.stringify(familiesSnapshot.docs.map((familyDoc) => ({
       ...familyDoc.data(), id: familyDoc.id, enteredCount: 0, insideCount: 0, status: 'PENDIENTE', lastEntryAt: undefined, lastMovementAt: undefined, extraGuest: undefined
     }))));
-    return;
+      return;
+    });
   }
 
   const studentsKey = organizationKey(LOCAL_STORAGE_KEY_STUDENTS, organizationId) + eventId;

@@ -8,7 +8,9 @@
     "build": "vite build",
     "preview": "vite preview",
     "test": "node --test tests/*.test.mjs",
+    "test:rules": "npx --yes firebase-tools@15.30.0 emulators:exec --only firestore --project demo-mundopalabra-rules \"node --test tests/firestoreRules.integration.test.mjs\"",
     "audit": "node --test tests/*.test.mjs && vite build",
+    "audit:full": "npm run test && npm run test:rules && npm run build",
     "generate:import-template": "node scripts/generate-bulk-import-template.mjs",
     "generate:qr-zip": "node scripts/generate-full-qr-archive.mjs",
     "migrate:mundopalabra": "node scripts/migrate-legacy-mundopalabra.mjs"
@@ -26,6 +28,7 @@
     "react-dom": "^18.3.1"
   },
   "devDependencies": {
+    "@firebase/rules-unit-testing": "^4.0.1",
     "@types/react": "^18.3.18",
     "@types/react-dom": "^18.3.5",
     "@vitejs/plugin-react": "^4.3.4",

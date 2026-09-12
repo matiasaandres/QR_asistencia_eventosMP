@@ -66,5 +66,18 @@ export function normalizeOrganization(data = {}) {
 export function canManageOrganization(role) { return role === 'admin'; }
 export function canOperateAccess(role) { return role === 'admin' || role === 'operator'; }
 export function isPlatformAdmin(user) {
+  if (!user) return false;
+  if (
+    user.customClaims?.platformAdmin === true ||
+    user.customClaims?.role === 'master_admin' ||
+    user.platformAdmin === true ||
+    user.isMasterAdmin === true ||
+    user.role === 'master_admin' ||
+    user.claims?.platformAdmin === true ||
+    user.token?.platformAdmin === true ||
+    user.token?.claims?.platformAdmin === true
+  ) {
+    return true;
+  }
   return String(user?.email || '').trim().toLowerCase() === MASTER_ADMIN_EMAIL;
 }

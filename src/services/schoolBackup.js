@@ -25,24 +25,61 @@ async function sha256(value) {
   return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
-export async function addBackupIntegrity(backup) {
+async function hmacSha256(keyString, value) {
+  if (!globalThis.crypto?.subtle) throw new Error('Este navegador no permite firmar respaldos con HMAC.');
+  const enc = new TextEncoder();
+  const keyData = enc.encode(keyString);
+  const cryptoKey = await globalThis.crypto.subtle.importKey(
+    'raw',
+    keyData,
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign', 'verify']
+  );
+  const bytes = enc.encode(canonicalJson(value));
+  const signature = await globalThis.crypto.subtle.sign('HMAC', cryptoKey, bytes);
+  return [...new Uint8Array(signature)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
+export async function addBackupIntegrity(backup, signingKey = null) {
+  const hash = await sha256(backup);
+  const integrity = {
+    algorithm: signingKey ? 'HMAC-SHA-256' : 'SHA-256',
+    value: hash,
+    ...(signingKey ? { signature: await hmacSha256(signingKey, backup) } : {})
+  };
   return {
     ...backup,
-    integrity: {
-      algorithm: 'SHA-256',
-      value: await sha256(backup)
-    }
+    integrity
   };
 }
 
-export async function verifyBackupIntegrity(backup) {
-  if (backup?.integrity?.algorithm !== 'SHA-256' || !/^[a-f0-9]{64}$/i.test(backup?.integrity?.value || '')) {
+export async function verifyBackupIntegrity(backup, verificationKey = null) {
+  const algorithm = backup?.integrity?.algorithm;
+  const hashValue = backup?.integrity?.value;
+  const signature = backup?.integrity?.signature;
+
+  if (
+    (algorithm !== 'SHA-256' && algorithm !== 'HMAC-SHA-256') ||
+    !/^[a-f0-9]{64}$/i.test(hashValue || '')
+  ) {
     throw new Error('El respaldo no contiene una verificación SHA-256 válida.');
   }
   const { integrity, ...content } = backup;
   const expected = await sha256(content);
-  if (expected !== integrity.value.toLowerCase()) {
+  if (expected !== hashValue.toLowerCase()) {
     throw new Error('La verificación SHA-256 falló: el respaldo fue modificado o está dañado.');
+  }
+  if (verificationKey || algorithm === 'HMAC-SHA-256') {
+    if (verificationKey) {
+      if (!signature || !/^[a-f0-9]{64}$/i.test(signature)) {
+        throw new Error('El respaldo no contiene una firma criptográfica válida.');
+      }
+      const expectedSignature = await hmacSha256(verificationKey, content);
+      if (expectedSignature !== signature.toLowerCase()) {
+        throw new Error('La firma criptográfica del respaldo no coincide con la clave proporcionada.');
+      }
+    }
   }
   return true;
 }

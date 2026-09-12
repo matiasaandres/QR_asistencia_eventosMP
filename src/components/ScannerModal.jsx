@@ -26,9 +26,16 @@ export default function ScannerModal({
   const html5QrCodeRef = useRef(null);
   const fileInputRef = useRef(null);
   const lastScanRef = useRef({ value: '', at: 0 });
+  const isProcessingRef = useRef(false);
+  const pauseCooldownTimerRef = useRef(null);
 
   // Safely stop scanner
   const stopScannerSafe = async () => {
+    if (pauseCooldownTimerRef.current) {
+      clearTimeout(pauseCooldownTimerRef.current);
+      pauseCooldownTimerRef.current = null;
+    }
+    isProcessingRef.current = false;
     if (html5QrCodeRef.current) {
       try {
         if (html5QrCodeRef.current.isScanning) {
@@ -81,10 +88,33 @@ export default function ScannerModal({
         (decodedText) => {
           const value = decodedText.trim();
           const now = Date.now();
-          if (lastScanRef.current.value === value && now - lastScanRef.current.at < 2500) return;
+          if (isProcessingRef.current) return;
+          if (lastScanRef.current.value === value && now - lastScanRef.current.at < 3000) return;
+          if (now - lastScanRef.current.at < 1500) return;
+
+          isProcessingRef.current = true;
           lastScanRef.current = { value, at: now };
+
+          try {
+            if (html5QrCode.isScanning) {
+              html5QrCode.pause(true);
+            }
+          } catch (e) {}
+
           sounds.playBeep();
           onScanResult(value);
+
+          if (pauseCooldownTimerRef.current) {
+            clearTimeout(pauseCooldownTimerRef.current);
+          }
+          pauseCooldownTimerRef.current = setTimeout(() => {
+            try {
+              if (html5QrCodeRef.current && html5QrCodeRef.current.isScanning) {
+                html5QrCodeRef.current.resume();
+              }
+            } catch (e) {}
+            isProcessingRef.current = false;
+          }, 2500);
         },
         () => {} // suppress normal scan frames
       );

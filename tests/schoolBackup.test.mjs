@@ -61,3 +61,28 @@ test('protege la integridad con SHA-256 y detecta cualquier modificación', asyn
   await assert.rejects(() => verifyBackupIntegrity(altered), /modificado o está dañado/);
   await assert.rejects(() => verifyBackupIntegrity(backup), /no contiene una verificación SHA-256 válida/);
 });
+
+test('protege y valida la firma criptográfica HMAC-SHA-256 ante modificaciones y claves incorrectas', async () => {
+  const backup = createSchoolBackup({
+    organization: { id: 'escuela-1', name: 'Escuela Uno' },
+    events: []
+  });
+  const secretKey = 'clave-secreta-institucional-2026';
+  const signedBackup = await addBackupIntegrity(backup, secretKey);
+
+  assert.equal(signedBackup.integrity.algorithm, 'HMAC-SHA-256');
+  assert.match(signedBackup.integrity.value, /^[a-f0-9]{64}$/);
+  assert.match(signedBackup.integrity.signature, /^[a-f0-9]{64}$/);
+
+  assert.equal(await verifyBackupIntegrity(signedBackup, secretKey), true);
+  await assert.rejects(
+    () => verifyBackupIntegrity(signedBackup, 'clave-invalida'),
+    /no coincide con la clave proporcionada/
+  );
+
+  const altered = {
+    ...signedBackup,
+    organization: { ...signedBackup.organization, name: 'Escuela Modificada' }
+  };
+  await assert.rejects(() => verifyBackupIntegrity(altered, secretKey), /modificado o está dañado/);
+});

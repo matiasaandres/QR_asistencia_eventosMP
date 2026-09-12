@@ -350,7 +350,7 @@ export default function App() {
   const handleFetchAllLogs = () => fetchAllLogs(organization.id, event.id);
 
   if (!authReady) return <LoadingScreen />;
-  if (!authUser) return <LoginScreen portal={portal} />;
+  if (!authUser) return <LoginScreen portal={portal} students={students} onGuardianQr={(student) => { setPrintStudent(student); setShowPrinter(true); }} />;
   if (portal === 'master' && !isMaster) return <main className="flex min-h-screen flex-col items-center justify-center gap-4 bg-slate-950 p-6 text-center text-white"><h1 className="text-2xl font-black">Acceso maestro restringido</h1><p className="text-sm text-slate-300">Esta cuenta corresponde a una escuela.</p><button onClick={handleLogout} className="rounded-xl bg-sky-600 px-4 py-2 text-sm font-bold">Volver al ingreso</button></main>;
   if (!organizationReady) return <LoadingScreen message="Cargando organizaciones…" />;
   if (isMaster && !schoolViewForMaster) return <MasterDashboard organizations={organizations} user={authUser} onCreate={handleCreateSchool} onAssignAccount={(data) => assignSchoolAdministrator({ ...data, masterUser: authUser })} onStatusChange={updateOrganizationStatus} onOpenSchool={(organizationId) => { handleOrganizationChange(organizationId); setSchoolViewForMaster(true); }} onMigrateLegacy={handleLegacyMigration} onImportReport={(report) => importMundoPalabraReport({ ...report, user: authUser })} onRestoreStudentStates={(organizationId) => restoreMundoPalabraStudentStates({ organizationId, user: authUser })} onLogout={handleLogout} />;

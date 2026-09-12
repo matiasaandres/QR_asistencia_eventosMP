@@ -9,9 +9,10 @@ service cloud.firestore {
     function platformAdmin() {
       return signedIn()
         && (
-          request.auth.token.platformAdmin == true
-          || request.auth.token.role == 'master_admin'
-          || request.auth.token.email == 'matias.andres.mh@gmail.com'
+          request.auth.token.get('platformAdmin', false) == true
+          || request.auth.token.get('role', '') == 'master_admin'
+          // Compatibilidad temporal hasta asignar Custom Claims a la cuenta maestra.
+          || request.auth.token.get('email', '') == 'matias.andres.mh@gmail.com'
         );
     }
 

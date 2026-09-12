@@ -1,87 +1,50 @@
 # Auditoría técnica — MundoPalabra Acceso
 
-Fecha: 4 de septiembre de 2026
+Fecha de actualización: 12 de septiembre de 2026
+Versión auditada: 1.10.0
 
 ## Resultado ejecutivo
 
-- 32 pruebas automatizadas aprobadas.
+- 113 pruebas unitarias y de contrato aprobadas.
+- 5 pruebas de reglas aprobadas contra el emulador oficial de Firestore.
 - Compilación de producción aprobada.
-- 251 estudiantes iniciales validados, sin identificadores duplicados.
-- La auditoría no registró asistentes ni modificó datos de Firestore.
+- Auditoría npm sin vulnerabilidades conocidas.
+- La aplicación usa Firebase Authentication, roles y aislamiento por organización.
+- Las entradas, salidas y reingresos se registran mediante transacciones atómicas.
 
-## Cobertura automatizada
+## Mejoras de seguridad incorporadas
 
-- Login correcto e incorrecto.
-- Sesión de exactamente cinco horas.
-- Expiración, corrupción y cierre de sesión.
-- Presencia y deduplicación de Puerta 1 y Puerta 2.
-- Capacidad normal, ingreso parcial y cupo completo.
-- Rechazo de cantidades inválidas o superiores al cupo.
-- Un solo cupo extraordinario después de completar el cupo normal.
-- Nombre y parentesco obligatorios para la persona extraordinaria.
-- Rechazo de cupos extraordinarios anticipados, repetidos o para retirados.
-- Simulación de dos intentos concurrentes de cupo extraordinario.
-- Reinicio de contador y eliminación de los datos extraordinarios.
-- Contratos de interfaz para confirmación y formulario extraordinario.
-- Controles estructurales de las reglas de Firestore.
-- Generación vectorial no vacía de los 251 códigos QR.
-- Diseño paginable para imprimir seis credenciales por hoja A4.
-- Botón explícito para descargar todos los códigos QR en PDF.
-- ZIP con un PDF A4 de una sola página por alumno, agrupado en 15 carpetas de curso.
-- Nombres de archivo seguros con el formato `Alumno - Curso.pdf`.
+- Separación explícita entre el portal escolar y el portal maestro, incluyendo el ingreso con Google.
+- Configuración Firebase analizada como datos; nunca se ejecuta el texto pegado por el usuario.
+- Content Security Policy y encabezados defensivos equivalentes en Firebase Hosting y Vercel.
+- Caché Firestore en memoria y limpieza de datos locales sensibles al cerrar sesión en equipos compartidos.
+- Integración opcional de Firebase App Check con reCAPTCHA Enterprise mediante `VITE_FIREBASE_APPCHECK_SITE_KEY`; la exigencia de tokens debe activarse en Firebase Console después de observar métricas.
+- Respaldos nuevos firmados con HMAC-SHA-256 y clave privada no persistida.
+- Reglas que toleran tokens sin Custom Claims y mantienen el aislamiento entre escuelas.
+- Recuperación pública de QR retirada hasta disponer de un endpoint limitado y un segundo factor apropiado.
 
-## Falla encontrada y corregida localmente
+## Rendimiento
 
-Las pantallas de búsqueda, nómina y credenciales interpretaban `maxCapacity: 0`
-como cinco cupos. Esto hacía que alumnos retirados aparecieran visualmente como
-habilitados. Se centralizó el cálculo de capacidad y se agregó una prueba de
-regresión que exige conservar el valor cero.
+- El historial visible está paginado.
+- La analítica usa documentos agregados por puerta y hora.
+- Antes de reconstruir estadísticas se compara un conteo agregado; el historial completo solo se descarga cuando existe una desincronización o cambia la versión del esquema.
+- Excel, PDF, ZIP y QR se cargan en paquetes separados bajo demanda.
 
-También se corrigió la importación de planillas para conservar capacidades en
-cero y asignar estado `RETIRADO` a esos registros.
+Los paquetes de Excel y PDF continúan siendo grandes, pero ya no forman parte del paquete inicial. Para volúmenes masivos conviene trasladar exportaciones y respaldos a tareas de backend.
 
-La impresión masiva dibujaba los códigos en elementos `canvas` asíncronos. En
-documentos extensos el navegador podía enviar a PDF las tarjetas antes de que
-todos los lienzos estuvieran rasterizados, dejando códigos vacíos después de la
-primera página. Los 251 códigos ahora se generan de forma síncrona como SVG
-vectorial y el contenedor de impresión usa flujo estático paginado.
+## Riesgos y trabajo de plataforma pendiente
 
-## Riesgos pendientes
+1. Migrar definitivamente la cuenta maestra desde la compatibilidad por correo a Firebase Custom Claims y después retirar el correo heredado de `firestore.rules` y `organizationPolicy.js`.
+2. Implementar recuperación de QR mediante backend, límites de intentos y un factor adicional que no sea solamente RUT y curso.
+3. Trasladar agregados, respaldos y exportaciones muy grandes a Cloud Functions o Cloud Run cuando aumente el volumen.
+4. Incorporar pruebas E2E en teléfonos reales para cámara, permisos, pérdida de red y operación simultánea de varias porterías.
+5. Definir retención, eliminación y respuesta a incidentes para los datos personales escolares.
 
-### Alto — El login no protege Firestore
-
-El login solicitado funciona completamente en el navegador y sus credenciales
-forman parte del código público. Las reglas actuales de Firestore tampoco exigen
-Firebase Authentication. Una persona con conocimientos técnicos podría omitir la
-pantalla de login y llamar directamente a Firestore mientras el evento esté
-abierto. Esto incluye leer la nómina, crear registros permitidos por las reglas y
-eliminar entradas de la bitácora.
-
-Recomendación: migrar a Firebase Authentication y exigir un usuario autenticado
-con rol de portería o administrador en las reglas.
-
-### Medio — Fecha de cierre operacional
-
-Las reglas dejan de aceptar lecturas y escrituras el 1 de octubre de 2026. Después
-de esa fecha la aplicación mostrará un error de sincronización hasta que se
-publique una nueva ventana o una política distinta.
-
-### Bajo — Tamaño del paquete
-
-El JavaScript generado pesa aproximadamente 1,55 MB antes de compresión. La
-compilación es correcta, pero Vite recomienda dividir el paquete para mejorar la
-carga en teléfonos lentos.
-
-## Límites de esta auditoría
-
-- Las reglas de Firestore se comprobaron estructuralmente; no se levantó un
-  emulador de Firebase para ejecutar permisos contra una base aislada.
-- No se probaron cámaras físicas ni distintos modelos de teléfono.
-- No se ejecutaron registros reales para evitar alterar la asistencia del evento.
-
-## Comandos
+## Verificación
 
 ```text
-node --test tests/*.test.mjs
-node node_modules/vite/bin/vite.js build
+npm test
+npm run test:rules
+npm run build
+npm audit --audit-level=moderate
 ```

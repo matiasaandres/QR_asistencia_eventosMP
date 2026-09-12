@@ -1,9 +1,9 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
+import { initializeAppCheck, ReCaptchaEnterpriseProvider } from 'firebase/app-check';
 import {
   getFirestore,
   initializeFirestore,
-  persistentLocalCache,
-  persistentMultipleTabManager
+  memoryLocalCache
 } from 'firebase/firestore';
 
 const STORAGE_KEY_FIREBASE = 'mundopalabra_firebase_config';
@@ -53,8 +53,49 @@ export function saveFirebaseConfig(config) {
   }
 }
 
+export function parseFirebaseConfig(value) {
+  let normalized = String(value || '').trim();
+  normalized = normalized.replace(/^const\s+firebaseConfig\s*=\s*/, '').replace(/;\s*$/, '').trim();
+  if (!normalized) throw new Error('La configuración está vacía.');
+
+  let config;
+  try {
+    config = JSON.parse(normalized);
+  } catch {
+    // Firebase muestra su configuración como un objeto JavaScript. Convertimos
+    // únicamente esa sintaxis simple a JSON, sin ejecutar el texto pegado.
+    const jsonLike = normalized
+      .replace(/([{,]\s*)([A-Za-z_$][\w$]*)(\s*:)/g, '$1"$2"$3')
+      .replace(/'([^'\\]*(?:\\.[^'\\]*)*)'/g, (_, content) => JSON.stringify(content.replace(/\\'/g, "'")));
+    config = JSON.parse(jsonLike);
+  }
+
+  if (!config || Array.isArray(config) || typeof config !== 'object') {
+    throw new Error('La configuración debe ser un objeto JSON.');
+  }
+  const allowedKeys = ['apiKey', 'authDomain', 'projectId', 'storageBucket', 'messagingSenderId', 'appId', 'measurementId'];
+  const sanitized = Object.fromEntries(allowedKeys
+    .filter((key) => typeof config[key] === 'string' && config[key].trim())
+    .map((key) => [key, config[key].trim()]));
+  if (!sanitized.apiKey || !sanitized.projectId || !sanitized.appId) {
+    throw new Error("La configuración debe contener 'apiKey', 'projectId' y 'appId'.");
+  }
+  return sanitized;
+}
+
+export function clearSensitiveLocalData() {
+  if (typeof localStorage === 'undefined') return;
+  const removable = [];
+  for (let index = 0; index < localStorage.length; index += 1) {
+    const key = localStorage.key(index);
+    if (key?.startsWith('mp_')) removable.push(key);
+  }
+  removable.forEach((key) => localStorage.removeItem(key));
+}
+
 let cachedDb = null;
 let cachedApp = null;
+let cachedAppCheck = null;
 
 export function initFirebase() {
   const config = getSavedFirebaseConfig();
@@ -67,16 +108,23 @@ export function initFirebase() {
       const existing = getApps();
       cachedApp = existing.length > 0 ? getApp() : initializeApp(config);
     }
+    const appCheckSiteKey = import.meta.env.VITE_FIREBASE_APPCHECK_SITE_KEY;
+    if (!cachedAppCheck && appCheckSiteKey && typeof window !== 'undefined') {
+      try {
+        cachedAppCheck = initializeAppCheck(cachedApp, {
+          provider: new ReCaptchaEnterpriseProvider(appCheckSiteKey),
+          isTokenAutoRefreshEnabled: true
+        });
+      } catch (appCheckError) {
+        console.warn('Firebase App Check no pudo inicializarse:', appCheckError);
+      }
+    }
     if (!cachedDb && cachedApp) {
       try {
-        cachedDb = initializeFirestore(cachedApp, {
-          localCache: persistentLocalCache({
-            tabManager: persistentMultipleTabManager()
-          })
-        });
-      } catch (persistenceError) {
-        // IndexedDB can be unavailable in private mode. Firestore still works
-        // online, only without its durable offline cache.
+        // Los equipos de portería suelen ser compartidos. La caché en memoria
+        // evita dejar nóminas e historiales persistidos entre sesiones.
+        cachedDb = initializeFirestore(cachedApp, { localCache: memoryLocalCache() });
+      } catch {
         cachedDb = getFirestore(cachedApp);
       }
     }
@@ -90,4 +138,5 @@ export function initFirebase() {
 export function resetFirebase() {
   cachedDb = null;
   cachedApp = null;
+  cachedAppCheck = null;
 }

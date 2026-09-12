@@ -110,6 +110,8 @@ test('el login permite cuentas existentes, invitaciones y recuperar la contrase�
   assert.match(loginScreen, /¿Olvidaste tu contraseña\?/);
   assert.match(loginScreen, /requestPasswordReset/);
   assert.match(authService, /sendPasswordResetEmail/);
+  assert.match(authService, /getIdTokenResult/);
+  assert.match(authService, /customClaims:\s*tokenResult\.claims/);
   assert.match(authService, /auth\/email-already-in-use/);
   assert.match(authService, /signInWithEmailAndPassword\(auth, normalizedEmail, password\)/);
   assert.match(loginScreen, /Correo electrónico/);
@@ -117,6 +119,9 @@ test('el login permite cuentas existentes, invitaciones y recuperar la contrase�
   assert.match(loginScreen, /Acceso Maestro/);
   assert.match(loginScreen, /Acceso Escuelas/);
   assert.match(loginScreen, /\/master/);
+  assert.match(loginScreen, /authenticateWithGoogle/);
+  assert.match(loginScreen, /Solicítalo a la administración de tu escuela/);
+  assert.doesNotMatch(loginScreen, /api\.qrserver\.com/);
 });
 
 test('la cuenta maestra administra escuelas y recupera Mundo Palabra', () => {

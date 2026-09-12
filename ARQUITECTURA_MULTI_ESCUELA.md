@@ -80,4 +80,4 @@ La recuperación pública de QR por RUT fue retirada del inicio de sesión. Expo
 - Los movimientos guardan `movementType` (`ENTRY`, `EXIT`, `REENTRY`), `insideAfter`, puerta, operador y dispositivo.
 - `doorSessions` mantiene presencia, último movimiento y conexión de cada dispositivo operativo.
 - `familyHistory` conserva en forma inmutable las uniones y separaciones de familias.
-- Los respaldos con SHA-256 usan el esquema 3 e incluyen el historial familiar, manteniendo compatibilidad con esquemas 1 y 2.
+- Los respaldos actuales usan el esquema 4, incluyen establecimientos, asientos e historial familiar y se firman con HMAC-SHA-256 mediante una clave que la aplicación no guarda. La restauración mantiene compatibilidad de lectura con los esquemas 1, 2 y 3.

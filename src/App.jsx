@@ -42,6 +42,7 @@ import {
   mergeFamilies, separateFamilyMember, subscribeToFamilyHistory, fetchAllLogs, fetchLogPage,
   subscribeToEventAnalytics, ensureEventAnalytics
 } from './services/storage';
+import { clearSensitiveLocalData } from './services/firebase';
 import { saveSeatPlan, saveVenue, subscribeToSeatPlan, subscribeToVenues } from './services/seating';
 
 function LoadingScreen({ message = 'Cargando acceso seguro…' }) {
@@ -245,6 +246,7 @@ export default function App() {
 
   const handleLogout = async () => {
     await clearAuthSession();
+    clearSensitiveLocalData();
     setCheckinStudent(null);
     setShowPrinter(false);
     setShowSettings(false);
@@ -350,8 +352,9 @@ export default function App() {
   const handleFetchAllLogs = () => fetchAllLogs(organization.id, event.id);
 
   if (!authReady) return <LoadingScreen />;
-  if (!authUser) return <LoginScreen portal={portal} students={students} onGuardianQr={(student) => { setPrintStudent(student); setShowPrinter(true); }} />;
+  if (!authUser) return <LoginScreen portal={portal} />;
   if (portal === 'master' && !isMaster) return <main className="flex min-h-screen flex-col items-center justify-center gap-4 bg-slate-950 p-6 text-center text-white"><h1 className="text-2xl font-black">Acceso maestro restringido</h1><p className="text-sm text-slate-300">Esta cuenta corresponde a una escuela.</p><button onClick={handleLogout} className="rounded-xl bg-sky-600 px-4 py-2 text-sm font-bold">Volver al ingreso</button></main>;
+  if (portal === 'school' && isMaster) return <main className="flex min-h-screen flex-col items-center justify-center gap-4 bg-slate-950 p-6 text-center text-white"><h1 className="text-2xl font-black">Usa el acceso maestro</h1><p className="text-sm text-slate-300">La cuenta maestra se administra desde su portal exclusivo.</p><a href="/master" className="rounded-xl bg-sky-600 px-4 py-2 text-sm font-bold">Ir al acceso maestro</a><button onClick={handleLogout} className="text-sm font-bold text-slate-300 underline">Cerrar sesión</button></main>;
   if (!organizationReady) return <LoadingScreen message="Cargando organizaciones…" />;
   if (isMaster && !schoolViewForMaster) return <MasterDashboard organizations={organizations} user={authUser} onCreate={handleCreateSchool} onAssignAccount={(data) => assignSchoolAdministrator({ ...data, masterUser: authUser })} onStatusChange={updateOrganizationStatus} onOpenSchool={(organizationId) => { handleOrganizationChange(organizationId); setSchoolViewForMaster(true); }} onMigrateLegacy={handleLegacyMigration} onImportReport={(report) => importMundoPalabraReport({ ...report, user: authUser })} onRestoreStudentStates={(organizationId) => restoreMundoPalabraStudentStates({ organizationId, user: authUser })} onLogout={handleLogout} />;
   if (!organization) return <LoadingScreen message="Tu cuenta no tiene una organización activa." />;

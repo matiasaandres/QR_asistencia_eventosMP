@@ -70,15 +70,16 @@ export async function verifyBackupIntegrity(backup, verificationKey = null) {
   if (expected !== hashValue.toLowerCase()) {
     throw new Error('La verificación SHA-256 falló: el respaldo fue modificado o está dañado.');
   }
-  if (verificationKey || algorithm === 'HMAC-SHA-256') {
-    if (verificationKey) {
-      if (!signature || !/^[a-f0-9]{64}$/i.test(signature)) {
-        throw new Error('El respaldo no contiene una firma criptográfica válida.');
-      }
-      const expectedSignature = await hmacSha256(verificationKey, content);
-      if (expectedSignature !== signature.toLowerCase()) {
-        throw new Error('La firma criptográfica del respaldo no coincide con la clave proporcionada.');
-      }
+  if (algorithm === 'HMAC-SHA-256' && !verificationKey) {
+    throw new Error('Este respaldo está firmado. Ingresa su clave de respaldo para verificarlo.');
+  }
+  if (algorithm === 'HMAC-SHA-256' && verificationKey) {
+    if (!signature || !/^[a-f0-9]{64}$/i.test(signature)) {
+      throw new Error('El respaldo no contiene una firma criptográfica válida.');
+    }
+    const expectedSignature = await hmacSha256(verificationKey, content);
+    if (expectedSignature !== signature.toLowerCase()) {
+      throw new Error('La firma criptográfica del respaldo no coincide con la clave proporcionada.');
     }
   }
   return true;
@@ -128,7 +129,7 @@ export function schoolBackupFilename(organization, date = new Date()) {
   return `respaldo-${safeName}-${date.toISOString().slice(0, 10)}.json`;
 }
 
-export async function fetchSchoolBackup(organizationId) {
+export async function fetchSchoolBackup(organizationId, signingKey = '') {
   const { db, isConfigured } = initFirebase();
   if (!isConfigured || !db) throw new Error('Firebase no está conectado; no se puede generar un respaldo completo.');
   if (!organizationId) throw new Error('Selecciona una escuela válida.');
@@ -166,11 +167,12 @@ export async function fetchSchoolBackup(organizationId) {
     members: membersSnapshot.docs.map(documentData),
     venues: venuesSnapshot.docs.map(documentData),
     events
-  }));
+  }), signingKey);
 }
 
-export async function downloadSchoolBackup(organizationId) {
-  const backup = await fetchSchoolBackup(organizationId);
+export async function downloadSchoolBackup(organizationId, signingKey = '') {
+  if (String(signingKey).length < 12) throw new Error('La clave de respaldo debe tener al menos 12 caracteres.');
+  const backup = await fetchSchoolBackup(organizationId, signingKey);
   const payload = JSON.stringify(backup, null, 2);
   const url = URL.createObjectURL(new Blob([payload], { type: 'application/json;charset=utf-8' }));
   const anchor = document.createElement('a');
@@ -274,9 +276,9 @@ async function restoreEventSafely(eventRef, eventData, work) {
   }
 }
 
-export async function restoreSchoolBackup(organizationId, rawBackup) {
+export async function restoreSchoolBackup(organizationId, rawBackup, verificationKey = '') {
   const backup = validateSchoolBackup(rawBackup, organizationId);
-  await verifyBackupIntegrity(backup);
+  await verifyBackupIntegrity(backup, verificationKey || null);
   const { db, isConfigured } = initFirebase();
   if (!isConfigured || !db) throw new Error('Firebase no está conectado; no se puede restaurar el respaldo.');
   const organizationRef = doc(db, 'organizations', organizationId);

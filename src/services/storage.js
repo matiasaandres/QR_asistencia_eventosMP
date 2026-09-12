@@ -32,6 +32,7 @@ import {
   runTransaction,
   getDoc,
   getDocs,
+  getCountFromServer,
   writeBatch,
   deleteField,
   documentId,
@@ -551,6 +552,17 @@ export async function ensureEventAnalytics(organizationId, eventId) {
   const { db, isConfigured } = initFirebase();
   if (!isConfigured || !db) return;
   const metaRef = eventAnalyticsDoc(db, organizationId, eventId, 'meta');
+
+  // Una consulta COUNT cuesta y transfiere mucho menos que descargar toda la
+  // bitácora. Solo reconstruimos cuando falta el agregado, cambió su versión o
+  // un operador agregó/eliminó movimientos sin actualizar la vista materializada.
+  const [metaSnapshot, logCountSnapshot] = await Promise.all([
+    getDoc(metaRef),
+    getCountFromServer(eventLogs(db, organizationId, eventId))
+  ]);
+  const currentMeta = metaSnapshot.exists() ? metaSnapshot.data() : null;
+  if (currentMeta?.version === LOG_ANALYTICS_VERSION
+    && currentMeta.sourceLogCount === logCountSnapshot.data().count) return;
 
   const [logsSnapshot, analyticsSnapshot] = await Promise.all([
     getDocs(eventLogs(db, organizationId, eventId)),

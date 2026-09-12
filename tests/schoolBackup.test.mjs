@@ -56,6 +56,7 @@ test('protege la integridad con SHA-256 y detecta cualquier modificación', asyn
   assert.equal(protectedBackup.integrity.algorithm, 'SHA-256');
   assert.match(protectedBackup.integrity.value, /^[a-f0-9]{64}$/);
   assert.equal(await verifyBackupIntegrity(protectedBackup), true);
+  assert.equal(await verifyBackupIntegrity(protectedBackup, 'clave-ignorada-en-respaldo-heredado'), true);
 
   const altered = { ...protectedBackup, organization: { ...protectedBackup.organization, name: 'Nombre alterado' } };
   await assert.rejects(() => verifyBackupIntegrity(altered), /modificado o está dañado/);
@@ -75,6 +76,10 @@ test('protege y valida la firma criptográfica HMAC-SHA-256 ante modificaciones 
   assert.match(signedBackup.integrity.signature, /^[a-f0-9]{64}$/);
 
   assert.equal(await verifyBackupIntegrity(signedBackup, secretKey), true);
+  await assert.rejects(
+    () => verifyBackupIntegrity(signedBackup),
+    /Ingresa su clave de respaldo/
+  );
   await assert.rejects(
     () => verifyBackupIntegrity(signedBackup, 'clave-invalida'),
     /no coincide con la clave proporcionada/

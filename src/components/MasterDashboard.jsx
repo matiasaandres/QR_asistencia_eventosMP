@@ -125,7 +125,9 @@ export default function MasterDashboard({ organizations, user, onCreate, onAssig
     setMessage('');
     setBackingUpSchool(organization.id);
     try {
-      const summary = await downloadSchoolBackup(organization.id);
+      const backupKey = window.prompt('Define una clave privada para firmar el respaldo (mínimo 12 caracteres). No se guardará en la aplicación.');
+      if (backupKey === null) return;
+      const summary = await downloadSchoolBackup(organization.id, backupKey);
       setMessage(`Respaldo de “${organization.name}” descargado: ${summary.events} eventos, ${summary.students} alumnos y ${summary.logs} registros.`);
     } catch (backupError) {
       setError(backupError.message || 'No fue posible descargar el respaldo de la escuela.');
@@ -148,7 +150,11 @@ export default function MasterDashboard({ organizations, user, onCreate, onAssig
     setRestoringSchool(organization.id);
     try {
       const backup = JSON.parse(await file.text());
-      const summary = await restoreSchoolBackup(organization.id, backup);
+      const backupKey = backup?.integrity?.algorithm === 'HMAC-SHA-256'
+        ? window.prompt('Ingresa la clave privada con la que se firmó este respaldo.')
+        : '';
+      if (backupKey === null) return;
+      const summary = await restoreSchoolBackup(organization.id, backup, backupKey);
       setMessage(`Respaldo de “${organization.name}” restaurado: ${summary.events} eventos, ${summary.students} alumnos y ${summary.logs} registros.`);
     } catch (restoreError) {
       setError(restoreError instanceof SyntaxError ? 'El archivo no contiene un JSON válido.' : (restoreError.message || 'No fue posible restaurar el respaldo.'));

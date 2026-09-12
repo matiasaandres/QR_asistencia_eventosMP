@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import {
   getSavedFirebaseConfig, 
+  parseFirebaseConfig,
   saveFirebaseConfig, 
   resetFirebase 
 } from '../services/firebase';
@@ -94,6 +95,7 @@ export default function SettingsModal({
   const [isDownloadingBackup, setIsDownloadingBackup] = useState(false);
   const [isRestoringBackup, setIsRestoringBackup] = useState(false);
   const [backupMessage, setBackupMessage] = useState('');
+  const [backupKey, setBackupKey] = useState('');
 
   useEffect(() => {
     if (isOpen) {
@@ -168,18 +170,7 @@ export default function SettingsModal({
     }
 
     try {
-      // Allow pasting either raw JS object or JSON
-      let cleaned = firebaseJson.trim();
-      if (cleaned.startsWith('const firebaseConfig =')) {
-        cleaned = cleaned.replace('const firebaseConfig =', '').replace(/;$/, '').trim();
-      }
-      // If it has unquoted keys, loosely parse
-      const config = (new Function(`return ${cleaned}`))();
-
-      if (!config.apiKey || !config.projectId) {
-        alert("La configuración debe contener al menos 'apiKey' y 'projectId'.");
-        return;
-      }
+      const config = parseFirebaseConfig(firebaseJson);
 
       saveFirebaseConfig(config);
       resetFirebase();
@@ -236,7 +227,7 @@ export default function SettingsModal({
     setIsDownloadingBackup(true);
     setBackupMessage('');
     try {
-      const summary = await downloadSchoolBackup(organization?.id);
+      const summary = await downloadSchoolBackup(organization?.id, backupKey);
       setBackupMessage(`Respaldo descargado: ${summary.events} eventos, ${summary.students} alumnos y ${summary.logs} registros.`);
     } catch (error) {
       setBackupMessage(error.message || 'No fue posible descargar el respaldo.');
@@ -258,7 +249,7 @@ export default function SettingsModal({
     setBackupMessage('');
     try {
       const backup = JSON.parse(await file.text());
-      const summary = await restoreSchoolBackup(organization?.id, backup);
+      const summary = await restoreSchoolBackup(organization?.id, backup, backupKey);
       setBackupMessage(`Restauración completada: ${summary.events} eventos, ${summary.students} alumnos y ${summary.logs} registros.`);
     } catch (error) {
       setBackupMessage(error instanceof SyntaxError ? 'El archivo no contiene un JSON válido.' : (error.message || 'No fue posible restaurar el respaldo.'));
@@ -476,7 +467,12 @@ export default function SettingsModal({
               <span className="rounded-xl bg-emerald-100 p-2 text-emerald-700"><DatabaseBackup className="h-5 w-5" /></span>
               <div className="flex-1">
                 <h3 className="text-sm font-extrabold text-emerald-950">Respaldo de la escuela</h3>
-                <p className="mt-1 text-[11px] leading-relaxed text-emerald-800">Descarga un archivo JSON con la configuración institucional, miembros, eventos, alumnos, familias, cupos y bitácoras. Cada archivo incluye verificación de integridad SHA-256.</p>
+                <p className="mt-1 text-[11px] leading-relaxed text-emerald-800">Descarga un archivo JSON con la configuración institucional, miembros, eventos, alumnos, familias, cupos y bitácoras. Los respaldos nuevos se firman con HMAC-SHA-256.</p>
+                <label className="mt-3 block max-w-sm text-[11px] font-bold text-emerald-950">
+                  Clave privada del respaldo
+                  <input type="password" value={backupKey} onChange={(event) => setBackupKey(event.target.value)} minLength={12} autoComplete="new-password" placeholder="Mínimo 12 caracteres; no se guarda" className="mt-1 w-full rounded-xl border border-emerald-300 bg-white px-3 py-2 text-xs text-slate-900 outline-none focus:ring-2 focus:ring-emerald-400" />
+                </label>
+                <p className="mt-1 text-[10px] text-emerald-700">Guárdala fuera de la aplicación: será necesaria para restaurar el archivo firmado.</p>
                 <button type="button" onClick={handleDownloadBackup} disabled={isDownloadingBackup} className="mt-3 inline-flex items-center gap-1.5 rounded-xl bg-emerald-700 px-4 py-2.5 text-xs font-extrabold text-white hover:bg-emerald-600 disabled:cursor-wait disabled:opacity-60">
                   <Download className="h-4 w-4" />
                   {isDownloadingBackup ? 'Preparando respaldo…' : 'Descargar respaldo completo'}

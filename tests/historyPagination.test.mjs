@@ -25,3 +25,8 @@ test('el panel usa agregados en vez de inferir totales desde una página', () =>
   assert.match(dashboard, /analyticsIsCurrent \? analytics\.doorsList/);
   assert.match(dashboard, /analyticsIsCurrent \? analytics\.activityByHour/);
 });
+
+test('comprueba el conteo antes de reconstruir toda la analítica', () => {
+  assert.match(storage, /getCountFromServer\(eventLogs/);
+  assert.match(storage, /currentMeta\.sourceLogCount === logCountSnapshot\.data\(\)\.count/);
+});

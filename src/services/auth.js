@@ -3,10 +3,12 @@ import {
   createUserWithEmailAndPassword,
   deleteUser,
   getAuth,
+  GoogleAuthProvider,
   onAuthStateChanged,
   sendPasswordResetEmail,
   setPersistence,
   signInWithEmailAndPassword,
+  signInWithPopup,
   signOut as firebaseSignOut,
   updateProfile
 } from 'firebase/auth';
@@ -66,7 +68,27 @@ export function subscribeToAuth(onChange) {
   const { auth, ready } = requireFirebase();
   let unsubscribe = () => {};
   ready
-    .then(() => { unsubscribe = onAuthStateChanged(auth, (user) => onChange(user || null)); })
+    .then(() => {
+      unsubscribe = onAuthStateChanged(auth, async (user) => {
+        if (!user) {
+          onChange(null);
+          return;
+        }
+        try {
+          const tokenResult = await user.getIdTokenResult();
+          onChange({
+            uid: user.uid,
+            email: user.email,
+            displayName: user.displayName,
+            photoURL: user.photoURL,
+            customClaims: tokenResult.claims,
+            claims: tokenResult.claims
+          });
+        } catch {
+          onChange(user);
+        }
+      });
+    })
     .catch((error) => onChange(null, error));
   return () => unsubscribe();
 }
@@ -75,6 +97,15 @@ export async function authenticate(email, password) {
   const { auth, ready } = requireFirebase();
   await ready;
   const credential = await signInWithEmailAndPassword(auth, email.trim(), password);
+  return credential.user;
+}
+
+export async function authenticateWithGoogle() {
+  const { auth, ready } = requireFirebase();
+  await ready;
+  const provider = new GoogleAuthProvider();
+  provider.setCustomParameters({ prompt: 'select_account' });
+  const credential = await signInWithPopup(auth, provider);
   return credential.user;
 }
 

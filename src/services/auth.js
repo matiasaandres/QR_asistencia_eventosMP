@@ -6,6 +6,7 @@
 
 import {
   browserLocalPersistence,
+  browserSessionPersistence,
   createUserWithEmailAndPassword,
   deleteUser,
   getAuth,
@@ -18,12 +19,20 @@ import {
   signOut as firebaseSignOut,
   updateProfile
 } from 'firebase/auth';
-import { arrayUnion, collection, doc, getDoc, getDocs, setDoc, writeBatch } from 'firebase/firestore';
+import { arrayUnion, collection, doc, getDocs, runTransaction, setDoc, writeBatch } from 'firebase/firestore';
 import { initFirebase } from './firebase.js';
 import { createOrganizationId, normalizeOrganization } from './organizationPolicy.js';
 import { createEventId, normalizeEvent } from './eventPolicy.js';
 
 let persistencePromise = null;
+
+/**
+ * Usa sesión de navegador por defecto para equipos compartidos. La persistencia
+ * local solo se activa explícitamente con VITE_FIREBASE_PERSIST_SESSION=true.
+ */
+const authPersistence = import.meta.env?.VITE_FIREBASE_PERSIST_SESSION === 'true'
+  ? browserLocalPersistence
+  : browserSessionPersistence;
 
 /** Obtiene los clientes de Firebase necesarios para autenticar usuarios.
  * @returns {{auth: object, db: object, ready: Promise}} Clientes y promesa de persistencia.
@@ -35,7 +44,7 @@ function requireFirebase() {
     throw new Error('Firebase no está configurado para iniciar sesión.');
   }
   const auth = getAuth(app);
-  if (!persistencePromise) persistencePromise = setPersistence(auth, browserLocalPersistence);
+  if (!persistencePromise) persistencePromise = setPersistence(auth, authPersistence);
   return { auth, db, ready: persistencePromise };
 }
 
@@ -253,34 +262,35 @@ export async function joinOrganization({ invitationCode, email, password }) {
 
   try {
     const invitationRef = doc(db, 'organizationInvitations', normalizedCode);
-    const invitationSnapshot = await getDoc(invitationRef);
-    if (!invitationSnapshot.exists()) throw new Error('La invitación no existe.');
-    const invitation = invitationSnapshot.data();
-    if (invitation.status !== 'active') throw new Error('La invitación ya fue utilizada.');
-    if (String(invitation.email || '').toLowerCase() !== user.email.toLowerCase()) throw new Error('La invitación corresponde a otro correo.');
-    if (invitation.expiresAt?.toMillis?.() <= Date.now()) throw new Error('La invitación está vencida.');
+    await runTransaction(db, async (transaction) => {
+      const invitationSnapshot = await transaction.get(invitationRef);
+      if (!invitationSnapshot.exists()) throw new Error('La invitación no existe.');
+      const invitation = invitationSnapshot.data();
+      if (invitation.status !== 'active') throw new Error('La invitación ya fue utilizada.');
+      if (String(invitation.email || '').toLowerCase() !== user.email.toLowerCase()) throw new Error('La invitación corresponde a otro correo.');
+      if (invitation.expiresAt?.toMillis?.() <= Date.now()) throw new Error('La invitación está vencida.');
 
-    const organizationRef = doc(db, 'organizations', invitation.organizationId);
-    const batch = writeBatch(db);
-    batch.update(organizationRef, {
-      memberUids: arrayUnion(user.uid),
-      updatedAt: new Date().toISOString()
+      const organizationRef = doc(db, 'organizations', invitation.organizationId);
+      const now = new Date().toISOString();
+      transaction.update(organizationRef, {
+        memberUids: arrayUnion(user.uid),
+        updatedAt: now
+      });
+      transaction.set(doc(organizationRef, 'members', user.uid), {
+        userId: user.uid,
+        email: user.email,
+        displayName: user.displayName || user.email.split('@')[0],
+        role: invitation.role,
+        status: 'active',
+        invitationCode: normalizedCode,
+        createdAt: now
+      });
+      transaction.update(invitationRef, {
+        status: 'used',
+        usedBy: user.uid,
+        usedAt: now
+      });
     });
-    batch.set(doc(organizationRef, 'members', user.uid), {
-      userId: user.uid,
-      email: user.email,
-      displayName: user.displayName || user.email.split('@')[0],
-      role: invitation.role,
-      status: 'active',
-      invitationCode: normalizedCode,
-      createdAt: new Date().toISOString()
-    });
-    batch.update(invitationRef, {
-      status: 'used',
-      usedBy: user.uid,
-      usedAt: new Date().toISOString()
-    });
-    await batch.commit();
     return user;
   } catch (error) {
     try {

@@ -141,7 +141,7 @@ service cloud.firestore {
       match /venues/{venueId} {
         function validVenue(data) {
           return data.keys().hasOnly([
-              'id', 'name', 'description', 'templateKey', 'floors', 'seatCount', 'createdAt', 'updatedAt'
+              'id', 'name', 'description', 'templateKey', 'stage', 'floors', 'seatCount', 'createdAt', 'updatedAt'
             ])
             && data.id == venueId
             && data.name is string
@@ -150,6 +150,11 @@ service cloud.firestore {
             && data.description is string
             && data.description.size() <= 300
             && data.templateKey is string
+            && data.stage is map
+            && data.stage.keys().hasOnly(['label', 'position'])
+            && data.stage.label is string
+            && data.stage.label.size() <= 60
+            && data.stage.position in ['top', 'bottom', 'left', 'right', 'none']
             && data.floors is list
             && data.floors.size() >= 1
             && data.floors.size() <= 10

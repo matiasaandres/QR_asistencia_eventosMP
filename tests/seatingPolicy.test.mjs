@@ -6,6 +6,7 @@ import {
   createCcbbVenue,
   createEmptySeatPlan,
   createGridVenue,
+  createVisualVenue,
   getAllSeats,
   getStudentSeats,
   releaseSeats,
@@ -26,6 +27,23 @@ test('cada escuela puede crear establecimientos adicionales con un plano simple'
   assert.match(venue.id, /^gimnasio-norte-/);
   assert.equal(venue.seatCount, 24);
   assert.equal(venue.floors[0].sections[0].rows.length, 4);
+});
+
+test('crea un recinto visual con escenario, filas y columnas configurables', () => {
+  const venue = createVisualVenue({
+    name: 'Teatro Municipal',
+    rows: 3,
+    seatsPerRow: 4,
+    rowLabelStyle: 'numbers',
+    sectionName: 'Platea',
+    stageLabel: 'Escenario principal',
+    stagePosition: 'bottom'
+  });
+  assert.equal(venue.templateKey, 'visual-grid');
+  assert.deepEqual(venue.stage, { label: 'Escenario principal', position: 'bottom' });
+  assert.equal(venue.floors[0].sections[0].name, 'Platea');
+  assert.deepEqual(venue.floors[0].sections[0].rows, ['1', '2', '3']);
+  assert.equal(venue.seatCount, 12);
 });
 
 test('asigna y libera varios asientos por curso y familia', () => {

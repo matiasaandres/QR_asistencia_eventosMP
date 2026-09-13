@@ -27,6 +27,22 @@ import { createEventId, normalizeEvent } from './eventPolicy.js';
 let persistencePromise = null;
 
 /**
+ * Normaliza y valida correos antes de enviarlos a Firebase Auth.
+ * @param {unknown} email Correo recibido desde un formulario o invitación.
+ * @returns {string} Correo limpio y en minúsculas.
+ * @throws {Error} Error compatible con Firebase cuando el correo no es válido.
+ */
+function normalizeAuthEmail(email) {
+  const normalizedEmail = String(email || '').trim().toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+    const error = new Error('Ingresa un correo electrónico válido.');
+    error.code = 'auth/invalid-email';
+    throw error;
+  }
+  return normalizedEmail;
+}
+
+/**
  * Usa sesión de navegador por defecto para equipos compartidos. La persistencia
  * local solo se activa explícitamente con VITE_FIREBASE_PERSIST_SESSION=true.
  */
@@ -138,7 +154,7 @@ export function subscribeToAuth(onChange) {
 export async function authenticate(email, password) {
   const { auth, ready } = requireFirebase();
   await ready;
-  const credential = await signInWithEmailAndPassword(auth, email.trim(), password);
+  const credential = await signInWithEmailAndPassword(auth, normalizeAuthEmail(email), password);
   return credential.user;
 }
 
@@ -163,9 +179,7 @@ export async function authenticateWithGoogle() {
 export async function requestPasswordReset(email) {
   const { auth, ready } = requireFirebase();
   await ready;
-  const normalizedEmail = String(email || '').trim().toLowerCase();
-  if (!normalizedEmail) throw new Error('Ingresa el correo de tu cuenta.');
-  await sendPasswordResetEmail(auth, normalizedEmail);
+  await sendPasswordResetEmail(auth, normalizeAuthEmail(email));
 }
 
 /** Registra una organización y su administrador inicial.
@@ -176,7 +190,7 @@ export async function requestPasswordReset(email) {
 export async function registerOrganization({ schoolName, email, password }) {
   const { auth, db, ready } = requireFirebase();
   await ready;
-  const credential = await createUserWithEmailAndPassword(auth, email.trim(), password);
+  const credential = await createUserWithEmailAndPassword(auth, normalizeAuthEmail(email), password);
   const user = credential.user;
 
   try {
@@ -245,7 +259,7 @@ export async function joinOrganization({ invitationCode, email, password }) {
   const { auth, db, ready } = requireFirebase();
   await ready;
   const normalizedCode = invitationCode.trim().toUpperCase();
-  const normalizedEmail = email.trim().toLowerCase();
+  const normalizedEmail = normalizeAuthEmail(email);
   if (!normalizedCode) throw new Error('Ingresa el código de invitación.');
 
   let user;

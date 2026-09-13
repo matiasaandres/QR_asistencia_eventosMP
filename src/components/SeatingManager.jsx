@@ -12,10 +12,11 @@ import {
   buildSeatOwners,
   createCcbbVenue,
   createEmptySeatPlan,
-  createGridVenue,
+  createVisualVenue,
   getAllSeats,
   releaseSeats,
   SEAT_COLORS,
+  STAGE_POSITIONS,
   summarizeSeatPlan
 } from '../services/seatingPolicy.js';
 
@@ -54,19 +55,30 @@ function VenueCreator({ onCreate, onClose }) {
   const [name, setName] = useState('');
   const [rows, setRows] = useState(8);
   const [seatsPerRow, setSeatsPerRow] = useState(10);
+  const [rowLabelStyle, setRowLabelStyle] = useState('letters');
+  const [sectionName, setSectionName] = useState('Sector general');
+  const [stageLabel, setStageLabel] = useState('Escenario');
+  const [stagePosition, setStagePosition] = useState('top');
+  const previewRows = Math.min(8, Math.max(1, Number(rows) || 1));
+  const previewColumns = Math.min(12, Math.max(1, Number(seatsPerRow) || 1));
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-4" role="dialog" aria-modal="true" aria-labelledby="venue-title">
-      <form className="w-full max-w-md space-y-4 rounded-2xl bg-white p-6 shadow-2xl" onSubmit={(event) => {
+    <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-slate-950/70 p-4" role="dialog" aria-modal="true" aria-labelledby="venue-title">
+      <form className="my-6 w-full max-w-4xl space-y-5 rounded-2xl bg-white p-6 shadow-2xl" onSubmit={(event) => {
         event.preventDefault();
         if (name.trim().length < 2) return;
-        onCreate(createGridVenue({ name, rows, seatsPerRow }));
+        onCreate(createVisualVenue({ name, rows, seatsPerRow, rowLabelStyle, sectionName, stageLabel, stagePosition }));
       }}>
         <div className="flex items-start justify-between gap-4">
           <div><h2 id="venue-title" className="text-xl font-black text-slate-900">Nuevo establecimiento</h2><p className="text-xs text-slate-500">Crea un plano inicial que después podrás asignar a cualquier evento.</p></div>
           <button type="button" onClick={onClose} aria-label="Cerrar"><X className="h-5 w-5 text-slate-500" /></button>
         </div>
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(300px,0.9fr)]">
+        <div className="space-y-4">
         <label className="block text-xs font-bold text-slate-700">Nombre del recinto
           <input autoFocus value={name} onChange={(event) => setName(event.target.value)} placeholder="Ej. Gimnasio municipal" className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm" />
+        </label>
+        <label className="block text-xs font-bold text-slate-700">Nombre del sector
+          <input value={sectionName} onChange={(event) => setSectionName(event.target.value)} className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm" />
         </label>
         <div className="grid grid-cols-2 gap-3">
           <label className="text-xs font-bold text-slate-700">Filas
@@ -76,7 +88,33 @@ function VenueCreator({ onCreate, onClose }) {
             <input type="number" min="1" max="30" value={seatsPerRow} onChange={(event) => setSeatsPerRow(event.target.value)} className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm" />
           </label>
         </div>
+        <div className="grid grid-cols-2 gap-3">
+          <label className="text-xs font-bold text-slate-700">Etiquetas de fila
+            <select value={rowLabelStyle} onChange={(event) => setRowLabelStyle(event.target.value)} className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm"><option value="letters">Letras: A, B, C</option><option value="numbers">Números: 1, 2, 3</option></select>
+          </label>
+          <label className="text-xs font-bold text-slate-700">Ubicación del escenario
+            <select value={stagePosition} onChange={(event) => setStagePosition(event.target.value)} className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm">{STAGE_POSITIONS.map((position) => <option key={position} value={position}>{position === 'none' ? 'Sin escenario' : position === 'top' ? 'Arriba' : position === 'bottom' ? 'Abajo' : position === 'left' ? 'Izquierda' : 'Derecha'}</option>)}</select>
+          </label>
+        </div>
+        <label className="block text-xs font-bold text-slate-700">Texto del escenario
+          <input value={stageLabel} onChange={(event) => setStageLabel(event.target.value)} disabled={stagePosition === 'none'} className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm disabled:bg-slate-100" />
+        </label>
         <button type="submit" disabled={name.trim().length < 2} className="flex w-full items-center justify-center gap-2 rounded-xl bg-sky-600 py-2.5 text-sm font-black text-white disabled:bg-slate-300"><Plus className="h-4 w-4" />Crear establecimiento</button>
+        </div>
+        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+          <p className="mb-3 text-xs font-black uppercase tracking-wider text-slate-500">Previsualización</p>
+          <div className={`flex min-h-[220px] gap-3 rounded-xl border border-slate-200 bg-white p-4 ${stagePosition === 'left' || stagePosition === 'right' ? 'flex-row items-center' : 'flex-col'}`}>
+            {stagePosition === 'top' && <div className="rounded-lg bg-slate-800 py-2 text-center text-[10px] font-black uppercase tracking-widest text-white">{stageLabel || 'Escenario'}</div>}
+            {stagePosition === 'left' && <div className="flex w-12 items-center justify-center rounded-lg bg-slate-800 text-center text-[9px] font-black uppercase text-white [writing-mode:vertical-rl]">{stageLabel || 'Escenario'}</div>}
+            <div className="grid flex-1 gap-1.5 overflow-hidden" style={{ gridTemplateColumns: `repeat(${previewColumns}, minmax(0, 1fr))` }}>
+              {Array.from({ length: previewRows * previewColumns }, (_, index) => <span key={index} className="aspect-square rounded-t-md bg-sky-500" />)}
+            </div>
+            {stagePosition === 'right' && <div className="flex w-12 items-center justify-center rounded-lg bg-slate-800 text-center text-[9px] font-black uppercase text-white [writing-mode:vertical-rl]">{stageLabel || 'Escenario'}</div>}
+            {stagePosition === 'bottom' && <div className="rounded-lg bg-slate-800 py-2 text-center text-[10px] font-black uppercase tracking-widest text-white">{stageLabel || 'Escenario'}</div>}
+          </div>
+          <p className="mt-3 text-xs font-semibold text-slate-500">{rows} filas × {seatsPerRow} columnas · {Math.max(1, Number(rows) || 1) * Math.max(1, Number(seatsPerRow) || 1)} asientos</p>
+        </div>
+        </div>
       </form>
     </div>
   );
@@ -264,13 +302,18 @@ export default function SeatingManager({ organization, event, students, venues, 
           </aside>
 
           <section className="min-w-0 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
-            {floorId === 'planta-baja' && <div className="mb-5 rounded-xl border-2 border-slate-400 bg-slate-100 py-3 text-center text-lg font-black tracking-[0.2em] text-slate-700">ESCENARIO</div>}
             <div className="mb-4 flex flex-wrap gap-2">{venue.floors.map((item) => <button key={item.id} onClick={() => setFloorId(item.id)} className={`rounded-xl px-4 py-2 text-xs font-black ${floor?.id === item.id ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600'}`}>{item.name}</button>)}</div>
             <div className="mb-5 flex gap-2 overflow-x-auto pb-1">{floor?.sections.map((item) => <button key={item.id} onClick={() => setSectionId(item.id)} className={`whitespace-nowrap rounded-lg border px-3 py-1.5 text-xs font-bold ${section?.id === item.id ? 'border-sky-500 bg-sky-50 text-sky-800' : 'border-slate-200 text-slate-600'}`}>{item.name}</button>)}</div>
             <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-slate-50 p-4">
               <div className="mb-4 flex items-center justify-between gap-4"><div><h2 className="font-black text-slate-900">{section?.name}</h2><p className="text-xs text-slate-500">{section?.seats.length || 0} asientos · seleccionados {selectedSeats.length}</p></div><button onClick={() => setSelectedSeats(section?.seats.map((seat) => seat.id) || [])} className="text-xs font-black text-sky-700">Seleccionar sector</button></div>
-              <div className="mx-auto grid min-w-max gap-2" style={{ gridTemplateColumns: `repeat(${section?.columns || 1}, minmax(2rem, 2.25rem))` }}>
-                {section?.seats.map((seat) => <SeatButton key={seat.id} seat={seat} assignment={seatPlan.assignments?.[seat.id]} selected={selectedSeats.includes(seat.id)} onToggle={toggleSeat} />)}
+              <div className={`mx-auto flex min-w-max gap-4 ${venue.stage?.position === 'left' || venue.stage?.position === 'right' ? 'flex-row items-center' : 'flex-col'}`}>
+                {venue.stage?.position === 'top' && <div className="rounded-xl border-2 border-slate-400 bg-slate-100 py-3 text-center text-lg font-black tracking-[0.2em] text-slate-700">{venue.stage.label}</div>}
+                {venue.stage?.position === 'left' && <div className="flex w-12 items-center justify-center rounded-xl border-2 border-slate-400 bg-slate-100 py-6 text-center text-xs font-black uppercase text-slate-700 [writing-mode:vertical-rl]">{venue.stage.label}</div>}
+                <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${section?.columns || 1}, minmax(2rem, 2.25rem))` }}>
+                  {section?.seats.map((seat) => <SeatButton key={seat.id} seat={seat} assignment={seatPlan.assignments?.[seat.id]} selected={selectedSeats.includes(seat.id)} onToggle={toggleSeat} />)}
+                </div>
+                {venue.stage?.position === 'right' && <div className="flex w-12 items-center justify-center rounded-xl border-2 border-slate-400 bg-slate-100 py-6 text-center text-xs font-black uppercase text-slate-700 [writing-mode:vertical-rl]">{venue.stage.label}</div>}
+                {venue.stage?.position === 'bottom' && <div className="rounded-xl border-2 border-slate-400 bg-slate-100 py-3 text-center text-lg font-black tracking-[0.2em] text-slate-700">{venue.stage.label}</div>}
               </div>
             </div>
             <div className="mt-4 flex flex-wrap gap-4 text-[11px] font-bold text-slate-600"><span className="flex items-center gap-1"><span className="h-3 w-3 rounded bg-slate-200" />Disponible</span><span className="flex items-center gap-1"><span className="h-3 w-3 rounded bg-sky-600" />Curso asignado</span><span className="flex items-center gap-1"><span className="h-3 w-3 rounded bg-slate-950" />Punto: familia/alumno asignado</span></div>

@@ -16,6 +16,7 @@ function authMessage(error) {
   const code = error?.code || '';
   if (code.includes('popup-closed-by-user')) return 'El inicio de sesión con Google fue cancelado.';
   if (code.includes('popup-blocked')) return 'La ventana emergente de Google fue bloqueada por el navegador.';
+  if (code.includes('invalid-email')) return 'Ingresa un correo electrónico válido.';
   if (code.includes('invalid-credential')) return 'Correo o contraseña incorrectos.';
   if (code.includes('email-already-in-use')) return 'Este correo ya tiene una cuenta. Usa su contraseña actual para aceptar la invitación.';
   if (code.includes('weak-password')) return 'La contraseña debe tener al menos seis caracteres.';

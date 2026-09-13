@@ -9,6 +9,9 @@ export const SEAT_COLORS = [
   '#db2777', '#0891b2', '#65a30d', '#ea580c', '#475569'
 ];
 
+/** Posiciones permitidas para el escenario del recinto. */
+export const STAGE_POSITIONS = ['top', 'bottom', 'left', 'right', 'none'];
+
 /** Convierte un nombre en un identificador seguro y acotado.
  * @param {unknown} value Valor original.
  * @param {string} fallback Identificador alternativo.
@@ -129,16 +132,39 @@ export function createCcbbVenue() {
  * @returns {object} Establecimiento normalizado.
  */
 export function createGridVenue({ name, rows = 8, seatsPerRow = 10 }) {
+  return createVisualVenue({ name, rows, seatsPerRow });
+}
+
+/**
+ * Construye un recinto visual configurable con escenario, filas y columnas.
+ * @param {{name: string, rows?: number, seatsPerRow?: number, rowLabelStyle?: 'letters'|'numbers', sectionName?: string, stageLabel?: string, stagePosition?: string}} input Configuración visual.
+ * @returns {object} Recinto normalizado listo para guardar.
+ */
+export function createVisualVenue({
+  name,
+  rows = 8,
+  seatsPerRow = 10,
+  rowLabelStyle = 'letters',
+  sectionName = 'Sector general',
+  stageLabel = 'Escenario',
+  stagePosition = 'top'
+}) {
   const safeRows = Math.trunc(Math.min(30, Math.max(1, Number(rows) || 8)));
   const safeSeats = Math.trunc(Math.min(30, Math.max(1, Number(seatsPerRow) || 10)));
   const id = `${cleanId(name, 'establecimiento')}-${Date.now().toString(36)}`;
+  const rowsList = rowLabelStyle === 'numbers' ? range(safeRows) : alphabet(safeRows);
+  const safeStagePosition = STAGE_POSITIONS.includes(stagePosition) ? stagePosition : 'top';
   return normalizeVenue({
     id,
     name: String(name || 'Nuevo establecimiento').trim(),
-    description: `${safeRows} filas · ${safeSeats} asientos por fila`,
-    templateKey: 'grid',
+    description: `${safeRows} filas · ${safeSeats} columnas · ${safeStagePosition === 'none' ? 'sin escenario' : 'escenario ' + safeStagePosition}`,
+    templateKey: 'visual-grid',
+    stage: {
+      label: String(stageLabel || 'Escenario').trim().slice(0, 60),
+      position: safeStagePosition
+    },
     floors: [createFloor('principal', 'P', 'Planta principal', [
-      { id: 'general', code: 'GEN', name: 'Sector general', rows: alphabet(safeRows), seatsPerRow: safeSeats }
+      { id: 'general', code: 'GEN', name: String(sectionName || 'Sector general').trim().slice(0, 80), rows: rowsList, seatsPerRow: safeSeats }
     ])]
   });
 }
@@ -156,6 +182,10 @@ export function normalizeVenue(venue = {}) {
     name: String(venue.name || 'Establecimiento sin nombre').trim(),
     description: String(venue.description || '').trim(),
     templateKey: String(venue.templateKey || 'custom'),
+    stage: {
+      label: String(venue.stage?.label || 'Escenario').trim(),
+      position: STAGE_POSITIONS.includes(venue.stage?.position) ? venue.stage.position : 'none'
+    },
     floors,
     seatCount,
     updatedAt: venue.updatedAt || new Date().toISOString(),

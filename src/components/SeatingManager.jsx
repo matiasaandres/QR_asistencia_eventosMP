@@ -2,7 +2,7 @@
  * Editor de establecimientos, plantas y asignaciones de asientos por evento.
  */
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Armchair, Building2, Check, Eraser, Layers3, MousePointer2,
   Plus, Save, Sparkles, UsersRound, X
@@ -26,7 +26,7 @@ import {
  * @param {object} props Datos del asiento y callbacks de selección.
  * @returns {JSX.Element} Botón de asiento.
  */
-function SeatButton({ seat, assignment, selected, onToggle, size = 32 }) {
+function SeatButton({ seat, assignment, selected, onToggle, onDragStart, onDragEnter, size = 32 }) {
   const background = assignment?.color || '#e2e8f0';
   const label = assignment?.ownerName
     ? `${seat.label}: ${assignment.ownerName} · ${assignment.course}`
@@ -37,11 +37,14 @@ function SeatButton({ seat, assignment, selected, onToggle, size = 32 }) {
     <button
       type="button"
       title={label}
+      data-seat-id={seat.id}
       aria-label={label}
       aria-pressed={selected}
-      onClick={() => onToggle(seat.id)}
-      className={`relative flex items-center justify-center rounded-t-lg rounded-b-sm border-2 text-[8px] font-black transition-transform hover:-translate-y-0.5 ${selected ? 'z-10 border-slate-950 ring-2 ring-sky-300' : 'border-slate-400/70'}`}
-      style={{ width: size, height: size + 4, backgroundColor: background, color: assignment ? '#ffffff' : '#475569' }}
+      onPointerDown={(event) => onDragStart?.(seat.id, event)}
+      onPointerEnter={(event) => onDragEnter?.(seat.id, event)}
+      onClick={(event) => { if (event.detail === 0) onToggle(seat.id); }}
+      className={`relative flex select-none items-center justify-center rounded-t-lg rounded-b-sm border-2 text-[8px] font-black transition-transform hover:-translate-y-0.5 ${selected ? 'z-10 border-slate-950 ring-2 ring-sky-300' : 'border-slate-400/70'}`}
+      style={{ width: size, height: size + 4, touchAction: 'none', backgroundColor: background, color: assignment ? '#ffffff' : '#475569' }}
     >
       {seat.number}
       {assignment?.ownerId && <span className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full border border-white bg-slate-950" />}
@@ -50,7 +53,7 @@ function SeatButton({ seat, assignment, selected, onToggle, size = 32 }) {
 }
 
 /** Muestra todos los bloques de una planta conservando su ubicación relativa. */
-function SpatialFloorMap({ floor, assignments, selectedSeats, onToggle, onSelectSection, zoom }) {
+function SpatialFloorMap({ floor, assignments, selectedSeats, onToggle, onDragStart, onDragEnter, onSelectSection, zoom }) {
   const layout = floor?.layout;
   if (!layout) return null;
   const scaledWidth = Math.round(layout.width * zoom);
@@ -86,9 +89,19 @@ function SpatialFloorMap({ floor, assignments, selectedSeats, onToggle, onSelect
                 <button type="button" onClick={() => onSelectSection(mapSection)} className="mb-1 block w-full truncate text-center text-[10px] font-black uppercase tracking-wide text-slate-500 hover:text-sky-700">
                   {mapSection.name}
                 </button>
-                <div className="grid justify-center" style={{ gridTemplateColumns: `repeat(${mapSection.columns || 1}, ${sectionLayout.seatSize || 23}px)`, gap: sectionLayout.gap || 4 }}>
-                  {(mapSection.seats || []).map((seat) => <SeatButton key={seat.id} seat={seat} assignment={assignments?.[seat.id]} selected={selectedSeats.includes(seat.id)} onToggle={onToggle} size={sectionLayout.seatSize || 23} />)}
-                </div>
+                {sectionLayout.seatPositions ? (
+                  <div className="relative mx-auto" style={{ width: sectionLayout.width, height: Math.max(...sectionLayout.seatPositions.map((position) => position.y)) + (sectionLayout.seatSize || 23) + 4 }}>
+                    {(mapSection.seats || []).map((seat, index) => {
+                      const position = sectionLayout.seatPositions[index];
+                      if (!position) return null;
+                      return <div key={seat.id} className="absolute" style={{ left: position.x, top: position.y }}><SeatButton seat={seat} assignment={assignments?.[seat.id]} selected={selectedSeats.includes(seat.id)} onToggle={onToggle} onDragStart={onDragStart} onDragEnter={onDragEnter} size={sectionLayout.seatSize || 23} /></div>;
+                    })}
+                  </div>
+                ) : (
+                  <div className="grid justify-center" style={{ gridTemplateColumns: `repeat(${mapSection.columns || 1}, ${sectionLayout.seatSize || 23}px)`, gap: sectionLayout.gap || 4 }}>
+                    {(mapSection.seats || []).map((seat) => <SeatButton key={seat.id} seat={seat} assignment={assignments?.[seat.id]} selected={selectedSeats.includes(seat.id)} onToggle={onToggle} onDragStart={onDragStart} onDragEnter={onDragEnter} size={sectionLayout.seatSize || 23} />)}
+                  </div>
+                )}
               </section>
             );
           })}
@@ -187,6 +200,7 @@ export default function SeatingManager({ organization, event, students, venues, 
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
   const [showCreator, setShowCreator] = useState(false);
+  const dragSelection = useRef({ active: false, select: true, visited: new Set() });
 
   const venue = useMemo(() => venues.find((item) => item.id === seatPlan?.venueId) || null, [venues, seatPlan?.venueId]);
   const owners = useMemo(() => buildSeatOwners(students), [students]);
@@ -227,6 +241,16 @@ export default function SeatingManager({ organization, event, students, venues, 
   useEffect(() => {
     if (!course && courses.length) setCourse(courses[0]);
   }, [courses, course]);
+
+  useEffect(() => {
+    const finishDrag = () => { dragSelection.current.active = false; };
+    window.addEventListener('pointerup', finishDrag);
+    window.addEventListener('pointercancel', finishDrag);
+    return () => {
+      window.removeEventListener('pointerup', finishDrag);
+      window.removeEventListener('pointercancel', finishDrag);
+    };
+  }, []);
 
   /** Guarda el plano de asientos y actualiza el mensaje de resultado.
    * @param {object} nextPlan Plano que se almacenará.
@@ -290,6 +314,35 @@ export default function SeatingManager({ organization, event, students, venues, 
    * @returns {void}
    */
   const toggleSeat = (seatId) => setSelectedSeats((current) => current.includes(seatId) ? current.filter((id) => id !== seatId) : [...current, seatId]);
+
+  /** Agrega o quita un asiento durante una selección arrastrada. */
+  const paintSeat = (seatId, select) => setSelectedSeats((current) => {
+    const exists = current.includes(seatId);
+    if (select && !exists) return [...current, seatId];
+    if (!select && exists) return current.filter((id) => id !== seatId);
+    return current;
+  });
+
+  /** Inicia el pincel de selección usando el estado del primer asiento. */
+  const startSeatDrag = (seatId, pointerEvent) => {
+    if (pointerEvent.pointerType === 'mouse' && pointerEvent.button !== 0) return;
+    pointerEvent.preventDefault();
+    const select = !selectedSeats.includes(seatId);
+    dragSelection.current = { active: true, select, visited: new Set([seatId]) };
+    paintSeat(seatId, select);
+  };
+
+  /** Aplica el pincel al entrar en otro asiento con el puntero presionado. */
+  const continueSeatDrag = (seatId, pointerEvent) => {
+    const drag = dragSelection.current;
+    if (!drag.active || drag.visited.has(seatId)) return;
+    if (pointerEvent.pointerType === 'mouse' && pointerEvent.buttons !== 1) {
+      drag.active = false;
+      return;
+    }
+    drag.visited.add(seatId);
+    paintSeat(seatId, drag.select);
+  };
 
   /** Sugiere asientos libres según la capacidad del estudiante.
    * @returns {void}
@@ -410,7 +463,7 @@ export default function SeatingManager({ organization, event, students, venues, 
                 <button onClick={handleAutoAssign} disabled={saving || !course || !courseOwners.length || courseOwnerKeys.size >= courseOwners.length || !courseAssignments.some((assignment) => !assignment.ownerId)} className="flex w-full items-center justify-center gap-2 rounded-xl border border-violet-200 bg-violet-50 py-2.5 text-xs font-black text-violet-800 disabled:opacity-40"><UsersRound className="h-4 w-4" />Distribuir automáticamente</button>
               </div>
             )}
-            <div className="rounded-xl bg-slate-50 p-3 text-xs text-slate-600"><MousePointer2 className="mb-1 h-4 w-4 text-sky-600" />Pulsa asientos en cualquier bloque de la planta. El plano mantiene la ubicación, pasillos y orientación del recinto.</div>
+            <div className="rounded-xl bg-slate-50 p-3 text-xs text-slate-600"><MousePointer2 className="mb-1 h-4 w-4 text-sky-600" />Haz clic en un asiento o mantén presionado el botón izquierdo y arrastra para seleccionar varios. Si comienzas sobre uno seleccionado, el arrastre los desmarca.</div>
             <button onClick={suggestSeats} disabled={!visibleSeats.length || !course || (assignmentStep === 'owners' && !selectedOwner)} className="flex w-full items-center justify-center gap-2 rounded-xl border border-violet-200 bg-violet-50 py-2.5 text-xs font-black text-violet-800 disabled:opacity-40"><Sparkles className="h-4 w-4" />{assignmentStep === 'course' ? `Sugerir ${Math.max(1, courseSeatDemand)} para el curso` : `Sugerir ${Math.max(1, selectedOwner?.capacity || 1)} reservado(s)`}</button>
             <button onClick={applyAssignment} disabled={saving || !selectedSeats.length || !course || (assignmentStep === 'owners' && !selectedOwner)} className="flex w-full items-center justify-center gap-2 rounded-xl bg-sky-600 py-3 text-sm font-black text-white disabled:bg-slate-300"><Save className="h-4 w-4" />{assignmentStep === 'course' ? `Reservar ${selectedSeats.length || ''} al curso` : `Asignar ${selectedSeats.length || ''} a alumno`}</button>
             <button onClick={() => persist(releaseSeats(seatPlan, selectedSeats), `${selectedSeats.length} asiento(s) liberado(s).`)} disabled={saving || !selectedSeats.length} className="flex w-full items-center justify-center gap-2 rounded-xl border border-rose-200 py-2.5 text-xs font-black text-rose-700 disabled:opacity-40"><Eraser className="h-4 w-4" />Liberar seleccionados</button>
@@ -427,7 +480,7 @@ export default function SeatingManager({ organization, event, students, venues, 
             {floor?.layout ? (
               <>
                 <div className="mb-3 flex items-center justify-between gap-4"><div><h2 className="font-black text-slate-900">{floor.name}</h2><p className="text-xs text-slate-500">Plano completo · {floorSeats.length} asientos · seleccionados {selectedSeats.length}</p></div><button onClick={() => setSelectedSeats([])} className="text-xs font-black text-sky-700">Limpiar selección</button></div>
-                <SpatialFloorMap floor={floor} assignments={seatPlan.assignments} selectedSeats={selectedSeats} onToggle={toggleSeat} onSelectSection={(item) => { setSectionId(item.id); setSelectedSeats(item.seats.map((seat) => seat.id)); }} zoom={zoom} />
+                <SpatialFloorMap floor={floor} assignments={seatPlan.assignments} selectedSeats={selectedSeats} onToggle={toggleSeat} onDragStart={startSeatDrag} onDragEnter={continueSeatDrag} onSelectSection={(item) => { setSectionId(item.id); setSelectedSeats(item.seats.map((seat) => seat.id)); }} zoom={zoom} />
               </>
             ) : <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-slate-50 p-4">
               <div className="mb-4 flex items-center justify-between gap-4"><div><h2 className="font-black text-slate-900">{section?.name}</h2><p className="text-xs text-slate-500">{section?.seats.length || 0} asientos · seleccionados {selectedSeats.length}</p></div><button onClick={() => setSelectedSeats(section?.seats.map((seat) => seat.id) || [])} className="text-xs font-black text-sky-700">Seleccionar sector</button></div>
@@ -435,7 +488,7 @@ export default function SeatingManager({ organization, event, students, venues, 
                 {venue.stage?.position === 'top' && <div className="rounded-xl border-2 border-slate-400 bg-slate-100 py-3 text-center text-lg font-black tracking-[0.2em] text-slate-700">{venue.stage.label}</div>}
                 {venue.stage?.position === 'left' && <div className="flex w-12 items-center justify-center rounded-xl border-2 border-slate-400 bg-slate-100 py-6 text-center text-xs font-black uppercase text-slate-700 [writing-mode:vertical-rl]">{venue.stage.label}</div>}
                 <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${section?.columns || 1}, minmax(2rem, 2.25rem))` }}>
-                  {section?.seats.map((seat) => <SeatButton key={seat.id} seat={seat} assignment={seatPlan.assignments?.[seat.id]} selected={selectedSeats.includes(seat.id)} onToggle={toggleSeat} />)}
+                  {section?.seats.map((seat) => <SeatButton key={seat.id} seat={seat} assignment={seatPlan.assignments?.[seat.id]} selected={selectedSeats.includes(seat.id)} onToggle={toggleSeat} onDragStart={startSeatDrag} onDragEnter={continueSeatDrag} />)}
                 </div>
                 {venue.stage?.position === 'right' && <div className="flex w-12 items-center justify-center rounded-xl border-2 border-slate-400 bg-slate-100 py-6 text-center text-xs font-black uppercase text-slate-700 [writing-mode:vertical-rl]">{venue.stage.label}</div>}
                 {venue.stage?.position === 'bottom' && <div className="rounded-xl border-2 border-slate-400 bg-slate-100 py-3 text-center text-lg font-black tracking-[0.2em] text-slate-700">{venue.stage.label}</div>}

@@ -23,13 +23,28 @@ const CCBB_SPATIAL_LAYOUT = {
     height: 690,
     landmarks: [
       { id: 'escenario', type: 'stage', label: 'ESCENARIO', x: 245, y: 18, width: 630, height: 68 },
-      { id: 'pasillo-central', type: 'aisle', label: 'Pasillo central', x: 410, y: 555, width: 300, height: 88 }
+      { id: 'pasillo-central', type: 'aisle', label: 'Pasillo central', x: 400, y: 520, width: 320, height: 125 }
     ],
     sections: {
       'planta-baja-lateral-izquierdo': { x: 28, y: 130, width: 190, rotation: 8, seatSize: 23, gap: 5 },
       'planta-baja-central': { x: 286, y: 118, width: 550, rotation: 0, seatSize: 24, gap: 5 },
       'planta-baja-lateral-derecho': { x: 910, y: 130, width: 165, rotation: -9, seatSize: 23, gap: 5 },
-      'planta-baja-posterior': { x: 445, y: 575, width: 230, rotation: 0, seatSize: 24, gap: 7 }
+      // El inventario histórico conserva 12 IDs. Visualmente se muestran como
+      // dos grupos de 3 × 2, respetando la separación lateral del plano base.
+      'planta-baja-posterior': {
+        x: 300,
+        y: 530,
+        width: 520,
+        rotation: 0,
+        seatSize: 24,
+        gap: 7,
+        seatPositions: [
+          { x: 0, y: 0 }, { x: 31, y: 0 }, { x: 62, y: 0 },
+          { x: 420, y: 0 }, { x: 451, y: 0 }, { x: 482, y: 0 },
+          { x: 0, y: 35 }, { x: 31, y: 35 }, { x: 62, y: 35 },
+          { x: 420, y: 35 }, { x: 451, y: 35 }, { x: 482, y: 35 }
+        ]
+      }
     }
   },
   'planta-alta': {

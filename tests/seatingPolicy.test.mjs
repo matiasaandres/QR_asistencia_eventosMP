@@ -25,6 +25,11 @@ test('el plano CCBB separa plantas y genera asientos estables y únicos', () => 
   assert.ok(seats.every((seat) => seat.label && seat.floorId && seat.sectionId));
   assert.ok(venue.floors.every((floor) => floor.layout?.width && floor.layout?.height));
   assert.ok(venue.floors.every((floor) => floor.sections.every((section) => section.layout)));
+  const posterior = venue.floors[0].sections.find((section) => section.id === 'planta-baja-posterior');
+  assert.equal(posterior.layout.seatPositions.length, posterior.seats.length);
+  assert.equal(new Set(posterior.layout.seatPositions.map((position) => `${position.x}:${position.y}`)).size, posterior.seats.length);
+  assert.ok(posterior.layout.seatPositions.some((position) => position.x < 100));
+  assert.ok(posterior.layout.seatPositions.some((position) => position.x > 400));
 });
 
 test('hidrata el plano espacial en recintos CCBB guardados anteriormente', () => {

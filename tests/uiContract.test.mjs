@@ -151,6 +151,15 @@ test('la nómina permite cambiar cupos globales, individuales y deshabilitar alu
   assert.match(studentsManager, /DESHABILITADO/);
 });
 
+test('agregar un alumno usa un catálogo de cursos y separa la creación excepcional', () => {
+  assert.match(studentsManager, /id="new-student-course"/);
+  assert.match(studentsManager, /Selecciona un curso/);
+  assert.match(studentsManager, /Crear un curso nuevo/);
+  assert.match(studentsManager, /id="new-course-name"/);
+  assert.match(studentsManager, /getCourseOptions\(students\)/);
+  assert.match(studentsManager, /resolveCourseName\(row\['Curso'\]/);
+});
+
 test('la vista de estudiantes y credenciales filtra por curso, cupo y estado', () => {
   assert.match(studentsManager, /id="student-course-filter"/);
   assert.match(studentsManager, /id="student-capacity-filter"/);

@@ -25,6 +25,7 @@ import { getCapacityState, normalizeCapacityValue } from '../services/checkinPol
 import { createStudentCodeGenerator } from '../services/studentCodes';
 import { createFamilyCodeGenerator } from '../services/familyPolicy';
 import { readSpreadsheet, SPREADSHEET_LIMITS } from '../services/spreadsheet';
+import { getCourseOptions, NEW_COURSE_VALUE, resolveCourseName } from '../services/coursePolicy';
 
 const BULK_IMPORT_TEMPLATE_PATH = '/Plantilla_Carga_Masiva_MundoPalabra.xlsx';
 const NEW_FAMILY_VALUE = '__NEW_FAMILY__';
@@ -72,6 +73,7 @@ export default function StudentsManager({
     familySelection: '',
     maxCapacity: 4
   });
+  const [customCourse, setCustomCourse] = useState('');
   const [importStatus, setImportStatus] = useState(null);
   const [bulkCapacity, setBulkCapacity] = useState(4);
   const [editingStudent, setEditingStudent] = useState(null);
@@ -243,8 +245,7 @@ export default function StudentsManager({
     await deleteRosterStudents([student], `${student.name} fue eliminado de la nómina.`);
   };
 
-  const courses = [...new Set(students.map((student) => student.course).filter(Boolean))]
-    .sort((a, b) => a.localeCompare(b, 'es', { numeric: true }));
+  const courses = getCourseOptions(students);
 
   /** Elimina todos los estudiantes del curso seleccionado.
    * @returns {Promise<void>}
@@ -311,7 +312,10 @@ export default function StudentsManager({
    */
   const handleAddStudent = async (e) => {
     e.preventDefault();
-    if (!newStudent.name.trim() || !newStudent.course.trim()) return;
+    const selectedCourse = newStudent.course === NEW_COURSE_VALUE
+      ? resolveCourseName(customCourse, courses)
+      : resolveCourseName(newStudent.course, courses);
+    if (!newStudent.name.trim() || !selectedCourse) return;
 
     // Use a time-based suffix so a newly created student cannot reuse the
     // document ID of a soft-deleted record that is hidden from this roster.
@@ -319,7 +323,7 @@ export default function StudentsManager({
     const studentObj = {
       id: nextId,
       name: newStudent.name.trim(),
-      course: newStudent.course.trim(),
+      course: selectedCourse,
       maxCapacity: Math.max(1, normalizeCapacityValue(newStudent.maxCapacity)),
       enteredCount: 0,
       status: 'PENDIENTE'
@@ -333,6 +337,7 @@ export default function StudentsManager({
         await onSaveFamily(studentObj.id, newStudent.familySelection, nextStudents);
       }
       setNewStudent({ name: '', course: '', familySelection: '', maxCapacity: 4 });
+      setCustomCourse('');
       setShowAddModal(false);
       showStatus(`${studentObj.name} fue incorporado a la nómina.`);
     } catch (error) {
@@ -363,9 +368,11 @@ export default function StudentsManager({
         const generateStudentCode = createStudentCodeGenerator(students);
         const generateFamilyCode = createFamilyCodeGenerator(students);
         const importedFamilies = new Map();
+        const knownCourses = [...courses];
         const newEntries = importRows.map((row, idx) => {
           const name = row['Nombre'] || row['Estudiante'] || row['Alumno'] || row['Nombre Estudiante'] || `Estudiante ${idx + 1}`;
-          const course = row['Curso'] || row['Nivel'] || 'General';
+          const course = resolveCourseName(row['Curso'] || row['Nivel'] || 'General', knownCourses);
+          if (course && !knownCourses.includes(course)) knownCourses.push(course);
           const rawCapacity = row['Capacidad'] ?? row['Cupos'] ?? row['Maximo'];
           const familyId = row['Familia'] ?? row['Código Familia'] ?? row['Codigo Familia'] ?? '';
           const maxCap = normalizeCapacityValue(rawCapacity, 4);
@@ -377,7 +384,7 @@ export default function StudentsManager({
           return {
             id: generateStudentCode(),
             name: String(name),
-            course: String(course),
+            course,
             ...(familyGroup ? { familyId: importedFamilies.get(familyGroup) } : {}),
             maxCapacity: maxCap,
             enteredCount: 0,
@@ -772,15 +779,37 @@ export default function StudentsManager({
               </div>
 
               <div>
-                <label className="font-bold text-slate-700 block mb-1">Curso:</label>
-                <input
-                  type="text"
+                <label htmlFor="new-student-course" className="font-bold text-slate-700 block mb-1">Curso:</label>
+                <select
+                  id="new-student-course"
                   required
                   value={newStudent.course}
-                  onChange={(e) => setNewStudent({ ...newStudent, course: e.target.value })}
-                  placeholder="Ej: Kínder A"
+                  onChange={(e) => {
+                    setNewStudent({ ...newStudent, course: e.target.value });
+                    if (e.target.value !== NEW_COURSE_VALUE) setCustomCourse('');
+                  }}
                   className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-sky-500"
-                />
+                >
+                  <option value="">Selecciona un curso</option>
+                  {courses.map((course) => <option key={course} value={course}>{course}</option>)}
+                  <option value={NEW_COURSE_VALUE}>＋ Crear un curso nuevo…</option>
+                </select>
+                {newStudent.course === NEW_COURSE_VALUE && (
+                  <div className="mt-2 rounded-xl border border-sky-200 bg-sky-50 p-3">
+                    <label htmlFor="new-course-name" className="font-bold text-sky-950 block mb-1">Nombre del nuevo curso</label>
+                    <input
+                      id="new-course-name"
+                      type="text"
+                      required
+                      maxLength="100"
+                      value={customCourse}
+                      onChange={(e) => setCustomCourse(e.target.value)}
+                      placeholder="Ej: Kínder A"
+                      className="w-full rounded-lg border border-sky-200 bg-white p-2.5 outline-none focus:ring-2 focus:ring-sky-500"
+                    />
+                    <p className="mt-1 text-[11px] text-sky-800">Se crea una vez y luego quedará disponible para seleccionar en los próximos alumnos.</p>
+                  </div>
+                )}
               </div>
 
               <div>
@@ -815,7 +844,7 @@ export default function StudentsManager({
               <div className="flex items-center justify-end gap-2 pt-3">
                 <button
                   type="button"
-                  onClick={() => setShowAddModal(false)}
+                  onClick={() => { setShowAddModal(false); setCustomCourse(''); }}
                   className="px-4 py-2 text-slate-600 hover:bg-slate-100 font-semibold rounded-xl"
                 >
                   Cancelar

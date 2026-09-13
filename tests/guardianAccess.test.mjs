@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   findStudentForGuardian,
+  getGuardianCourseOptions,
   normalizeCourseKey,
   normalizeRut
 } from '../src/services/guardianAccess.js';
@@ -27,4 +28,8 @@ test('encuentra solo un estudiante activo cuando coinciden RUT y curso', () => {
   assert.equal(findStudentForGuardian(students, '24.617.421-0', '5° Básico A'), null);
   assert.equal(findStudentForGuardian(students, '25.111.222-k', 'Retirado'), null);
   assert.equal(findStudentForGuardian(students, '26.333.444-5', '5° Básico A'), null);
+});
+
+test('entrega cursos seleccionables sin exigir escritura libre', () => {
+  assert.deepEqual(getGuardianCourseOptions(students), ['6° Básico A']);
 });

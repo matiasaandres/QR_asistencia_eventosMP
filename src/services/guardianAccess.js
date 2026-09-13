@@ -15,17 +15,21 @@ export function normalizeRut(value = '') {
   return `${cleaned.slice(0, -1)}-${cleaned.slice(-1)}`;
 }
 
+export { normalizeCourseKey } from './coursePolicy.js';
+import { getCourseOptions, normalizeCourseKey } from './coursePolicy.js';
+
 /**
- * Normaliza un curso para compararlo sin tildes, espacios ni símbolos.
- * @param {unknown} value Curso ingresado por la persona usuaria.
- * @returns {string} Clave de comparación normalizada.
+ * Entrega únicamente cursos que tengan estudiantes habilitados para recuperar QR.
+ * Este catálogo permite usar un selector en lugar de solicitar escritura libre.
+ * @param {Array<object>} students Nómina disponible para el flujo autorizado.
+ * @returns {Array<string>} Cursos seleccionables.
  */
-export function normalizeCourseKey(value = '') {
-  return String(value)
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^a-zA-Z0-9]/g, '')
-    .toUpperCase();
+export function getGuardianCourseOptions(students = []) {
+  return getCourseOptions(students.filter((student) => (
+    student.status !== 'RETIRADO'
+    && student.disabled !== true
+    && student.rut
+  )));
 }
 
 /**

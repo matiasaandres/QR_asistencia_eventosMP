@@ -131,7 +131,7 @@ export default function EventsManager({
       <div>
         <p className="text-xs font-extrabold uppercase tracking-[0.2em] text-sky-700">Administración</p>
         <h1 className="mt-1 text-2xl font-black text-slate-950">Eventos</h1>
-        <p className="mt-1 text-sm text-slate-600">Cada evento mantiene su propia nómina, cupos e historial de ingresos.</p>
+        <p className="mt-1 text-sm text-slate-600">Los alumnos viven en una nómina maestra; cada evento guarda solamente su participación, cupos e historial.</p>
       </div>
 
       {message && (
@@ -165,7 +165,7 @@ export default function EventsManager({
         <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <label className="flex cursor-pointer items-start gap-2 text-xs font-semibold text-slate-700">
             <input type="checkbox" checked={copyRoster} onChange={(event) => setCopyRoster(event.target.checked)} className="mt-0.5 h-4 w-4 rounded border-sky-300 text-sky-600" />
-            <span><strong>Incorporar nómina desde el evento actual</strong><br />Selecciona los cursos que participarán; la asistencia comenzará en cero.</span>
+            <span><strong>Incorporar alumnos desde la nómina actual</strong><br />El evento enlazará sus fichas maestras sin duplicar nombre, RUT ni curso; la asistencia comenzará en cero.</span>
           </label>
           <button disabled={isSaving} className="inline-flex items-center justify-center gap-2 rounded-xl bg-sky-600 px-4 py-2.5 text-sm font-extrabold text-white hover:bg-sky-500 disabled:opacity-60">
             <Plus className="h-4 w-4" /> {isSaving ? 'Creando…' : 'Crear y seleccionar'}

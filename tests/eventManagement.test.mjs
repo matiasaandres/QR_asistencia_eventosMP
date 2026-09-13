@@ -77,10 +77,11 @@ test('la interfaz permite crear, seleccionar y archivar eventos', async () => {
   assert.match(app, /subscribeToEvents\(organizationId/);
   assert.match(navbar, /aria-label="Evento actual"/);
   assert.match(manager, /Crear un evento nuevo/);
-  assert.match(manager, /Incorporar nómina desde el evento actual/);
+  assert.match(manager, /fichas maestras sin duplicar nombre, RUT ni curso/);
   assert.match(manager, /Cursos que se incorporarán/);
   assert.match(manager, /selectedCourses/);
   assert.match(manager, /Archivar/);
   assert.match(storage, /export async function createEvent/);
   assert.match(storage, /'organizations', organizationId, 'events'/);
+  assert.match(storage, /studentDirectory/);
 });

@@ -60,6 +60,14 @@ test('el cupo extraordinario exige identificación y máximo más uno', () => {
   assert.match(rules, /relationship\.size\(\) >= 2/);
 });
 
+test('centraliza la identidad del alumno en una nómina maestra protegida', () => {
+  assert.match(rules, /match \/studentDirectory\/\{studentId\}/);
+  assert.match(rules, /function validStudentProfile\(data\)/);
+  assert.match(rules, /data\.id == studentId/);
+  assert.match(rules, /allow create, update: if isAdmin\(\) && validStudentProfile/);
+  assert.match(rules, /'studentId', 'rut', 'name', 'rawName', 'course'/);
+});
+
 test('solo un administrador puede corregir historial y reiniciar asistencia', () => {
   assert.match(rules, /allow delete: if isAdmin\(\);/);
   assert.match(rules, /function adminMaintenance\(operation\)/);

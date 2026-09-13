@@ -4,8 +4,8 @@
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Armchair, Building2, Check, Eraser, Layers3, MousePointer2,
-  Plus, Save, Sparkles, UsersRound, X
+  Armchair, Building2, Check, Download, Eraser, Layers3, MousePointer2,
+  Plus, Save, Sparkles, Tags, UsersRound, X
 } from 'lucide-react';
 import {
   assignSeats,
@@ -21,6 +21,7 @@ import {
   STAGE_POSITIONS,
   summarizeSeatPlan
 } from '../services/seatingPolicy.js';
+import { downloadSeatLabelsPdf } from '../services/seatLabels.js';
 
 /** Renderiza un asiento seleccionable del plano.
  * @param {object} props Datos del asiento y callbacks de selección.
@@ -200,6 +201,8 @@ export default function SeatingManager({ organization, event, students, venues, 
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
   const [showCreator, setShowCreator] = useState(false);
+  const [labelScope, setLabelScope] = useState('all');
+  const [generatingLabels, setGeneratingLabels] = useState(false);
   const dragSelection = useRef({ active: false, select: true, visited: new Set() });
 
   const venue = useMemo(() => venues.find((item) => item.id === seatPlan?.venueId) || null, [venues, seatPlan?.venueId]);
@@ -397,6 +400,26 @@ export default function SeatingManager({ organization, event, students, venues, 
     persist(result.plan, `${result.assignedOwners} alumno(s) o familia(s) asignados automáticamente. ${result.pendingOwners ? `${result.pendingOwners} quedaron pendientes por falta de asientos.` : 'El curso quedó distribuido.'}`);
   };
 
+  /** Genera hojas A4 listas para imprimir en papel adhesivo. */
+  const handleDownloadLabels = async () => {
+    setGeneratingLabels(true);
+    setMessage('');
+    try {
+      await downloadSeatLabelsPdf({
+        venue,
+        seatPlan,
+        event,
+        organization,
+        assignedOnly: labelScope === 'assigned'
+      });
+      setMessage('PDF de etiquetas generado. Imprime en tamaño real (100 %) y sin ajustar a página.');
+    } catch (error) {
+      setMessage(error?.message || 'No fue posible generar las etiquetas.');
+    } finally {
+      setGeneratingLabels(false);
+    }
+  };
+
   if (!venues.length) {
     return (
       <div className="mx-auto max-w-4xl space-y-6 px-4 py-8">
@@ -432,6 +455,14 @@ export default function SeatingManager({ organization, event, students, venues, 
       {!venue ? <div className="rounded-2xl border border-sky-200 bg-sky-50 p-5 text-sm text-sky-950"><p className="font-black">Este evento funciona sin recinto.</p><p className="mt-1 text-xs font-medium text-sky-800">La asistencia, los QR, los cupos y las puertas continúan disponibles. Selecciona un establecimiento arriba solamente si deseas administrar asientos.</p></div> : <>
         <section className="grid grid-cols-2 gap-3 md:grid-cols-5">
           {[['Total', stats.total], ['Disponibles', stats.available], ['Con curso', stats.assigned], ['Con familia/alumno', stats.withOwner], ['Cursos', stats.courses]].map(([label, value]) => <div key={label} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><p className="text-[10px] font-black uppercase tracking-wider text-slate-500">{label}</p><p className="mt-1 text-2xl font-black text-slate-900">{value}</p></div>)}
+        </section>
+
+        <section className="flex flex-col gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-start gap-3"><Tags className="mt-0.5 h-5 w-5 shrink-0 text-amber-700" /><div><h2 className="text-sm font-black text-amber-950">Etiquetas adhesivas para los asientos</h2><p className="mt-1 text-xs text-amber-800">PDF A4 con 24 etiquetas por hoja (63,5 × 33,9 mm), código grande, curso y apoderado cuando estén asignados.</p></div></div>
+          <div className="flex shrink-0 flex-col gap-2 sm:flex-row">
+            <select value={labelScope} onChange={(change) => setLabelScope(change.target.value)} className="rounded-xl border border-amber-300 bg-white px-3 py-2 text-xs font-bold text-slate-700"><option value="all">Todos los asientos</option><option value="assigned">Solo asignados</option></select>
+            <button type="button" onClick={handleDownloadLabels} disabled={generatingLabels} className="inline-flex items-center justify-center gap-2 rounded-xl bg-amber-600 px-4 py-2 text-xs font-black text-white hover:bg-amber-500 disabled:opacity-50"><Download className="h-4 w-4" />{generatingLabels ? 'Generando…' : 'Descargar etiquetas PDF'}</button>
+          </div>
         </section>
 
         <div className="grid gap-5 xl:grid-cols-[330px_minmax(0,1fr)]">

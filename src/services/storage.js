@@ -56,6 +56,13 @@ import {
   summarizeAnalytics
 } from './logAnalytics.js';
 import { rebuildAttendanceFromLogs } from './attendanceReplay.js';
+import {
+  createEventEnrollment,
+  createStudentProfile,
+  hydrateEventStudent,
+  isLegacyEventStudent,
+  STUDENT_PROFILE_FIELDS
+} from './studentDirectoryPolicy.js';
 
 export { rebuildAttendanceFromLogs } from './attendanceReplay.js';
 
@@ -121,6 +128,16 @@ function eventStudents(db, organizationId, eventId) {
  */
 function eventStudentDoc(db, organizationId, eventId, studentId) {
   return doc(db, 'organizations', organizationId, 'events', eventId, 'students', studentId);
+}
+
+/** Devuelve la nómina maestra del establecimiento. */
+function studentDirectory(db, organizationId) {
+  return collection(db, 'organizations', organizationId, 'studentDirectory');
+}
+
+/** Devuelve la ficha maestra de un alumno. */
+function studentDirectoryDoc(db, organizationId, studentId) {
+  return doc(db, 'organizations', organizationId, 'studentDirectory', studentId);
 }
 
 /** Devuelve la colección de familias de un evento.
@@ -426,6 +443,9 @@ export async function createEvent(organizationId, eventData, { copyStudents = fa
     ? selectStudentsForCourses(sourceStudents, selectedCourses)
     : sourceStudents;
   const students = copyStudents ? prepareStudentsForEvent(selectedStudents) : [];
+  const updatedAt = now.toISOString();
+  const profiles = students.map((student) => createStudentProfile(student, updatedAt));
+  const enrollments = students.map((student) => createEventEnrollment(student, Number(eventData?.defaultCapacity) || 4));
   const families = deriveFamilyRecords(students);
   const newEvent = normalizeEvent({
     ...eventData,
@@ -439,6 +459,9 @@ export async function createEvent(organizationId, eventData, { copyStudents = fa
 
   if (isConfigured && db) {
     await setDoc(eventDoc(db, organizationId, id), newEvent);
+    await commitInChunks(db, profiles.map((profile) => (batch) => {
+      batch.set(studentDirectoryDoc(db, organizationId, profile.id), profile, { merge: true });
+    }));
     await commitInChunks(db, families.map((family) => (batch) => {
       batch.set(eventFamilyDoc(db, organizationId, id, family.id), {
         ...family,
@@ -446,8 +469,8 @@ export async function createEvent(organizationId, eventData, { copyStudents = fa
         updatedAt: now.toISOString()
       });
     }));
-    await commitInChunks(db, students.map((student) => (batch) => {
-      batch.set(eventStudentDoc(db, organizationId, id, student.id), student);
+    await commitInChunks(db, enrollments.map((enrollment) => (batch) => {
+      batch.set(eventStudentDoc(db, organizationId, id, enrollment.studentId), enrollment);
     }));
   }
 
@@ -496,15 +519,22 @@ export function subscribeToStudents(organizationId, eventId, onUpdate) {
   if (isConfigured && db) {
     const studentsCol = eventStudents(db, organizationId, eventId);
     const familiesCol = eventFamilies(db, organizationId, eventId);
+    const directoryCol = studentDirectory(db, organizationId);
     let rawStudents = null;
     let families = null;
+    let profiles = null;
     let mode = 'cloud';
     /** Publica estudiantes hidratados y familias sincronizadas.
      * @returns {void}
      */
     const emit = () => {
-      if (!rawStudents || !families) return;
-      const students = hydrateFamilyCapacities(rawStudents, families).filter((student) => student.deleted !== true);
+      if (!rawStudents || !families || !profiles) return;
+      const profilesById = new Map(profiles.map((profile) => [profile.id, profile]));
+      const students = hydrateFamilyCapacities(rawStudents.map((student) => hydrateEventStudent(
+        student,
+        profilesById.get(student.studentId || student.id),
+        student.id
+      )), families).filter((student) => student.deleted !== true);
       localStorage.setItem(storedStudentsKey(organizationId, eventId), JSON.stringify(students));
       localStorage.setItem(storedFamiliesKey(organizationId, eventId), JSON.stringify(families));
       onUpdate(students, mode);
@@ -513,10 +543,10 @@ export function subscribeToStudents(organizationId, eventId, onUpdate) {
       studentsCol,
       { includeMetadataChanges: true },
       (snapshot) => {
-        rawStudents = hydrateStudentRuts(snapshot.docs.map((d) => ({
+        rawStudents = snapshot.docs.map((d) => ({
           ...d.data(),
           id: d.id
-        })));
+        }));
         mode = snapshot.metadata.fromCache ? 'offline' : 'cloud';
         emit();
       },
@@ -542,9 +572,25 @@ export function subscribeToStudents(organizationId, eventId, onUpdate) {
         emit();
       }
     );
+    const unsubscribeDirectory = onSnapshot(
+      directoryCol,
+      { includeMetadataChanges: true },
+      (snapshot) => {
+        profiles = snapshot.docs.map((item) => ({ ...item.data(), id: item.id }));
+        if (snapshot.metadata.fromCache) mode = 'offline';
+        emit();
+      },
+      (error) => {
+        console.warn('Firestore student directory subscription error:', error);
+        profiles = [];
+        mode = 'error';
+        emit();
+      }
+    );
     return () => {
       unsubscribeStudents();
       unsubscribeFamilies();
+      unsubscribeDirectory();
     };
   } else {
     // Local mode
@@ -1448,6 +1494,42 @@ export async function migrateLegacyFamilies(organizationId, eventId) {
   return missing.length;
 }
 
+/**
+ * Migra documentos heredados a la nómina maestra y elimina de cada evento la
+ * copia de nombre, RUT y curso. Es idempotente y conserva todos los contadores.
+ * @param {string} organizationId Organización.
+ * @param {Array<string>} eventIds Eventos que se revisarán.
+ * @returns {Promise<number>} Inscripciones optimizadas.
+ */
+export async function migrateStudentDirectory(organizationId, eventIds = []) {
+  const { db, isConfigured } = initFirebase();
+  if (!isConfigured || !db) return 0;
+  let migrated = 0;
+  const directorySnapshot = await getDocs(studentDirectory(db, organizationId));
+  const existingProfileIds = new Set(directorySnapshot.docs.map((item) => item.id));
+  for (const eventId of [...new Set(eventIds.filter(Boolean))]) {
+    const snapshot = await getDocs(eventStudents(db, organizationId, eventId));
+    const legacyDocuments = snapshot.docs.filter((item) => isLegacyEventStudent(item.data()));
+    if (!legacyDocuments.length) continue;
+    const profileDocuments = legacyDocuments.filter((item) => {
+      const data = item.data();
+      return !existingProfileIds.has(item.id) && (data.name || data.rut || data.course || data.rawName);
+    });
+    const updatedAt = new Date().toISOString();
+    await commitInChunks(db, profileDocuments.map((item) => (batch) => {
+      const profile = createStudentProfile({ ...item.data(), id: item.id }, updatedAt);
+      batch.set(studentDirectoryDoc(db, organizationId, item.id), profile, { merge: true });
+    }));
+    profileDocuments.forEach((item) => existingProfileIds.add(item.id));
+    await commitInChunks(db, legacyDocuments.map((item) => (batch) => {
+      const removedProfileFields = Object.fromEntries(STUDENT_PROFILE_FIELDS.map((field) => [field, deleteField()]));
+      batch.set(item.ref, { studentId: item.id, ...removedProfileFields }, { merge: true });
+    }));
+    migrated += legacyDocuments.length;
+  }
+  return migrated;
+}
+
 /** Cambia un estudiante de familia o crea una familia nueva.
  * @param {string} organizationId Organización.
  * @param {string} eventId Evento.
@@ -1691,6 +1773,11 @@ export async function saveStudentsList(organizationId, eventId, newStudents) {
   const { db, isConfigured } = initFirebase();
 
   if (isConfigured && db) {
+    const profileUpdatedAt = new Date().toISOString();
+    await commitInChunks(db, storedStudents.map((student) => (batch) => {
+      const profile = createStudentProfile(student, profileUpdatedAt);
+      batch.set(studentDirectoryDoc(db, organizationId, profile.id), profile, { merge: true });
+    }));
     const existingFamilies = await getDocs(eventFamilies(db, organizationId, eventId));
     const existingIds = new Set(existingFamilies.docs.map((family) => normalizeFamilyId(family.id)));
     for (const family of familyRecords.filter((item) => !existingIds.has(item.id))) {
@@ -1712,9 +1799,15 @@ export async function saveStudentsList(organizationId, eventId, newStudents) {
       })));
     const operations = storedStudents.map((student) => {
       const studentRef = eventStudentDoc(db, organizationId, eventId, student.id);
-      if (!previousStudentIds.has(student.id)) return (batch) => batch.set(studentRef, student, { merge: true });
-      const { enteredCount, insideCount, status, lastEntryAt, lastMovementAt, extraGuest, ...rosterFields } = student;
-      return (batch) => batch.set(studentRef, { ...rosterFields, familyOwnerId: deleteField() }, { merge: true });
+      const enrollment = createEventEnrollment(student);
+      if (!previousStudentIds.has(student.id)) return (batch) => batch.set(studentRef, enrollment, { merge: true });
+      const { enteredCount, insideCount, status, lastEntryAt, lastMovementAt, extraGuest, lastLogId, ...eventRosterFields } = enrollment;
+      const removedProfileFields = Object.fromEntries(STUDENT_PROFILE_FIELDS.map((field) => [field, deleteField()]));
+      return (batch) => batch.set(studentRef, {
+        ...eventRosterFields,
+        ...removedProfileFields,
+        familyOwnerId: deleteField()
+      }, { merge: true });
     });
     await commitInChunks(db, operations);
   }

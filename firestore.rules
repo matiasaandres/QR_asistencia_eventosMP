@@ -138,6 +138,27 @@ service cloud.firestore {
           && userId != get(/databases/$(database)/documents/organizations/$(organizationId)).data.ownerUid;
       }
 
+      match /studentDirectory/{studentId} {
+        function validStudentProfile(data) {
+          return data.keys().hasOnly(['id', 'rut', 'name', 'rawName', 'course', 'updatedAt'])
+            && data.id == studentId
+            && data.rut is string
+            && data.rut.size() <= 30
+            && data.name is string
+            && data.name.size() >= 1
+            && data.name.size() <= 160
+            && data.course is string
+            && data.course.size() >= 1
+            && data.course.size() <= 100
+            && (!('rawName' in data) || (data.rawName is string && data.rawName.size() <= 160))
+            && data.updatedAt is string;
+        }
+
+        allow read: if isMember();
+        allow create, update: if isAdmin() && validStudentProfile(request.resource.data);
+        allow delete: if false;
+      }
+
       match /venues/{venueId} {
         function validVenue(data) {
           return data.keys().hasOnly([
@@ -430,7 +451,7 @@ service cloud.firestore {
             validOperatorStudentMovement()
             || (isAdmin()
               && request.resource.data.diff(resource.data).affectedKeys()
-                .hasOnly(['rut', 'name', 'rawName', 'course', 'maxCapacity', 'disabled', 'deleted', 'deletedAt', 'familyId', 'familyOwnerId', 'enteredCount', 'insideCount', 'status', 'lastEntryAt', 'lastMovementAt', 'extraGuest', 'lastLogId'])
+                .hasOnly(['studentId', 'rut', 'name', 'rawName', 'course', 'maxCapacity', 'disabled', 'deleted', 'deletedAt', 'familyId', 'familyOwnerId', 'enteredCount', 'insideCount', 'status', 'lastEntryAt', 'lastMovementAt', 'extraGuest', 'lastLogId'])
               && validStudentCounters(request.resource.data))
           );
           allow delete: if false;

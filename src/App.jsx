@@ -43,7 +43,7 @@ import {
   getCurrentEvent, saveCurrentEvent, subscribeToEvents, createEvent, updateEvent,
   archiveEvent, getCurrentDoor, setCurrentDoor, subscribeToStudents, subscribeToLogs,
   deleteLogEntry, registerCheckIn, saveStudentsList, saveStudentCapacities, saveStudentFamily, deleteStudents,
-  resetEventData, migrateLegacyFamilies, subscribeToDoorSessions, registerDoorPresence,
+  resetEventData, migrateLegacyFamilies, migrateStudentDirectory, subscribeToDoorSessions, registerDoorPresence,
   mergeFamilies, separateFamilyMember, subscribeToFamilyHistory, fetchAllLogs, fetchLogPage,
   subscribeToEventAnalytics, ensureEventAnalytics
 } from './services/storage';
@@ -208,6 +208,13 @@ export default function App() {
       console.warn('No fue posible migrar las familias anteriores:', error);
     });
   }, [organization, event?.id, canManage]);
+
+  useEffect(() => {
+    if (!organization || !canManage || events.length === 0) return;
+    migrateStudentDirectory(organization.id, events.map((item) => item.id)).catch((error) => {
+      console.warn('No fue posible optimizar la nómina maestra:', error);
+    });
+  }, [organization, canManage, events.map((item) => item.id).join('|')]);
 
   useEffect(() => {
     if (!organization || !event || (!membership && !isMaster)) return undefined;

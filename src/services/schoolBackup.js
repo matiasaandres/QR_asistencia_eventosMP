@@ -7,6 +7,7 @@ import { collection, doc, getDoc, getDocs, setDoc, writeBatch } from 'firebase/f
 import { initFirebase } from './firebase.js';
 import { deriveFamilyRecords } from './familyPolicy.js';
 import { buildAnalyticsDocuments, LOG_ANALYTICS_VERSION } from './logAnalytics.js';
+import { createEventEnrollment, createStudentProfile, hydrateEventStudent } from './studentDirectoryPolicy.js';
 
 /** Convierte valores Firestore y estructuras anidadas a datos serializables.
  * @param {unknown} value Valor a serializar.
@@ -189,13 +190,15 @@ export async function fetchSchoolBackup(organizationId, signingKey = '') {
   if (!organizationId) throw new Error('Selecciona una escuela válida.');
 
   const organizationRef = doc(db, 'organizations', organizationId);
-  const [organizationSnapshot, membersSnapshot, eventsSnapshot, venuesSnapshot] = await Promise.all([
+  const [organizationSnapshot, membersSnapshot, eventsSnapshot, venuesSnapshot, directorySnapshot] = await Promise.all([
     getDoc(organizationRef),
     getDocs(collection(organizationRef, 'members')),
     getDocs(collection(organizationRef, 'events')),
-    getDocs(collection(organizationRef, 'venues'))
+    getDocs(collection(organizationRef, 'venues')),
+    getDocs(collection(organizationRef, 'studentDirectory'))
   ]);
   if (!organizationSnapshot.exists()) throw new Error('La escuela ya no existe en la base de datos.');
+  const directory = new Map(directorySnapshot.docs.map((item) => [item.id, documentData(item)]));
 
   const events = await Promise.all(eventsSnapshot.docs.map(async (eventSnapshot) => {
     const eventRef = eventSnapshot.ref;
@@ -208,7 +211,7 @@ export async function fetchSchoolBackup(organizationId, signingKey = '') {
     ]);
     return {
       ...documentData(eventSnapshot),
-      students: studentsSnapshot.docs.map(documentData),
+      students: studentsSnapshot.docs.map((item) => hydrateEventStudent(documentData(item), directory.get(item.id), item.id)),
       families: familiesSnapshot.docs.map(documentData),
       logs: logsSnapshot.docs.map(documentData),
       familyHistory: familyHistorySnapshot.docs.map(documentData),
@@ -401,9 +404,16 @@ export async function restoreSchoolBackup(organizationId, rawBackup, verificatio
       batch.set(doc(eventRef, 'families', id), { ...data, id, insideCount: Math.max(0, Number(data.insideCount ?? data.enteredCount) || 0) });
     }));
     const restoredStudentIds = new Set(event.students.map((student) => student.id));
+    await commitOperations(db, event.students.map((student) => (batch) => {
+      const profile = createStudentProfile(student, new Date().toISOString());
+      batch.set(doc(organizationRef, 'studentDirectory', profile.id), profile, { merge: true });
+    }));
     const studentOperations = event.students.map((student) => (batch) => {
-      const { id, ...data } = student;
-      batch.set(doc(eventRef, 'students', id), { ...data, id, insideCount: Math.max(0, Number(data.insideCount ?? data.enteredCount) || 0) });
+      const enrollment = createEventEnrollment({
+        ...student,
+        insideCount: Math.max(0, Number(student.insideCount ?? student.enteredCount) || 0)
+      }, event.defaultCapacity);
+      batch.set(doc(eventRef, 'students', student.id), enrollment);
     });
     currentStudents.docs
       .filter((student) => !restoredStudentIds.has(student.id))

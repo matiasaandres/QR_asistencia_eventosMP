@@ -77,18 +77,14 @@ beforeEach(async () => {
       updatedAt: new Date().toISOString()
     });
     await setDoc(doc(db, studentPath), {
-      id: studentId,
-      name: 'Estudiante de prueba',
-      course: '1° A',
+      studentId,
       maxCapacity: 4,
       enteredCount: 0,
       insideCount: 0,
       status: 'PENDIENTE'
     });
     await setDoc(doc(db, `${eventPath}/students/${familyStudentId}`), {
-      id: familyStudentId,
-      name: 'Hermana de prueba',
-      course: '1° A',
+      studentId: familyStudentId,
       familyId,
       maxCapacity: 4,
       enteredCount: 0,
@@ -105,11 +101,21 @@ beforeEach(async () => {
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     });
+    await setDoc(doc(db, `organizations/${organizationId}/studentDirectory/${studentId}`), {
+      id: studentId, rut: '11.111.111-1', name: 'Estudiante de prueba', course: '1° A', updatedAt: new Date().toISOString()
+    });
+    await setDoc(doc(db, `organizations/${organizationId}/studentDirectory/${familyStudentId}`), {
+      id: familyStudentId, rut: '22.222.222-2', name: 'Hermana de prueba', course: '1° A', updatedAt: new Date().toISOString()
+    });
   });
 });
 
 function operatorDb() {
   return environment.authenticatedContext('operator-user', { email: 'operator@example.com' }).firestore();
+}
+
+function adminDb() {
+  return environment.authenticatedContext('admin-user', { email: 'admin@example.com' }).firestore();
 }
 
 function logData(overrides = {}) {
@@ -204,4 +210,15 @@ rulesTest('aplica el horario con el tiempo del servidor', async () => {
 rulesTest('mantiene aisladas las escuelas', async () => {
   const stranger = environment.authenticatedContext('stranger', { email: 'stranger@example.com' }).firestore();
   await assertFails(getDoc(doc(stranger, studentPath)));
+});
+
+rulesTest('protege la nómina maestra y permite que los miembros la consulten', async () => {
+  const path = `organizations/${organizationId}/studentDirectory/${studentId}`;
+  await assertSucceeds(getDoc(doc(operatorDb(), path)));
+  await assertFails(setDoc(doc(operatorDb(), path), {
+    id: studentId, rut: '11.111.111-1', name: 'Nombre alterado', course: '1° A', updatedAt: new Date().toISOString()
+  }));
+  await assertSucceeds(setDoc(doc(adminDb(), path), {
+    id: studentId, rut: '11.111.111-1', name: 'Nombre actualizado', course: '1° A', updatedAt: new Date().toISOString()
+  }));
 });

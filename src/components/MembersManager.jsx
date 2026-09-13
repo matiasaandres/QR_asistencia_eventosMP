@@ -1,3 +1,7 @@
+/**
+ * Gestión de miembros de una escuela: invitaciones, roles y estados de acceso.
+ */
+
 import React, { useEffect, useState } from 'react';
 import { AlertTriangle, CheckCircle2, Copy, Eye, KeyRound, MailPlus, ScanLine, Shield, ShieldCheck, Trash2, UserCheck, UserCog, UserX, XCircle } from 'lucide-react';
 import { createInvitation, removeOrganizationMember, subscribeToMembers, updateOrganizationMemberStatus } from '../services/organizations';
@@ -91,6 +95,10 @@ const PERMISSION_MATRIX = [
   ['Crear invitaciones y consultar miembros', true, false, false]
 ];
 
+/** Renderiza la administración de miembros de una organización.
+ * @param {{organization: object, currentUserId: string}} props Organización y usuario actual.
+ * @returns {JSX.Element} Gestor de miembros.
+ */
 export default function MembersManager({ organization, currentUserId }) {
   const [members, setMembers] = useState([]);
   const [email, setEmail] = useState('');
@@ -101,6 +109,10 @@ export default function MembersManager({ organization, currentUserId }) {
 
   useEffect(() => subscribeToMembers(organization.id, setMembers), [organization.id]);
 
+  /** Crea una invitación para incorporar un miembro.
+   * @param {SubmitEvent} event Evento de envío del formulario.
+   * @returns {Promise<void>}
+   */
   const handleInvite = async (event) => {
     event.preventDefault();
     setIsSaving(true);
@@ -116,6 +128,10 @@ export default function MembersManager({ organization, currentUserId }) {
     }
   };
 
+  /** Alterna el estado de acceso de un miembro.
+   * @param {object} member Miembro que cambiará de estado.
+   * @returns {Promise<void>}
+   */
   const handleMemberStatus = async (member) => {
     const nextStatus = member.status === 'disabled' ? 'active' : 'disabled';
     const action = nextStatus === 'disabled' ? 'deshabilitar' : 'reactivar';
@@ -130,6 +146,10 @@ export default function MembersManager({ organization, currentUserId }) {
     }
   };
 
+  /** Elimina el acceso de un miembro a la organización.
+   * @param {object} member Miembro que se eliminará.
+   * @returns {Promise<void>}
+   */
   const handleRemoveMember = async (member) => {
     const name = member.displayName || member.email;
     if (!window.confirm(`¿Eliminar el acceso de ${name}?\n\nLa persona dejará de pertenecer a esta escuela y desaparecerá de esta lista. Su cuenta general no se elimina y podrá volver a incorporarse mediante una nueva invitación.`)) return;

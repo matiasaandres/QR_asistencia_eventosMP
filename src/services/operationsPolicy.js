@@ -1,6 +1,11 @@
 import { getCapacityState } from './checkinPolicy.js';
 import { getUniqueCapacityStudents, normalizeFamilyId } from './familyPolicy.js';
 
+/**
+ * Métricas operativas del evento: familias, puertas, ocupación y alertas.
+ * Este módulo es puro y no realiza lecturas ni escrituras en Firebase.
+ */
+
 export const EVENT_STATUS_LABELS = {
   draft: 'Borrador',
   open: 'Abierto',
@@ -8,6 +13,10 @@ export const EVENT_STATUS_LABELS = {
   closed: 'Cerrado'
 };
 
+/** Agrupa estudiantes activos por familia y calcula su estado operativo.
+ * @param {Array<object>} students Nómina del evento.
+ * @returns {Array<object>} Grupos familiares ordenados.
+ */
 export function getFamilyGroups(students = []) {
   const groups = new Map();
   students.filter((student) => student?.deleted !== true).forEach((student) => {
@@ -29,6 +38,12 @@ export function getFamilyGroups(students = []) {
   }).sort((a, b) => a.id.localeCompare(b.id, 'es', { numeric: true }));
 }
 
+/** Calcula conectividad y flujo reciente de cada puerta.
+ * @param {Array<object>} doors Puertas configuradas.
+ * @param {Array<object>} logs Movimientos registrados.
+ * @param {Date|string|number} now Instante de referencia.
+ * @returns {Array<object>} Métricas por puerta.
+ */
 export function buildDoorMetrics(doors = [], logs = [], now = new Date()) {
   const nowMs = new Date(now).getTime();
   return doors.map((door) => {
@@ -45,6 +60,10 @@ export function buildDoorMetrics(doors = [], logs = [], now = new Date()) {
   });
 }
 
+/** Genera alertas operativas de cupos, escaneos y conectividad.
+ * @param {{students?: Array<object>, logs?: Array<object>, doors?: Array<object>, now?: Date}} input Datos operativos.
+ * @returns {Array<object>} Alertas detectadas.
+ */
 export function buildOperationalAlerts({ students = [], logs = [], doors = [], now = new Date() } = {}) {
   const alerts = [];
   const unique = getUniqueCapacityStudents(students.filter((student) => !getCapacityState(student).isAccessBlocked));
@@ -70,6 +89,10 @@ export function buildOperationalAlerts({ students = [], logs = [], doors = [], n
   return alerts;
 }
 
+/** Suma las personas actualmente dentro del recinto.
+ * @param {Array<object>} students Nómina del evento.
+ * @returns {number} Total de personas dentro.
+ */
 export function getInsideTotal(students = []) {
   return getUniqueCapacityStudents(students).reduce((sum, student) => sum + getCapacityState(student).insideCount, 0);
 }

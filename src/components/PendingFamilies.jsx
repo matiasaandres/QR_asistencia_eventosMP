@@ -1,6 +1,14 @@
+/**
+ * Lista de familias pendientes de ingreso con búsqueda y filtros por curso.
+ */
+
 import React, { useMemo, useState } from 'react';
 import { getPendingFamilies, filterPendingFamilies } from '../services/pendingFamilies.js';
 
+/** Renderiza las familias que aún no registran ingreso.
+ * @param {{students: Array<object>}} props Nómina del evento.
+ * @returns {JSX.Element} Lista de familias pendientes.
+ */
 export default function PendingFamilies({ students }) {
   const [query, setQuery] = useState('');
   const [course, setCourse] = useState('');

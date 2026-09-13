@@ -1,3 +1,8 @@
+/**
+ * Historial paginado de movimientos con filtros, métricas y correcciones
+ * administrativas autorizadas.
+ */
+
 import React, { useState } from 'react';
 import { 
   History, 
@@ -13,7 +18,11 @@ import {
 } from 'lucide-react';
 import { exportToExcel } from '../services/export';
 
-export default function HistoryLog({ 
+/** Renderiza la bitácora paginada y sus acciones.
+ * @param {object} props Movimientos y callbacks de historial.
+ * @returns {JSX.Element} Historial de movimientos.
+ */
+export default function HistoryLog({
   logs, 
   event, 
   students,
@@ -30,6 +39,9 @@ export default function HistoryLog({
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState('');
 
+  /** Exporta la bitácora completa a una planilla.
+   * @returns {Promise<void>}
+   */
   const handleExport = async () => {
     if (exporting) return;
     setExporting(true);
@@ -44,6 +56,10 @@ export default function HistoryLog({
     }
   };
 
+  /** Solicita y elimina un movimiento de la bitácora.
+   * @param {object} log Movimiento que se eliminará.
+   * @returns {Promise<void>}
+   */
   const handleDeleteLog = async (log) => {
     if (!onDeleteLog) return;
     const description = `${log.studentName || 'este estudiante'} · ${log.formattedTime || 'sin hora'}`;

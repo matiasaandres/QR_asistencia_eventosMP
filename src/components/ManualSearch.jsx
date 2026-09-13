@@ -1,3 +1,7 @@
+/**
+ * Búsqueda manual de estudiantes cuando no se utiliza la cámara QR.
+ */
+
 import React, { useState, useMemo } from 'react';
 import { 
   Search, 
@@ -12,7 +16,11 @@ import {
 } from 'lucide-react';
 import { getCapacityState } from '../services/checkinPolicy';
 
-export default function ManualSearch({ 
+/** Renderiza la búsqueda manual de estudiantes.
+ * @param {object} props Nómina y callbacks de selección.
+ * @returns {JSX.Element} Buscador manual.
+ */
+export default function ManualSearch({
   students, 
   onSelectStudent,
   onViewQR

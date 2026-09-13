@@ -1,6 +1,14 @@
+/**
+ * Presentación del logo institucional con fallback visual y manejo de carga.
+ */
+
 import React, { useState } from 'react';
 import { Building2 } from 'lucide-react';
 
+/** Renderiza el logo institucional o su distintivo alternativo.
+ * @param {object} props Organización y clases visuales.
+ * @returns {JSX.Element} Logo institucional.
+ */
 export default function OrganizationLogo({ organization, className = '', iconClassName = 'h-6 w-6', inverse = false }) {
   const [failed, setFailed] = useState(false);
   const logoUrl = organization?.logoUrl;

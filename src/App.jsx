@@ -1,3 +1,8 @@
+/**
+ * Orquestador principal: autentica al usuario, selecciona organización y evento,
+ * conecta suscripciones de datos y muestra el portal escolar o maestro.
+ */
+
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Navbar from './components/Navbar';
 import ScannerModal from './components/ScannerModal';
@@ -45,10 +50,17 @@ import {
 import { clearSensitiveLocalData } from './services/firebase';
 import { saveSeatPlan, saveVenue, subscribeToSeatPlan, subscribeToVenues } from './services/seating';
 
+/** Muestra el estado de carga inicial de la aplicación.
+ * @param {{message?: string}} props Mensaje opcional.
+ * @returns {JSX.Element} Pantalla de carga.
+ */
 function LoadingScreen({ message = 'Cargando acceso seguro…' }) {
   return <main className="flex min-h-screen items-center justify-center bg-slate-950 text-sm font-bold text-sky-100">{message}</main>;
 }
 
+/** Compone el estado global, navegación y flujos de acceso.
+ * @returns {JSX.Element} Aplicación principal.
+ */
 export default function App() {
   const portal = window.location.pathname.startsWith('/master') ? 'master' : 'school';
   const [authUser, setAuthUser] = useState(null);
@@ -181,6 +193,9 @@ export default function App() {
 
   useEffect(() => {
     if (!organization || !event || !canOperate) return undefined;
+    /** Registra periódicamente la presencia de la puerta activa.
+     * @returns {Promise<void>}
+     */
     const report = () => registerDoorPresence(organization.id, event.id, currentDoor).catch(() => {});
     report();
     const timer = window.setInterval(report, 30000);
@@ -230,6 +245,10 @@ export default function App() {
 
   const selectableTabs = useMemo(() => ({ canManage, canOperate: canRegister }), [canManage, canRegister]);
 
+  /** Cambia la organización activa del usuario.
+   * @param {string} organizationId Identificador de la organización.
+   * @returns {void}
+   */
   const handleOrganizationChange = (organizationId) => {
     const selected = organizations.find((item) => item.id === organizationId);
     if (!selected || !authUser) return;
@@ -237,13 +256,24 @@ export default function App() {
     setOrganization(selected);
   };
 
+  /** Crea una escuela con el usuario maestro actual.
+   * @param {object} schoolData Datos de la escuela.
+   * @returns {Promise<object>} Escuela creada.
+   */
   const handleCreateSchool = (schoolData) => createSchoolWithAdministrator({ ...schoolData, masterUser: authUser });
 
+  /** Migra los datos heredados de una organización.
+   * @param {string} organizationId Identificador de la organización.
+   * @returns {Promise<object>} Resultado de la migración.
+   */
   const handleLegacyMigration = (organizationId) => migrateLegacyMundoPalabra({
     organizationId,
     user: authUser
   });
 
+  /** Cierra la sesión y limpia el estado sensible de la aplicación.
+   * @returns {Promise<void>}
+   */
   const handleLogout = async () => {
     await clearAuthSession();
     clearSensitiveLocalData();
@@ -253,19 +283,35 @@ export default function App() {
     setSchoolViewForMaster(false);
   };
 
+  /** Actualiza la puerta activa del evento.
+   * @param {string} newDoor Nombre de la puerta.
+   * @returns {void}
+   */
   const handleDoorChange = (newDoor) => {
     setCurrentDoorState(newDoor);
     setCurrentDoor(organization.id, newDoor);
   };
 
+  /** Guarda un evento y sincroniza el evento actualmente visible.
+   * @param {object} updatedEvent Datos actualizados del evento.
+   * @returns {Promise<object>} Evento normalizado.
+   */
   const handleSaveEvent = async (updatedEvent) => {
     const normalized = await updateEvent(organization.id, updatedEvent);
     if (event?.id === normalized.id) setEvent(normalized);
     return normalized;
   };
 
+  /** Guarda la identidad visual de la organización activa.
+   * @param {object} brand Datos de marca.
+   * @returns {Promise<object>} Organización actualizada.
+   */
   const handleSaveOrganizationBrand = (brand) => updateOrganizationBrand(organization.id, brand);
 
+  /** Selecciona un evento no archivado y reinicia sus datos visibles.
+   * @param {object|string} eventOrId Evento o identificador seleccionado.
+   * @returns {void}
+   */
   const handleEventChange = (eventOrId) => {
     const selectedId = typeof eventOrId === 'string' ? eventOrId : eventOrId?.id;
     const selected = events.find((item) => item.id === selectedId && !item.archived);
@@ -281,6 +327,12 @@ export default function App() {
     setEvent(saveCurrentEvent(organization.id, selected));
   };
 
+  /** Crea un evento y prepara su vista de asistencia.
+   * @param {object} eventData Datos del evento.
+   * @param {boolean} copyRoster Indica si se copia la nómina.
+   * @param {Array<string>} selectedCourses Cursos que se copiarán.
+   * @returns {Promise<object>} Evento creado.
+   */
   const handleCreateEvent = async (eventData, copyRoster, selectedCourses) => {
     const created = await createEvent(organization.id, {
       ...eventData,
@@ -295,11 +347,20 @@ export default function App() {
     return created;
   };
 
+  /** Archiva o reactiva un evento distinto del evento actual.
+   * @param {string} eventId Identificador del evento.
+   * @param {boolean} archived Indica si debe quedar archivado.
+   * @returns {Promise<object>} Evento actualizado.
+   */
   const handleArchiveEvent = async (eventId, archived) => {
     if (eventId === event?.id && archived) throw new Error('Selecciona otro evento antes de archivar el evento actual.');
     return archiveEvent(organization.id, eventId, archived);
   };
 
+  /** Valida y selecciona el estudiante leído desde un código QR.
+   * @param {string} decodedText Texto decodificado.
+   * @returns {void}
+   */
   const handleScanResult = (decodedText) => {
     if (!eventAllowsAccess(event)) {
       sounds.playWarning();
@@ -323,6 +384,10 @@ export default function App() {
     setCheckinStudent(student);
   };
 
+  /** Registra un movimiento confirmado desde la interfaz.
+   * @param {object} movement Datos del movimiento.
+   * @returns {Promise<object>} Movimiento registrado.
+   */
   const handleConfirmCheckIn = ({ studentId, count, doorName, extraPerson, movementType }) => {
     if (!canRegister) throw new Error('Los movimientos requieren conexión activa con Firebase.');
     return registerCheckIn({
@@ -331,6 +396,9 @@ export default function App() {
     });
   };
 
+  /** Carga la siguiente página de movimientos del evento.
+   * @returns {Promise<void>}
+   */
   const handleLoadMoreLogs = async () => {
     if (loadingMoreLogs || !hasMoreLogs) return;
     setLoadingMoreLogs(true);
@@ -349,6 +417,9 @@ export default function App() {
     }
   };
 
+  /** Recupera todos los movimientos del evento activo.
+   * @returns {Promise<Array<object>>} Movimientos completos.
+   */
   const handleFetchAllLogs = () => fetchAllLogs(organization.id, event.id);
 
   if (!authReady) return <LoadingScreen />;

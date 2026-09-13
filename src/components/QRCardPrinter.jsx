@@ -1,3 +1,7 @@
+/**
+ * Generación e impresión de credenciales QR individuales, masivas y en ZIP.
+ */
+
 import React, { useState, useMemo } from 'react';
 import QRCode from 'qrcode';
 import { getCapacityState } from '../services/checkinPolicy';
@@ -13,6 +17,10 @@ import {
 } from 'lucide-react';
 
 // SVG is synchronous and survives multi-page browser printing more reliably than canvas.
+/** Renderiza un código QR individual.
+ * @param {{studentId: string, size?: number}} props Identificador y tamaño.
+ * @returns {JSX.Element} Gráfico QR.
+ */
 function StudentQRGraphic({ studentId, size = 180 }) {
   const qr = useMemo(
     () => QRCode.create(String(studentId), { errorCorrectionLevel: 'M' }),
@@ -53,7 +61,11 @@ function StudentQRGraphic({ studentId, size = 180 }) {
   );
 }
 
-export default function QRCardPrinter({ 
+/** Renderiza las acciones de impresión y descarga de credenciales.
+ * @param {object} props Estudiantes, evento y acciones de generación.
+ * @returns {JSX.Element} Impresor de credenciales.
+ */
+export default function QRCardPrinter({
   students, 
   selectedStudent = null, 
   event, 
@@ -84,6 +96,9 @@ export default function QRCardPrinter({
     return eligibleStudents.filter((s) => s.course === filterCourse);
   }, [selectedStudent, eligibleStudents, filterCourse]);
 
+  /** Genera y descarga las credenciales QR seleccionadas.
+   * @returns {Promise<void>}
+   */
   const handlePrint = async () => {
     if (selectedStudent) {
       try {
@@ -129,6 +144,11 @@ export default function QRCardPrinter({
     }
   };
 
+  /** Genera y descarga el QR individual como PNG.
+   * @param {string|number} studentId Identificador del estudiante.
+   * @param {string} studentName Nombre usado en el archivo.
+   * @returns {Promise<void>}
+   */
   const handleDownloadPNG = async (studentId, studentName) => {
     try {
       const dataUrl = await QRCode.toDataURL(String(studentId), {
@@ -150,6 +170,9 @@ export default function QRCardPrinter({
     }
   };
 
+  /** Genera y descarga el archivo comprimido de credenciales.
+   * @returns {Promise<void>}
+   */
   const handleDownloadArchive = async () => {
     setArchiveError('');
     setArchiveProgress({ phase: 'pdfs', current: 0, total: eligibleStudents.length });

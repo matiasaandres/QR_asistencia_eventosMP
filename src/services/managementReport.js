@@ -1,15 +1,41 @@
+/**
+ * Preparación de indicadores y PDF ejecutivo para la administración escolar.
+ * Los datos se calculan a partir de estudiantes y bitácora ya autorizados.
+ */
+
 import { getCapacityState } from './checkinPolicy.js';
 import { getPendingFamilies } from './pendingFamilies.js';
 import { getUniqueCapacityStudents } from './familyPolicy.js';
 
 const TIME_ZONE = 'America/Santiago';
+/** Calcula un porcentaje entero o null cuando no existe denominador.
+ * @param {number} value Numerador.
+ * @param {number} total Denominador.
+ * @returns {number|null} Porcentaje redondeado.
+ */
 const percent = (value, total) => total > 0 ? Math.round(value / total * 100) : null;
+/** Formatea un número para Chile.
+ * @param {unknown} value Número a formatear.
+ * @returns {string} Número localizado.
+ */
 const number = (value) => Number(value).toLocaleString('es-CL');
+/** Convierte un porcentaje a texto visible.
+ * @param {number|null} value Porcentaje.
+ * @returns {string} Texto formateado.
+ */
 const percentage = (value) => value == null ? 'Sin base de cálculo' : `${value}%`;
+/** Formatea una fecha usando la zona horaria de Santiago.
+ * @param {Date} date Fecha a formatear.
+ * @returns {string} Fecha localizada.
+ */
 const dateLabel = (date) => new Intl.DateTimeFormat('es-CL', {
   timeZone: TIME_ZONE, dateStyle: 'medium', timeStyle: 'short'
 }).format(date);
 
+/** Calcula los indicadores de gestión a partir de nómina y bitácora.
+ * @param {{students?: Array<object>, logs?: Array<object>}} input Datos del evento.
+ * @returns {object} Datos agregados para el informe.
+ */
 export function buildManagementReportData({ students = [], logs = [] }) {
   const courses = new Map();
   let excluded = 0;
@@ -83,6 +109,10 @@ export function buildManagementReportData({ students = [], logs = [] }) {
 }
 
 // Vector text and charts keep the report searchable and sharp when printed.
+/** Genera y descarga un informe PDF de gestión del evento.
+ * @param {{event?: object, organization?: object, students?: Array<object>, logs?: Array<object>, generatedAt?: Date, demo?: boolean}} input Datos del informe.
+ * @returns {Promise<void>} Promesa de generación y descarga.
+ */
 export async function createManagementReportPdf({ event, organization, students = [], logs = [], generatedAt = new Date(), demo = false }) {
   const { jsPDF } = await import('jspdf');
   const data = buildManagementReportData({ students, logs });
@@ -93,10 +123,23 @@ export async function createManagementReportPdf({ event, organization, students 
   const blue = [30, 105, 170];
   const width = 174;
   let y = 0;
+  /** Limpia texto de caracteres de control y guiones incompatibles.
+   * @param {unknown} text Texto de entrada.
+   * @returns {string} Texto seguro para PDF.
+   */
   const safe = (text) => String(text).replace(/[\u0000-\u001f]/g, ' ').replace(/[\u2010-\u2015]/g, '-');
+  /** Configura fuente, tamaño y color del documento.
+   * @param {number} size Tamaño de fuente.
+   * @param {boolean} bold Si usa negrita.
+   * @param {Array<number>} color Color RGB.
+   * @returns {void}
+   */
   const font = (size = 10, bold = false, color = ink) => {
     doc.setFont('helvetica', bold ? 'bold' : 'normal'); doc.setFontSize(size); doc.setTextColor(...color);
   };
+  /** Inicia una nueva página con encabezado institucional.
+   * @returns {void}
+   */
   function page() {
     if (y) doc.addPage();
     doc.setFillColor(...ink); doc.rect(0, 0, 210, 21, 'F');
@@ -110,7 +153,16 @@ export async function createManagementReportPdf({ event, organization, students 
     font(7, false, [218, 230, 240]); doc.text(demo ? 'DEMOSTRACIÓN - DATOS FICTICIOS' : 'DIRECCIÓN Y UNIDAD TÉCNICO-PEDAGÓGICA', headerX, 18);
     y = 32;
   }
+  /** Salta de página si no queda espacio suficiente.
+   * @param {number} height Alto requerido.
+   * @returns {void}
+   */
   function ensure(height) { if (y + height > 273) page(); }
+  /** Dibuja un párrafo con ajuste de línea.
+   * @param {string} text Texto del párrafo.
+   * @param {object} options Opciones tipográficas.
+   * @returns {void}
+   */
   function paragraph(text, { size = 10, bold = false, color = muted, gap = 4 } = {}) {
     font(size, bold, color);
     const lines = doc.splitTextToSize(safe(text), width);
@@ -120,9 +172,18 @@ export async function createManagementReportPdf({ event, organization, students 
     }
     y += gap;
   }
+  /** Dibuja un encabezado de sección.
+   * @param {string} text Título.
+   * @returns {void}
+   */
   function heading(text) {
     ensure(23); y += 2; paragraph(text, { size: 14, bold: true, color: ink, gap: 5 });
   }
+  /** Dibuja un gráfico horizontal de barras.
+   * @param {Array<object>} rows Filas del gráfico.
+   * @param {object} options Título, etiqueta, escala y color.
+   * @returns {void}
+   */
   function bars(rows, { title, label, maximum, color = teal }) {
     heading(title);
     paragraph(label, { size: 9 });
@@ -184,6 +245,9 @@ export async function createManagementReportPdf({ event, organization, students 
   heading('3. Detalle por curso');
   paragraph('Totales de la nómina habilitada al corte. Los cupos corresponden a personas, no a familias.', { size: 9 });
   const columns = [18, 71, 96, 120, 146, 170];
+  /** Dibuja la cabecera de la tabla de cursos.
+   * @returns {void}
+   */
   function tableHeader() {
     doc.setFillColor(...ink); doc.rect(18, y, width, 13, 'F');
     font(8, true, [255, 255, 255]);
@@ -237,6 +301,9 @@ export async function createManagementReportPdf({ event, organization, students 
   paragraph(`Listado nominal para seguimiento interno: ${number(data.pendingFamilies.length)} alumnos activos con cupo mayor que cero y sin ingresos al corte. Se excluyen retirados, deshabilitados y alumnos sin cupo autorizado.`);
   paragraph('La familia se identifica por el alumno asociado. No hay un registro separado de apoderados ni una agrupación de hermanos. Mientras el evento siga abierto, este listado indica llegada pendiente, no inasistencia definitiva.', { size: 9 });
   if (data.pending !== data.pendingFamilies.length) paragraph(`El resumen incluye ${data.pending - data.pendingFamilies.length} alumnos sin ingreso y sin cupo; no se incluyen en este listado de familias autorizadas para ingresar.`, { size: 9 });
+  /** Dibuja la cabecera de la tabla de familias pendientes.
+   * @returns {void}
+   */
   function pendingHeader() {
     doc.setFillColor(...ink); doc.rect(18, y, width, 10, 'F');
     font(9, true, [255, 255, 255]);
@@ -270,6 +337,10 @@ export async function createManagementReportPdf({ event, organization, students 
   return doc;
 }
 
+/** Genera y descarga el informe de gestión en PDF.
+ * @param {object} input Datos del evento y organización.
+ * @returns {Promise<void>} Promesa de descarga.
+ */
 export async function downloadManagementReport(input) {
   const generatedAt = new Date();
   const doc = await createManagementReportPdf({ ...input, generatedAt });

@@ -1,3 +1,9 @@
+/**
+ * Catálogos y reglas de autorización de organizaciones escolares.
+ * Las reglas equivalentes de seguridad viven también en firestore.rules y
+ * deben mantenerse sincronizadas con estas funciones de interfaz.
+ */
+
 export const ORGANIZATION_ROLES = ['admin', 'operator', 'viewer'];
 export const ORGANIZATION_STATUSES = ['active', 'suspended'];
 export const ORGANIZATION_PLANS = ['pilot', 'event', 'monthly', 'annual'];
@@ -29,10 +35,21 @@ export const ORGANIZATION_PLAN_DETAILS = {
 };
 export const MASTER_ADMIN_EMAIL = 'matias.andres.mh@gmail.com';
 
+/**
+ * Obtiene la descripción comercial de un plan, usando piloto como respaldo.
+ * @param {string} plan Identificador del plan.
+ * @returns {object} Etiqueta, periodicidad, descripción y funcionalidades.
+ */
 export function getOrganizationPlanDetails(plan) {
   return ORGANIZATION_PLAN_DETAILS[ORGANIZATION_PLANS.includes(plan) ? plan : 'pilot'];
 }
 
+/**
+ * Convierte el nombre de una escuela en un identificador estable.
+ * @param {string} name Nombre visible de la organización.
+ * @param {string} suffix Sufijo opcional para evitar colisiones.
+ * @returns {string} Slug seguro para documentos y rutas.
+ */
 export function createOrganizationId(name, suffix = '') {
   const slug = String(name || 'organizacion')
     .normalize('NFD')
@@ -44,6 +61,11 @@ export function createOrganizationId(name, suffix = '') {
   return suffix ? `${slug}-${suffix}` : slug;
 }
 
+/**
+ * Normaliza una organización y garantiza que el propietario sea miembro.
+ * @param {object} data Datos crudos de la organización.
+ * @returns {object} Organización lista para la interfaz o persistencia.
+ */
 export function normalizeOrganization(data = {}) {
   const ownerUid = String(data.ownerUid || '').trim();
   const memberUids = [...new Set((Array.isArray(data.memberUids) ? data.memberUids : [])
@@ -63,8 +85,25 @@ export function normalizeOrganization(data = {}) {
   };
 }
 
+/**
+ * Indica si el rol puede administrar la configuración de una organización.
+ * @param {string} role Rol de la membresía.
+ * @returns {boolean} `true` cuando el rol es administrador.
+ */
 export function canManageOrganization(role) { return role === 'admin'; }
+
+/**
+ * Indica si el rol puede operar accesos y registrar movimientos.
+ * @param {string} role Rol de la membresía.
+ * @returns {boolean} `true` para administradores y operadores.
+ */
 export function canOperateAccess(role) { return role === 'admin' || role === 'operator'; }
+
+/**
+ * Evalúa claims y compatibilidad heredada para identificar a la cuenta maestra.
+ * @param {object|null} user Usuario autenticado de Firebase.
+ * @returns {boolean} `true` cuando posee privilegios de plataforma.
+ */
 export function isPlatformAdmin(user) {
   if (!user) return false;
   if (

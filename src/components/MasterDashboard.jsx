@@ -1,3 +1,8 @@
+/**
+ * Consola de la cuenta maestra para escuelas, administradores, migraciones y
+ * respaldos institucionales.
+ */
+
 import React, { useMemo, useState } from 'react';
 import { Check, CheckCircle2, Download, ExternalLink, LogOut, Plus, ShieldCheck, Upload, XCircle } from 'lucide-react';
 import OrganizationLogo from './OrganizationLogo.jsx';
@@ -12,6 +17,10 @@ const PLAN_STYLES = {
   annual: 'border-emerald-200 bg-emerald-50 text-emerald-950'
 };
 
+/** Renderiza la administración global de escuelas.
+ * @param {object} props Organizaciones, usuario y acciones maestras.
+ * @returns {JSX.Element} Panel maestro.
+ */
 export default function MasterDashboard({ organizations, user, onCreate, onAssignAccount, onStatusChange, onOpenSchool, onMigrateLegacy, onImportReport, onRestoreStudentStates, onLogout }) {
   const [schoolName, setSchoolName] = useState('');
   const [adminEmail, setAdminEmail] = useState('');
@@ -34,6 +43,10 @@ export default function MasterDashboard({ organizations, user, onCreate, onAssig
     byPlan: Object.fromEntries(ORGANIZATION_PLANS.map((planId) => [planId, organizations.filter((item) => item.plan === planId).length]))
   }), [organizations]);
 
+  /** Crea una organización desde el formulario maestro.
+   * @param {SubmitEvent} event Evento de envío del formulario.
+   * @returns {Promise<void>}
+   */
   const handleCreate = async (event) => {
     event.preventDefault();
     setError('');
@@ -53,6 +66,10 @@ export default function MasterDashboard({ organizations, user, onCreate, onAssig
     }
   };
 
+  /** Ejecuta la migración heredada de una organización.
+   * @param {object} organization Organización a migrar.
+   * @returns {Promise<void>}
+   */
   const handleMigration = async (organization) => {
     setError('');
     setMessage('');
@@ -67,6 +84,11 @@ export default function MasterDashboard({ organizations, user, onCreate, onAssig
     }
   };
 
+  /** Importa un respaldo de reportes desde un archivo.
+   * @param {Event} event Evento del selector de archivos.
+   * @param {object} organization Organización de destino.
+   * @returns {Promise<void>}
+   */
   const handleReportImport = async (event, organization) => {
     const file = event.target.files?.[0];
     event.target.value = '';
@@ -89,6 +111,11 @@ export default function MasterDashboard({ organizations, user, onCreate, onAssig
     }
   };
 
+  /** Asigna una cuenta administradora a una organización.
+   * @param {SubmitEvent} event Evento de envío del formulario.
+   * @param {object} organization Organización de destino.
+   * @returns {Promise<void>}
+   */
   const handleAccountAssignment = async (event, organization) => {
     event.preventDefault();
     setError('');
@@ -106,6 +133,10 @@ export default function MasterDashboard({ organizations, user, onCreate, onAssig
     }
   };
 
+  /** Restaura los estados históricos de estudiantes.
+   * @param {object} organization Organización a procesar.
+   * @returns {Promise<void>}
+   */
   const handleStudentStateRestore = async (organization) => {
     setError('');
     setMessage('');
@@ -120,6 +151,10 @@ export default function MasterDashboard({ organizations, user, onCreate, onAssig
     }
   };
 
+  /** Descarga un respaldo firmado de una organización.
+   * @param {object} organization Organización a respaldar.
+   * @returns {Promise<void>}
+   */
   const handleBackup = async (organization) => {
     setError('');
     setMessage('');
@@ -136,6 +171,11 @@ export default function MasterDashboard({ organizations, user, onCreate, onAssig
     }
   };
 
+  /** Restaura un respaldo seleccionado en una organización.
+   * @param {Event} event Evento del selector de archivos.
+   * @param {object} organization Organización de destino.
+   * @returns {Promise<void>}
+   */
   const handleBackupRestore = async (event, organization) => {
     const file = event.target.files?.[0];
     event.target.value = '';

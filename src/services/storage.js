@@ -1,18 +1,24 @@
-import { initFirebase } from './firebase';
-import { INITIAL_STUDENTS, INITIAL_EVENT } from '../mock/sampleStudents';
+/**
+ * Persistencia de eventos, estudiantes, familias, sesiones de puerta, bitácora
+ * y analítica. Usa transacciones Firestore cuando hay conexión y localStorage
+ * como respaldo operativo cuando la aplicación funciona en modo local.
+ */
+
+import { initFirebase } from './firebase.js';
+import { INITIAL_STUDENTS, INITIAL_EVENT } from '../mock/sampleStudents.js';
 import {
   createMovementPlan,
   getCapacityState,
   normalizeExtraPerson,
   resetStudentAttendance
-} from './checkinPolicy';
+} from './checkinPolicy.js';
 import {
   createEventId,
   eventAllowsAccess,
   normalizeEvent,
   prepareStudentsForEvent,
   selectStudentsForCourses
-} from './eventPolicy';
+} from './eventPolicy.js';
 import {
   createFamilyCodeGenerator,
   createFamilyRecord,
@@ -21,7 +27,7 @@ import {
   hydrateFamilyCapacities,
   normalizeFamilyId,
   stripFamilyCapacityProjection
-} from './familyPolicy';
+} from './familyPolicy.js';
 import {
   collection,
   doc,
@@ -61,6 +67,10 @@ const LOCAL_STORAGE_KEY_EVENTS = 'mp_events_catalog';
 const LOCAL_STORAGE_KEY_DOOR = 'mp_current_door';
 const LOCAL_STORAGE_KEY_DOORS = 'mp_event_doors_';
 const LOCAL_STORAGE_KEY_FAMILY_HISTORY = 'mp_family_history_';
+/** Hidrata capacidades familiares sobre la nómina individual.
+ * @param {Array<object>} students Estudiantes del evento.
+ * @returns {Array<object>} Estudiantes enriquecidos.
+ */
 function hydrateStudentRuts(students) {
   return hydrateFamilyCapacities(students);
 }
@@ -73,54 +83,137 @@ if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
   } catch (e) {}
 }
 
+/** Construye una clave local aislada por organización.
+ * @param {string} key Prefijo de almacenamiento.
+ * @param {string} organizationId Organización.
+ * @returns {string} Clave resultante.
+ */
 function organizationKey(key, organizationId) {
   return `${key}${organizationId || 'sin-organizacion'}_`;
 }
 
+/** Devuelve la referencia de un evento Firestore.
+ * @param {object} db Cliente Firestore.
+ * @param {string} organizationId Organización.
+ * @param {string} eventId Evento.
+ * @returns {object} Referencia del documento.
+ */
 function eventDoc(db, organizationId, eventId) {
   return doc(db, 'organizations', organizationId, 'events', eventId);
 }
 
+/** Devuelve la colección de estudiantes de un evento.
+ * @param {object} db Cliente Firestore.
+ * @param {string} organizationId Organización.
+ * @param {string} eventId Evento.
+ * @returns {object} Colección de estudiantes.
+ */
 function eventStudents(db, organizationId, eventId) {
   return collection(db, 'organizations', organizationId, 'events', eventId, 'students');
 }
 
+/** Devuelve la referencia de un estudiante.
+ * @param {object} db Cliente Firestore.
+ * @param {string} organizationId Organización.
+ * @param {string} eventId Evento.
+ * @param {string} studentId Estudiante.
+ * @returns {object} Referencia del estudiante.
+ */
 function eventStudentDoc(db, organizationId, eventId, studentId) {
   return doc(db, 'organizations', organizationId, 'events', eventId, 'students', studentId);
 }
 
+/** Devuelve la colección de familias de un evento.
+ * @param {object} db Cliente Firestore.
+ * @param {string} organizationId Organización.
+ * @param {string} eventId Evento.
+ * @returns {object} Colección de familias.
+ */
 function eventFamilies(db, organizationId, eventId) {
   return collection(db, 'organizations', organizationId, 'events', eventId, 'families');
 }
 
+/** Devuelve la referencia de una familia.
+ * @param {object} db Cliente Firestore.
+ * @param {string} organizationId Organización.
+ * @param {string} eventId Evento.
+ * @param {string} familyId Familia.
+ * @returns {object} Referencia de familia.
+ */
 function eventFamilyDoc(db, organizationId, eventId, familyId) {
   return doc(db, 'organizations', organizationId, 'events', eventId, 'families', familyId);
 }
 
+/** Construye la clave local de familias de un evento.
+ * @param {string} organizationId Organización.
+ * @param {string} eventId Evento.
+ * @returns {string} Clave local.
+ */
 function storedFamiliesKey(organizationId, eventId) {
   return organizationKey(LOCAL_STORAGE_KEY_FAMILIES, organizationId) + eventId;
 }
 
+/** Construye la clave local de estudiantes de un evento.
+ * @param {string} organizationId Organización.
+ * @param {string} eventId Evento.
+ * @returns {string} Clave local.
+ */
 function storedStudentsKey(organizationId, eventId) {
   return organizationKey(LOCAL_STORAGE_KEY_STUDENTS, organizationId) + eventId;
 }
 
+/** Devuelve la colección de bitácora de un evento.
+ * @param {object} db Cliente Firestore.
+ * @param {string} organizationId Organización.
+ * @param {string} eventId Evento.
+ * @returns {object} Colección de bitácora.
+ */
 function eventLogs(db, organizationId, eventId) {
   return collection(db, 'organizations', organizationId, 'events', eventId, 'logs');
 }
 
+/** Devuelve la referencia de un movimiento.
+ * @param {object} db Cliente Firestore.
+ * @param {string} organizationId Organización.
+ * @param {string} eventId Evento.
+ * @param {string} logId Movimiento.
+ * @returns {object} Referencia del movimiento.
+ */
 function eventLogDoc(db, organizationId, eventId, logId) {
   return doc(db, 'organizations', organizationId, 'events', eventId, 'logs', logId);
 }
 
+/** Devuelve la colección de analítica materializada.
+ * @param {object} db Cliente Firestore.
+ * @param {string} organizationId Organización.
+ * @param {string} eventId Evento.
+ * @returns {object} Colección analítica.
+ */
 function eventAnalytics(db, organizationId, eventId) {
   return collection(db, 'organizations', organizationId, 'events', eventId, 'analytics');
 }
 
+/** Devuelve la referencia de un documento analítico.
+ * @param {object} db Cliente Firestore.
+ * @param {string} organizationId Organización.
+ * @param {string} eventId Evento.
+ * @param {string} analyticsId Identificador analítico.
+ * @returns {object} Referencia analítica.
+ */
 function eventAnalyticsDoc(db, organizationId, eventId, analyticsId) {
   return doc(db, 'organizations', organizationId, 'events', eventId, 'analytics', analyticsId);
 }
 
+/** Aplica incrementos o decrementos analíticos dentro de una transacción.
+ * @param {object} transaction Transacción Firestore.
+ * @param {object} db Cliente Firestore.
+ * @param {string} organizationId Organización.
+ * @param {string} eventId Evento.
+ * @param {object} log Movimiento.
+ * @param {string} logId Identificador del movimiento.
+ * @param {number} direction Dirección del ajuste.
+ * @returns {void}
+ */
 function applyLogAnalytics(transaction, db, organizationId, eventId, log, logId, direction = 1) {
   analyticsMutationsForLog(log, logId).forEach((mutation) => {
     transaction.set(eventAnalyticsDoc(db, organizationId, eventId, mutation.id), {
@@ -147,14 +240,27 @@ function applyLogAnalytics(transaction, db, organizationId, eventId, log, logId,
   }
 }
 
+/** Obtiene la puerta activa guardada localmente.
+ * @param {string} organizationId Organización.
+ * @returns {string} Nombre de puerta.
+ */
 export function getCurrentDoor(organizationId) {
   return localStorage.getItem(organizationKey(LOCAL_STORAGE_KEY_DOOR, organizationId)) || 'Acceso Principal';
 }
 
+/** Guarda la puerta activa de una organización.
+ * @param {string} organizationId Organización.
+ * @param {string} doorName Nombre de puerta.
+ * @returns {void}
+ */
 export function setCurrentDoor(organizationId, doorName) {
   localStorage.setItem(organizationKey(LOCAL_STORAGE_KEY_DOOR, organizationId), doorName);
 }
 
+/** Obtiene y normaliza el evento local actual.
+ * @param {string} organizationId Organización.
+ * @returns {object} Evento actual.
+ */
 export function getCurrentEvent(organizationId) {
   try {
     const key = organizationKey(LOCAL_STORAGE_KEY_EVENT, organizationId);
@@ -167,12 +273,21 @@ export function getCurrentEvent(organizationId) {
   }
 }
 
+/** Guarda y normaliza el evento local actual.
+ * @param {string} organizationId Organización.
+ * @param {object} eventData Datos del evento.
+ * @returns {object} Evento normalizado.
+ */
 export function saveCurrentEvent(organizationId, eventData) {
   const normalizedEvent = normalizeEvent(eventData, INITIAL_EVENT);
   localStorage.setItem(organizationKey(LOCAL_STORAGE_KEY_EVENT, organizationId), JSON.stringify(normalizedEvent));
   return normalizedEvent;
 }
 
+/** Ordena eventos activos y archivados por fecha y nombre.
+ * @param {Array<object>} events Eventos a ordenar.
+ * @returns {Array<object>} Eventos ordenados.
+ */
 function sortEvents(events) {
   return [...events].sort((left, right) => {
     if (left.archived !== right.archived) return left.archived ? 1 : -1;
@@ -181,6 +296,11 @@ function sortEvents(events) {
   });
 }
 
+/** Persiste el catálogo local de eventos y notifica a otras pestañas.
+ * @param {string} organizationId Organización.
+ * @param {Array<object>} events Eventos a guardar.
+ * @returns {Array<object>} Eventos normalizados.
+ */
 function saveLocalEvents(organizationId, events) {
   const normalized = sortEvents(events.map((event) => normalizeEvent(event, INITIAL_EVENT)));
   localStorage.setItem(organizationKey(LOCAL_STORAGE_KEY_EVENTS, organizationId), JSON.stringify(normalized));
@@ -188,6 +308,10 @@ function saveLocalEvents(organizationId, events) {
   return normalized;
 }
 
+/** Lee el catálogo local de eventos o crea el evento inicial.
+ * @param {string} organizationId Organización.
+ * @returns {Array<object>} Eventos locales.
+ */
 function getLocalEvents(organizationId) {
   try {
     const raw = localStorage.getItem(organizationKey(LOCAL_STORAGE_KEY_EVENTS, organizationId));
@@ -204,6 +328,11 @@ function getLocalEvents(organizationId) {
   return saveLocalEvents(organizationId, [getCurrentEvent(organizationId)]);
 }
 
+/** Suscribe el catálogo de eventos en nube o almacenamiento local.
+ * @param {string} organizationId Organización.
+ * @param {Function} onUpdate Callback de actualización.
+ * @returns {Function} Función para cancelar la suscripción.
+ */
 export function subscribeToEvents(organizationId, onUpdate) {
   const { db, isConfigured } = initFirebase();
 
@@ -227,10 +356,21 @@ export function subscribeToEvents(organizationId, onUpdate) {
     );
   }
 
+  /** Publica los eventos guardados localmente.
+   * @returns {void}
+   */
   const load = () => onUpdate(getLocalEvents(organizationId), 'local');
+  /** Responde a actualizaciones de eventos entre pestañas.
+   * @param {MessageEvent} message Mensaje recibido.
+   * @returns {void}
+   */
   const handleMessage = (message) => {
     if (message.data?.type === 'EVENTS_UPDATED' && message.data.organizationId === organizationId) load();
   };
+  /** Responde a cambios de eventos en localStorage.
+   * @param {StorageEvent} storageEvent Evento de almacenamiento.
+   * @returns {void}
+   */
   const handleStorage = (storageEvent) => {
     if (storageEvent.key === organizationKey(LOCAL_STORAGE_KEY_EVENTS, organizationId)) load();
   };
@@ -244,6 +384,12 @@ export function subscribeToEvents(organizationId, onUpdate) {
   };
 }
 
+/** Actualiza un evento en nube y caché local.
+ * @param {string} organizationId Organización.
+ * @param {object} eventData Datos del evento.
+ * @returns {Promise<object>} Evento actualizado.
+ * @throws {Error} Si el evento no tiene identificador válido.
+ */
 export async function updateEvent(organizationId, eventData) {
   const current = normalizeEvent(eventData, INITIAL_EVENT);
   if (!current.id) throw new Error('El evento no tiene un identificador válido.');
@@ -267,6 +413,12 @@ export async function updateEvent(organizationId, eventData) {
     : updatedEvent;
 }
 
+/** Crea un evento y opcionalmente copia estudiantes y familias.
+ * @param {string} organizationId Organización.
+ * @param {object} eventData Datos base del evento.
+ * @param {{copyStudents?: boolean, sourceStudents?: Array<object>, selectedCourses?: Array<string>}} options Opciones de copia.
+ * @returns {Promise<object>} Evento creado.
+ */
 export async function createEvent(organizationId, eventData, { copyStudents = false, sourceStudents = [], selectedCourses } = {}) {
   const now = new Date();
   const id = createEventId(eventData?.name, eventData?.date, now.getTime());
@@ -310,6 +462,13 @@ export async function createEvent(organizationId, eventData, { copyStudents = fa
   return saveCurrentEvent(organizationId, newEvent);
 }
 
+/** Archiva o desarchiva un evento.
+ * @param {string} organizationId Organización.
+ * @param {string} eventId Evento.
+ * @param {boolean} archived Estado de archivo.
+ * @returns {Promise<object>} Evento actualizado.
+ * @throws {Error} Si falta el evento.
+ */
 export async function archiveEvent(organizationId, eventId, archived = true) {
   if (!eventId) throw new Error('Selecciona un evento válido.');
   const updatedAt = new Date().toISOString();
@@ -325,6 +484,12 @@ export async function archiveEvent(organizationId, eventId, archived = true) {
 }
 
 // Subscribe to Students list (real-time via Firestore OR LocalStorage)
+/** Suscribe la nómina y las familias de un evento.
+ * @param {string} organizationId Organización.
+ * @param {string} eventId Evento.
+ * @param {Function} onUpdate Callback de actualización.
+ * @returns {Function} Función para cancelar la suscripción.
+ */
 export function subscribeToStudents(organizationId, eventId, onUpdate) {
   const { db, isConfigured } = initFirebase();
 
@@ -334,6 +499,9 @@ export function subscribeToStudents(organizationId, eventId, onUpdate) {
     let rawStudents = null;
     let families = null;
     let mode = 'cloud';
+    /** Publica estudiantes hidratados y familias sincronizadas.
+     * @returns {void}
+     */
     const emit = () => {
       if (!rawStudents || !families) return;
       const students = hydrateFamilyCapacities(rawStudents, families).filter((student) => student.deleted !== true);
@@ -384,6 +552,13 @@ export function subscribeToStudents(organizationId, eventId, onUpdate) {
   }
 }
 
+/** Carga una copia cacheada de estudiantes.
+ * @param {string} organizationId Organización.
+ * @param {string} eventId Evento.
+ * @param {Function} onUpdate Callback de actualización.
+ * @param {string} mode Modo de origen.
+ * @returns {void}
+ */
 function loadCachedStudents(organizationId, eventId, onUpdate, mode) {
   try {
     const raw = localStorage.getItem(organizationKey(LOCAL_STORAGE_KEY_STUDENTS, organizationId) + eventId);
@@ -397,7 +572,16 @@ function loadCachedStudents(organizationId, eventId, onUpdate, mode) {
 const DATA_VERSION_KEY = 'mp_data_version_tag';
 const CURRENT_DATA_VERSION = 'v3_251_students';
 
+/** Suscribe estudiantes usando únicamente almacenamiento local.
+ * @param {string} organizationId Organización.
+ * @param {string} eventId Evento.
+ * @param {Function} onUpdate Callback de actualización.
+ * @returns {Function} Función para cancelar listeners locales.
+ */
 function fallbackToLocalStudents(organizationId, eventId, onUpdate) {
+  /** Carga y normaliza la nómina desde el almacenamiento local.
+   * @returns {void}
+   */
   const loadLocal = () => {
     try {
       const versionKey = `${DATA_VERSION_KEY}_${eventId}`;
@@ -431,6 +615,10 @@ function fallbackToLocalStudents(organizationId, eventId, onUpdate) {
 
   loadLocal();
 
+  /** Recarga la nómina ante un mensaje de otra pestaña.
+   * @param {MessageEvent} evt Mensaje recibido.
+   * @returns {void}
+   */
   const handleMessage = (evt) => {
     if (evt.data?.type === 'STUDENTS_UPDATED' && evt.data?.organizationId === organizationId && evt.data?.eventId === eventId) {
       loadLocal();
@@ -441,6 +629,10 @@ function fallbackToLocalStudents(organizationId, eventId, onUpdate) {
     localChannel.addEventListener('message', handleMessage);
   }
 
+  /** Recarga la nómina ante cambios directos en localStorage.
+   * @param {StorageEvent} e Evento de almacenamiento.
+   * @returns {void}
+   */
   const handleStorage = (e) => {
     if (e.key === organizationKey(LOCAL_STORAGE_KEY_STUDENTS, organizationId) + eventId) {
       loadLocal();
@@ -455,6 +647,12 @@ function fallbackToLocalStudents(organizationId, eventId, onUpdate) {
 }
 
 // Subscribe to Entry Logs (real-time)
+/** Suscribe la bitácora reciente de un evento.
+ * @param {string} organizationId Organización.
+ * @param {string} eventId Evento.
+ * @param {Function} onUpdate Callback de actualización.
+ * @returns {Function} Función para cancelar la suscripción.
+ */
 export function subscribeToLogs(organizationId, eventId, onUpdate) {
   const { db, isConfigured } = initFirebase();
 
@@ -489,11 +687,21 @@ export function subscribeToLogs(organizationId, eventId, onUpdate) {
   }
 }
 
+/** Ordena movimientos por fecha e identificador descendentes.
+ * @param {Array<object>} logs Movimientos.
+ * @returns {Array<object>} Movimientos ordenados.
+ */
 function sortLogs(logs) {
   return [...logs].sort((left, right) => String(right.timestamp || '').localeCompare(String(left.timestamp || ''))
     || String(right.id || '').localeCompare(String(left.id || '')));
 }
 
+/** Obtiene una página estable de movimientos.
+ * @param {string} organizationId Organización.
+ * @param {string} eventId Evento.
+ * @param {{afterLog?: object|null, pageSize?: number}} options Cursor y tamaño.
+ * @returns {Promise<{logs: Array<object>, hasMore: boolean}>} Página de resultados.
+ */
 export async function fetchLogPage(organizationId, eventId, { afterLog = null, pageSize = LOG_PAGE_SIZE } = {}) {
   const safePageSize = Math.min(200, Math.max(1, Number(pageSize) || LOG_PAGE_SIZE));
   const { db, isConfigured } = initFirebase();
@@ -514,6 +722,11 @@ export async function fetchLogPage(organizationId, eventId, { afterLog = null, p
   return { logs, hasMore: start + safePageSize < cached.length };
 }
 
+/** Recupera toda la bitácora recorriendo páginas.
+ * @param {string} organizationId Organización.
+ * @param {string} eventId Evento.
+ * @returns {Promise<Array<object>>} Movimientos completos.
+ */
 export async function fetchAllLogs(organizationId, eventId) {
   const allLogs = [];
   let afterLog = null;
@@ -528,13 +741,26 @@ export async function fetchAllLogs(organizationId, eventId) {
   return allLogs;
 }
 
+/** Suscribe los agregados analíticos de un evento.
+ * @param {string} organizationId Organización.
+ * @param {string} eventId Evento.
+ * @param {Function} onUpdate Callback de actualización.
+ * @returns {Function} Función para cancelar la suscripción.
+ */
 export function subscribeToEventAnalytics(organizationId, eventId, onUpdate) {
   const { db, isConfigured } = initFirebase();
   if (!isConfigured || !db) {
+    /** Publica la analítica calculada desde la bitácora local.
+     * @returns {void}
+     */
     const load = () => {
       const logs = JSON.parse(localStorage.getItem(organizationKey(LOCAL_STORAGE_KEY_LOGS, organizationId) + eventId) || '[]');
       onUpdate({ ...summarizeAnalytics(buildAnalyticsDocuments(logs)), ready: true }, 'local');
     };
+    /** Recarga la analítica ante cambios de bitácora entre pestañas.
+     * @param {MessageEvent} message Mensaje recibido.
+     * @returns {void}
+     */
     const handleMessage = (message) => {
       if (message.data?.type === 'LOGS_UPDATED' && message.data.organizationId === organizationId && message.data.eventId === eventId) load();
     };
@@ -548,6 +774,11 @@ export function subscribeToEventAnalytics(organizationId, eventId, onUpdate) {
   }, () => onUpdate({ totalRecords: 0, doorsList: [], activityByHour: [] }, 'error'));
 }
 
+/** Reconstruye los agregados analíticos si están ausentes o desactualizados.
+ * @param {string} organizationId Organización.
+ * @param {string} eventId Evento.
+ * @returns {Promise<void>} Promesa de reconstrucción.
+ */
 export async function ensureEventAnalytics(organizationId, eventId) {
   const { db, isConfigured } = initFirebase();
   if (!isConfigured || !db) return;
@@ -588,6 +819,10 @@ export async function ensureEventAnalytics(organizationId, eventId) {
   await commitInChunks(db, operations);
 }
 
+/** Convierte un estado reconstruido en campos Firestore.
+ * @param {object} rebuilt Estado derivado de la bitácora.
+ * @returns {object} Campos persistibles.
+ */
 function attendanceUpdateFromReplay(rebuilt) {
   return {
     enteredCount: rebuilt.enteredCount,
@@ -600,6 +835,11 @@ function attendanceUpdateFromReplay(rebuilt) {
   };
 }
 
+/** Aplica un estado reconstruido a un registro local.
+ * @param {object} record Registro local.
+ * @param {object} rebuilt Estado derivado.
+ * @returns {object} Registro actualizado.
+ */
 function applyReplayToLocal(record, rebuilt) {
   const updated = {
     ...record,
@@ -615,6 +855,13 @@ function applyReplayToLocal(record, rebuilt) {
 }
 
 // Remove one audit entry and adjust its student's counter atomically.
+/** Elimina un movimiento y reconstruye el contador afectado.
+ * @param {string} organizationId Organización.
+ * @param {string} eventId Evento.
+ * @param {object} log Movimiento a eliminar.
+ * @returns {Promise<void>} Promesa de corrección.
+ * @throws {Error} Si el movimiento no existe o la asistencia cambió.
+ */
 export async function deleteLogEntry(organizationId, eventId, log) {
   const logId = log?.id;
   if (!logId) throw new Error('El registro no tiene un identificador válido.');
@@ -698,6 +945,13 @@ export async function deleteLogEntry(organizationId, eventId, log) {
   }
 }
 
+/** Carga la bitácora cacheada.
+ * @param {string} organizationId Organización.
+ * @param {string} eventId Evento.
+ * @param {Function} onUpdate Callback de actualización.
+ * @param {string} mode Modo de origen.
+ * @returns {void}
+ */
 function loadCachedLogs(organizationId, eventId, onUpdate, mode) {
   try {
     const raw = localStorage.getItem(organizationKey(LOCAL_STORAGE_KEY_LOGS, organizationId) + eventId);
@@ -707,7 +961,16 @@ function loadCachedLogs(organizationId, eventId, onUpdate, mode) {
   }
 }
 
+/** Suscribe movimientos desde almacenamiento local.
+ * @param {string} organizationId Organización.
+ * @param {string} eventId Evento.
+ * @param {Function} onUpdate Callback de actualización.
+ * @returns {Function} Función para cancelar listeners.
+ */
 function fallbackToLocalLogs(organizationId, eventId, onUpdate) {
+  /** Carga la primera página de movimientos desde localStorage.
+   * @returns {void}
+   */
   const loadLogs = () => {
     try {
       const raw = localStorage.getItem(organizationKey(LOCAL_STORAGE_KEY_LOGS, organizationId) + eventId);
@@ -720,6 +983,10 @@ function fallbackToLocalLogs(organizationId, eventId, onUpdate) {
 
   loadLogs();
 
+  /** Recarga los movimientos ante una actualización entre pestañas.
+   * @param {MessageEvent} evt Mensaje recibido.
+   * @returns {void}
+   */
   const handleMessage = (evt) => {
     if (evt.data?.type === 'LOGS_UPDATED' && evt.data?.organizationId === organizationId && evt.data?.eventId === eventId) {
       loadLogs();
@@ -734,6 +1001,11 @@ function fallbackToLocalLogs(organizationId, eventId, onUpdate) {
 }
 
 // Check-in action (Register Entry)
+/** Registra una entrada, salida o reingreso con actualización atómica.
+ * @param {{organizationId: string, eventId: string, studentId: string, count: number, doorName?: string, extraPerson?: object|null, movementType?: string, updateAnalytics?: boolean}} input Datos del movimiento.
+ * @returns {Promise<object>} Resultado y estado actualizado.
+ * @throws {Error} Si el evento, estudiante o cupo no permiten el movimiento.
+ */
 export async function registerCheckIn({
   organizationId,
   eventId,
@@ -756,6 +1028,10 @@ export async function registerCheckIn({
     throw new Error('El evento no está abierto para registrar movimientos.');
   }
 
+  /** Calcula el plan de movimiento usando el estado actual.
+   * @param {object} student Estudiante o familia propietaria.
+   * @returns {object} Plan de movimiento.
+   */
   const buildPlan = (student) => createMovementPlan({
     student,
     count,
@@ -765,6 +1041,11 @@ export async function registerCheckIn({
     extraPerson: normalizedExtraPerson
   });
 
+  /** Construye el registro de bitácora asociado al plan.
+   * @param {object} student Estudiante afectado.
+   * @param {object} plan Plan de movimiento.
+   * @returns {object} Datos del movimiento.
+   */
   const buildLogData = (student, plan) => ({
     studentId,
     ...(student.familyId ? {
@@ -792,6 +1073,11 @@ export async function registerCheckIn({
     } : {})
   });
 
+  /** Proyecta el plan sobre el estudiante actualizado.
+   * @param {object} student Estudiante original.
+   * @param {object} plan Plan de movimiento.
+   * @returns {object} Estudiante actualizado.
+   */
   const buildUpdatedStudent = (student, plan) => ({
     ...student,
     enteredCount: plan.newEntered,
@@ -962,6 +1248,13 @@ export async function registerCheckIn({
 
 // Bulk update / Import students
 // Patch capacity only so a simultaneous check-in is never overwritten.
+/** Actualiza únicamente las capacidades autorizadas.
+ * @param {string} organizationId Organización.
+ * @param {string} eventId Evento.
+ * @param {Array<{id: string, maxCapacity: number}>} updates Capacidades nuevas.
+ * @returns {Promise<void>} Promesa de actualización.
+ * @throws {Error} Si una capacidad está fuera de rango.
+ */
 export async function saveStudentCapacities(organizationId, eventId, updates) {
   if (updates.some(({ id, maxCapacity }) => !id || !Number.isInteger(maxCapacity) || maxCapacity < 1 || maxCapacity > 50)) {
     throw new Error('El cupo debe ser un entero entre 1 y 50.');
@@ -1008,18 +1301,43 @@ export async function saveStudentCapacities(organizationId, eventId, updates) {
   if (localChannel) localChannel.postMessage({ type: 'STUDENTS_UPDATED', organizationId, eventId });
 }
 
+/** Devuelve la colección de sesiones de puerta.
+ * @param {object} db Cliente Firestore.
+ * @param {string} organizationId Organización.
+ * @param {string} eventId Evento.
+ * @returns {object} Colección de sesiones.
+ */
 function eventDoors(db, organizationId, eventId) {
   return collection(db, 'organizations', organizationId, 'events', eventId, 'doorSessions');
 }
 
+/** Devuelve una sesión de puerta específica.
+ * @param {object} db Cliente Firestore.
+ * @param {string} organizationId Organización.
+ * @param {string} eventId Evento.
+ * @param {string} sessionId Sesión.
+ * @returns {object} Referencia de sesión.
+ */
 function eventDoorDoc(db, organizationId, eventId, sessionId) {
   return doc(db, 'organizations', organizationId, 'events', eventId, 'doorSessions', sessionId);
 }
 
+/** Devuelve el historial de cambios familiares.
+ * @param {object} db Cliente Firestore.
+ * @param {string} organizationId Organización.
+ * @param {string} eventId Evento.
+ * @returns {object} Colección de historial.
+ */
 function eventFamilyHistory(db, organizationId, eventId) {
   return collection(db, 'organizations', organizationId, 'events', eventId, 'familyHistory');
 }
 
+/** Suscribe el historial de cambios familiares.
+ * @param {string} organizationId Organización.
+ * @param {string} eventId Evento.
+ * @param {Function} onUpdate Callback de actualización.
+ * @returns {Function} Función para cancelar la suscripción.
+ */
 export function subscribeToFamilyHistory(organizationId, eventId, onUpdate) {
   const { db, isConfigured } = initFirebase();
   const key = organizationKey(LOCAL_STORAGE_KEY_FAMILY_HISTORY, organizationId) + eventId;
@@ -1034,12 +1352,21 @@ export function subscribeToFamilyHistory(organizationId, eventId, onUpdate) {
   return () => {};
 }
 
+/** Añade un cambio familiar al historial local.
+ * @param {string} organizationId Organización.
+ * @param {string} eventId Evento.
+ * @param {object} entry Cambio registrado.
+ * @returns {void}
+ */
 function appendLocalFamilyHistory(organizationId, eventId, entry) {
   const key = organizationKey(LOCAL_STORAGE_KEY_FAMILY_HISTORY, organizationId) + eventId;
   const current = JSON.parse(localStorage.getItem(key) || '[]');
   localStorage.setItem(key, JSON.stringify([{ ...entry, id: `local-${Date.now()}` }, ...current]));
 }
 
+/** Obtiene o genera el identificador persistente del dispositivo.
+ * @returns {string} Identificador del dispositivo.
+ */
 function getDeviceId() {
   const key = 'mp_device_id';
   let value = localStorage.getItem(key);
@@ -1050,6 +1377,12 @@ function getDeviceId() {
   return value;
 }
 
+/** Suscribe las sesiones de puerta activas.
+ * @param {string} organizationId Organización.
+ * @param {string} eventId Evento.
+ * @param {Function} onUpdate Callback de actualización.
+ * @returns {Function} Función para cancelar la suscripción.
+ */
 export function subscribeToDoorSessions(organizationId, eventId, onUpdate) {
   const { db, isConfigured } = initFirebase();
   const localKey = organizationKey(LOCAL_STORAGE_KEY_DOORS, organizationId) + eventId;
@@ -1064,6 +1397,12 @@ export function subscribeToDoorSessions(organizationId, eventId, onUpdate) {
   return () => {};
 }
 
+/** Registra la presencia de una puerta y su dispositivo operador.
+ * @param {string} organizationId Organización.
+ * @param {string} eventId Evento.
+ * @param {string} doorName Nombre de puerta.
+ * @returns {Promise<object>} Sesión registrada.
+ */
 export async function registerDoorPresence(organizationId, eventId, doorName) {
   const { app, db, isConfigured } = initFirebase();
   const operator = app ? getAuth(app).currentUser : null;
@@ -1087,6 +1426,11 @@ export async function registerDoorPresence(organizationId, eventId, doorName) {
 
 // One-time, idempotent migration. Existing family counters remain readable until
 // an administrator opens the event and creates their independent family records.
+/** Migra familias heredadas a documentos independientes.
+ * @param {string} organizationId Organización.
+ * @param {string} eventId Evento.
+ * @returns {Promise<number>} Familias creadas.
+ */
 export async function migrateLegacyFamilies(organizationId, eventId) {
   const { db, isConfigured } = initFirebase();
   if (!isConfigured || !db) return 0;
@@ -1104,6 +1448,15 @@ export async function migrateLegacyFamilies(organizationId, eventId) {
   return missing.length;
 }
 
+/** Cambia un estudiante de familia o crea una familia nueva.
+ * @param {string} organizationId Organización.
+ * @param {string} eventId Evento.
+ * @param {string} studentId Estudiante.
+ * @param {string} nextFamilyId Familia destino o marcador de nueva familia.
+ * @param {Array<object>} visibleStudents Estudiantes visibles.
+ * @returns {Promise<void>} Promesa de actualización.
+ * @throws {Error} Si existen movimientos que impiden el cambio.
+ */
 export async function saveStudentFamily(organizationId, eventId, studentId, nextFamilyId, visibleStudents) {
   const createNewFamily = nextFamilyId === '__NEW_FAMILY__';
   const familyId = createNewFamily
@@ -1207,6 +1560,14 @@ export async function saveStudentFamily(organizationId, eventId, studentId, next
   if (localChannel) localChannel.postMessage({ type: 'STUDENTS_UPDATED', organizationId, eventId });
 }
 
+/** Une varias familias sin movimientos registrados.
+ * @param {string} organizationId Organización.
+ * @param {string} eventId Evento.
+ * @param {Array<string>} familyIds Familias seleccionadas.
+ * @param {Array<object>} visibleStudents Estudiantes visibles.
+ * @returns {Promise<string>} Identificador de la familia resultante.
+ * @throws {Error} Si la unión no es válida.
+ */
 export async function mergeFamilies(organizationId, eventId, familyIds, visibleStudents = []) {
   const selectedIds = [...new Set(familyIds)].filter(Boolean);
   if (selectedIds.length < 2) throw new Error('Selecciona al menos dos familias para unir.');
@@ -1256,6 +1617,15 @@ export async function mergeFamilies(organizationId, eventId, familyIds, visibleS
   return newFamilyId;
 }
 
+/** Separa un integrante de una familia sin movimientos.
+ * @param {string} organizationId Organización.
+ * @param {string} eventId Evento.
+ * @param {string} familyId Familia original.
+ * @param {string} studentId Integrante a separar.
+ * @param {Array<object>} visibleStudents Estudiantes visibles.
+ * @returns {Promise<string>} Identificador de la nueva familia.
+ * @throws {Error} Si la separación no es válida.
+ */
 export async function separateFamilyMember(organizationId, eventId, familyId, studentId, visibleStudents = []) {
   const normalizedFamilyId = normalizeFamilyId(familyId);
   const members = visibleStudents.filter((student) => normalizeFamilyId(student.familyId) === normalizedFamilyId);
@@ -1295,6 +1665,12 @@ export async function separateFamilyMember(organizationId, eventId, familyId, st
   return newFamilyId;
 }
 
+/** Guarda una nómina y sincroniza sus registros familiares.
+ * @param {string} organizationId Organización.
+ * @param {string} eventId Evento.
+ * @param {Array<object>} newStudents Nómina nueva.
+ * @returns {Promise<void>} Promesa de persistencia.
+ */
 export async function saveStudentsList(organizationId, eventId, newStudents) {
   const key = storedStudentsKey(organizationId, eventId);
   const previousStudents = JSON.parse(localStorage.getItem(key) || '[]');
@@ -1359,6 +1735,12 @@ export async function saveStudentsList(organizationId, eventId, newStudents) {
 
 // Soft-delete selected students from the active roster. Their records and the
 // event log remain recoverable in Firestore if an operator makes a mistake.
+/** Marca estudiantes como eliminados sin borrar su historial.
+ * @param {string} organizationId Organización.
+ * @param {string} eventId Evento.
+ * @param {Array<string>} studentIds Estudiantes a eliminar.
+ * @returns {Promise<void>} Promesa de eliminación lógica.
+ */
 export async function deleteStudents(organizationId, eventId, studentIds) {
   const idsToDelete = [...new Set(studentIds.filter(Boolean))];
   if (!idsToDelete.length) return;
@@ -1417,6 +1799,11 @@ export async function deleteStudents(organizationId, eventId, studentIds) {
 
 const FIRESTORE_BATCH_LIMIT = 450;
 
+/** Confirma operaciones Firestore en lotes limitados.
+ * @param {object} db Cliente Firestore.
+ * @param {Array<Function>} operations Operaciones a ejecutar.
+ * @returns {Promise<void>} Promesa de confirmación.
+ */
 async function commitInChunks(db, operations) {
   for (let start = 0; start < operations.length; start += FIRESTORE_BATCH_LIMIT) {
     const batch = writeBatch(db);
@@ -1427,6 +1814,15 @@ async function commitInChunks(db, operations) {
   }
 }
 
+/** Ejecuta mantenimiento de evento y registra su estado.
+ * @param {object} db Cliente Firestore.
+ * @param {string} organizationId Organización.
+ * @param {string} eventId Evento.
+ * @param {string} operation Nombre de operación.
+ * @param {Function} work Trabajo de mantenimiento.
+ * @returns {Promise<unknown>} Resultado del trabajo.
+ * @throws {Error} Si el mantenimiento falla.
+ */
 async function runEventMaintenance(db, organizationId, eventId, operation, work) {
   const reference = eventDoc(db, organizationId, eventId);
   const startedAt = new Date().toISOString();
@@ -1456,11 +1852,20 @@ async function runEventMaintenance(db, organizationId, eventId, operation, work)
   }
 }
 
+/** Reinicia la asistencia derivada de un estudiante local.
+ * @param {object} student Estudiante.
+ * @returns {object} Estudiante reiniciado.
+ */
 function resetLocalStudent(student) {
   return resetStudentAttendance(student);
 }
 
 // Reset attendance while preserving the roster and each family's capacity.
+/** Reinicia la asistencia del evento sin alterar su nómina.
+ * @param {string} organizationId Organización.
+ * @param {string} eventId Evento.
+ * @returns {Promise<unknown>} Resultado del mantenimiento.
+ */
 export async function resetEventData(organizationId, eventId) {
   const { db, isConfigured } = initFirebase();
 

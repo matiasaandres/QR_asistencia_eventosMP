@@ -1,10 +1,29 @@
+/**
+ * Persistencia de establecimientos y planos de asientos asociados a eventos.
+ * Delega las reglas de normalización y asignación en seatingPolicy.js.
+ */
+
 import { collection, doc, onSnapshot, setDoc } from 'firebase/firestore';
 import { initFirebase } from './firebase.js';
 import { createEmptySeatPlan, normalizeSeatPlan, normalizeVenue } from './seatingPolicy.js';
 
+/** Construye la clave local de establecimientos.
+ * @param {string} organizationId Organización.
+ * @returns {string} Clave local.
+ */
 const venueKey = (organizationId) => `mp_venues_${organizationId}`;
+/** Construye la clave local del plano de un evento.
+ * @param {string} organizationId Organización.
+ * @param {string} eventId Evento.
+ * @returns {string} Clave local.
+ */
 const planKey = (organizationId, eventId) => `mp_seat_plan_${organizationId}_${eventId}`;
 
+/** Lee un valor JSON desde almacenamiento local.
+ * @param {string} key Clave local.
+ * @param {unknown} fallback Valor alternativo.
+ * @returns {unknown} Valor leído o alternativo.
+ */
 function readLocal(key, fallback) {
   try {
     const raw = localStorage.getItem(key);
@@ -14,10 +33,20 @@ function readLocal(key, fallback) {
   }
 }
 
+/** Escribe un valor JSON en almacenamiento local.
+ * @param {string} key Clave local.
+ * @param {unknown} value Valor a guardar.
+ * @returns {void}
+ */
 function writeLocal(key, value) {
   localStorage.setItem(key, JSON.stringify(value));
 }
 
+/** Suscribe los establecimientos de una organización.
+ * @param {string} organizationId Organización.
+ * @param {Function} onUpdate Callback de actualización.
+ * @returns {Function} Función para cancelar la suscripción.
+ */
 export function subscribeToVenues(organizationId, onUpdate) {
   const { db, isConfigured } = initFirebase();
   if (isConfigured && db) {
@@ -31,6 +60,11 @@ export function subscribeToVenues(organizationId, onUpdate) {
   return () => {};
 }
 
+/** Guarda un establecimiento normalizado.
+ * @param {string} organizationId Organización.
+ * @param {object} venue Establecimiento.
+ * @returns {Promise<object>} Establecimiento guardado.
+ */
 export async function saveVenue(organizationId, venue) {
   const normalized = normalizeVenue(venue);
   const { db, isConfigured } = initFirebase();
@@ -42,6 +76,12 @@ export async function saveVenue(organizationId, venue) {
   return normalized;
 }
 
+/** Suscribe el plano de asientos de un evento.
+ * @param {string} organizationId Organización.
+ * @param {string} eventId Evento.
+ * @param {Function} onUpdate Callback de actualización.
+ * @returns {Function} Función para cancelar la suscripción.
+ */
 export function subscribeToSeatPlan(organizationId, eventId, onUpdate) {
   const { db, isConfigured } = initFirebase();
   if (isConfigured && db) {
@@ -55,6 +95,12 @@ export function subscribeToSeatPlan(organizationId, eventId, onUpdate) {
   return () => {};
 }
 
+/** Guarda el plano de asientos de un evento.
+ * @param {string} organizationId Organización.
+ * @param {string} eventId Evento.
+ * @param {object} plan Plano de asientos.
+ * @returns {Promise<object>} Plano guardado.
+ */
 export async function saveSeatPlan(organizationId, eventId, plan) {
   const normalized = normalizeSeatPlan({ ...plan, eventId, updatedAt: new Date().toISOString() }, eventId);
   const { db, isConfigured } = initFirebase();

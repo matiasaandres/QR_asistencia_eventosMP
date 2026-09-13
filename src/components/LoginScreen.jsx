@@ -1,8 +1,17 @@
+/**
+ * Pantalla de acceso escolar o maestro. Gestiona login, Google, invitaciones y
+ * recuperación de contraseña; la identidad final la valida Firebase Auth.
+ */
+
 import React, { useState } from 'react';
 import { ArrowLeft, KeyRound, LogIn, Mail, Send, ShieldCheck, TicketCheck, Users } from 'lucide-react';
 import { authenticate, authenticateWithGoogle, joinOrganization, requestPasswordReset } from '../services/auth';
 import { APP_VERSION } from '../config/appVersion';
 
+/** Traduce errores de autenticación a mensajes para el usuario.
+ * @param {Error|object} error Error recibido desde Firebase.
+ * @returns {string} Mensaje localizado.
+ */
 function authMessage(error) {
   const code = error?.code || '';
   if (code.includes('popup-closed-by-user')) return 'El inicio de sesión con Google fue cancelado.';
@@ -16,6 +25,10 @@ function authMessage(error) {
   return error?.message || 'No fue posible completar el acceso.';
 }
 
+/** Renderiza el formulario de autenticación del portal.
+ * @param {{portal?: string}} props Tipo de portal.
+ * @returns {JSX.Element} Pantalla de autenticación.
+ */
 export default function LoginScreen({ portal = 'school' }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -25,6 +38,10 @@ export default function LoginScreen({ portal = 'school' }) {
   const [message, setMessage] = useState('');
   const [isSaving, setIsSaving] = useState(false);
 
+  /** Procesa el envío de autenticación, recuperación o invitación.
+   * @param {SubmitEvent} event Evento de envío del formulario.
+   * @returns {Promise<void>}
+   */
   const handleSubmit = async (event) => {
     event.preventDefault();
     setError('');
@@ -49,6 +66,9 @@ export default function LoginScreen({ portal = 'school' }) {
     }
   };
 
+  /** Inicia sesión mediante Google.
+   * @returns {Promise<void>}
+   */
   const handleGoogleSignIn = async () => {
     setError('');
     setMessage('');
@@ -62,6 +82,10 @@ export default function LoginScreen({ portal = 'school' }) {
     }
   };
 
+  /** Cambia el modo visible del formulario de acceso.
+   * @param {string} nextMode Nuevo modo del formulario.
+   * @returns {void}
+   */
   const changeMode = (nextMode) => {
     setMode(nextMode);
     setError('');

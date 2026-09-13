@@ -1,3 +1,7 @@
+/**
+ * Navegación contextual del portal y representación del estado de sincronización.
+ */
+
 import React from 'react';
 import OrganizationLogo from './OrganizationLogo.jsx';
 import { getEffectiveEventStatus } from '../services/eventPolicy.js';
@@ -20,7 +24,11 @@ import {
   Armchair
 } from 'lucide-react';
 
-export default function Navbar({ 
+/** Renderiza la navegación principal de la aplicación.
+ * @param {object} props Organización, evento y acciones disponibles.
+ * @returns {JSX.Element} Barra de navegación.
+ */
+export default function Navbar({
   activeTab, 
   setActiveTab, 
   event, 

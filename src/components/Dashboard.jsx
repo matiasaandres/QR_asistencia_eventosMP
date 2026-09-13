@@ -1,3 +1,7 @@
+/**
+ * Panel resumen del evento: aforo, actividad, puertas y métricas agregadas.
+ */
+
 import React, { useMemo, useState } from 'react';
 import {
   Activity,
@@ -22,8 +26,16 @@ import { getUniqueCapacityStudents } from '../services/familyPolicy';
 import PendingFamilies from './PendingFamilies.jsx';
 import OrganizationLogo from './OrganizationLogo.jsx';
 
+/** Limita un porcentaje al intervalo visible de cero a cien.
+ * @param {number} value Porcentaje original.
+ * @returns {number} Porcentaje limitado.
+ */
 const clampPercentage = (value) => Math.min(100, Math.max(0, value));
 
+/** Renderiza una tarjeta métrica del tablero.
+ * @param {object} props Etiqueta, valor, detalle e indicador visual.
+ * @returns {JSX.Element} Tarjeta de métrica.
+ */
 function MetricCard({ label, value, detail, icon: Icon, tone = 'sky', progress }) {
   const tones = {
     sky: { line: 'from-sky-500 to-cyan-500', icon: 'bg-sky-50 text-sky-700' },
@@ -49,9 +61,16 @@ function MetricCard({ label, value, detail, icon: Icon, tone = 'sky', progress }
   );
 }
 
+/** Renderiza el tablero de indicadores del evento.
+ * @param {object} props Datos del evento, asistencia y organización.
+ * @returns {JSX.Element} Tablero de gestión.
+ */
 export default function Dashboard({ event, students, logs, analytics, organization, onFetchAllLogs }) {
   const [reportBusy, setReportBusy] = useState(false);
   const [reportError, setReportError] = useState('');
+  /** Genera y descarga el informe de gestión del evento.
+   * @returns {Promise<void>}
+   */
   const handleDownloadReport = async () => {
     if (reportBusy) return;
     setReportBusy(true);

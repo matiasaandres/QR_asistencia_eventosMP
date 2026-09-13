@@ -1,3 +1,7 @@
+/**
+ * Editor de establecimientos, plantas y asignaciones de asientos por evento.
+ */
+
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   Armchair, Building2, Check, Eraser, Layers3, MousePointer2,
@@ -15,6 +19,10 @@ import {
   summarizeSeatPlan
 } from '../services/seatingPolicy.js';
 
+/** Renderiza un asiento seleccionable del plano.
+ * @param {object} props Datos del asiento y callbacks de selección.
+ * @returns {JSX.Element} Botón de asiento.
+ */
 function SeatButton({ seat, assignment, selected, onToggle }) {
   const background = assignment?.color || '#e2e8f0';
   const label = assignment?.ownerName
@@ -38,6 +46,10 @@ function SeatButton({ seat, assignment, selected, onToggle }) {
   );
 }
 
+/** Renderiza el formulario para crear un establecimiento.
+ * @param {object} props Callbacks de creación y cierre.
+ * @returns {JSX.Element} Formulario de establecimiento.
+ */
 function VenueCreator({ onCreate, onClose }) {
   const [name, setName] = useState('');
   const [rows, setRows] = useState(8);
@@ -70,6 +82,10 @@ function VenueCreator({ onCreate, onClose }) {
   );
 }
 
+/** Renderiza la gestión de establecimientos y asignaciones.
+ * @param {object} props Datos del evento, nómina y plano.
+ * @returns {JSX.Element} Gestor de asientos.
+ */
 export default function SeatingManager({ organization, event, students, venues, seatPlan, onSaveVenue, onSavePlan }) {
   const [selectedSeats, setSelectedSeats] = useState([]);
   const [floorId, setFloorId] = useState('');
@@ -107,6 +123,11 @@ export default function SeatingManager({ organization, event, students, venues, 
     if (!course && courses.length) setCourse(courses[0]);
   }, [courses, course]);
 
+  /** Guarda el plano de asientos y actualiza el mensaje de resultado.
+   * @param {object} nextPlan Plano que se almacenará.
+   * @param {string} success Mensaje para una operación exitosa.
+   * @returns {Promise<void>}
+   */
   const persist = async (nextPlan, success) => {
     setSaving(true);
     setMessage('');
@@ -121,6 +142,10 @@ export default function SeatingManager({ organization, event, students, venues, 
     }
   };
 
+  /** Selecciona un establecimiento y carga su plano vacío.
+   * @param {string} venueId Identificador del establecimiento.
+   * @returns {Promise<void>}
+   */
   const handleVenueChange = async (venueId) => {
     if (!venueId) {
       if (stats.assigned > 0 && !window.confirm('Quitar el establecimiento liberará las asignaciones de asientos de este evento. ¿Continuar?')) return;
@@ -133,6 +158,10 @@ export default function SeatingManager({ organization, event, students, venues, 
     await persist(createEmptySeatPlan(event.id, nextVenue), `Plano “${nextVenue.name}” vinculado al evento.`);
   };
 
+  /** Crea un establecimiento y lo selecciona.
+   * @param {object} newVenue Datos del establecimiento.
+   * @returns {Promise<void>}
+   */
   const handleCreateVenue = async (newVenue) => {
     setSaving(true);
     try {
@@ -147,9 +176,19 @@ export default function SeatingManager({ organization, event, students, venues, 
     }
   };
 
+  /** Crea el establecimiento predeterminado de la actividad.
+   * @returns {Promise<void>}
+   */
   const addCcbb = () => handleCreateVenue(createCcbbVenue());
+  /** Alterna un asiento en la selección actual.
+   * @param {string} seatId Identificador del asiento.
+   * @returns {void}
+   */
   const toggleSeat = (seatId) => setSelectedSeats((current) => current.includes(seatId) ? current.filter((id) => id !== seatId) : [...current, seatId]);
 
+  /** Sugiere asientos libres según la capacidad del estudiante.
+   * @returns {void}
+   */
   const suggestSeats = () => {
     if (!section) return;
     const desired = Math.max(2, selectedOwner?.capacity || 2);
@@ -158,6 +197,9 @@ export default function SeatingManager({ organization, event, students, venues, 
     setMessage(available.length < desired ? `Solo hay ${available.length} asientos libres en este sector.` : `Se seleccionaron ${available.length} asientos sugeridos.`);
   };
 
+  /** Aplica la asignación de asientos seleccionada.
+   * @returns {void}
+   */
   const applyAssignment = () => {
     const occupied = selectedSeats.filter((seatId) => seatPlan.assignments?.[seatId]);
     if (occupied.length > 0 && !window.confirm(`${occupied.length} asiento(s) ya tienen una asignación. ¿Deseas reemplazarla?`)) return;

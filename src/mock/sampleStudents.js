@@ -1,3 +1,8 @@
+/**
+ * Datos iniciales usados en modo local y en pruebas de dominio.
+ * No representan una fuente remota ni deben tratarse como datos productivos.
+ */
+
 export const INITIAL_STUDENTS = [
   {
     "id": "MP-2026-001",

@@ -1,6 +1,14 @@
+/**
+ * Límite de errores de React. Limpia el estado de navegación local y ofrece
+ * una recuperación controlada cuando un componente falla durante el render.
+ */
+
 import React from 'react';
 import { AlertTriangle, RefreshCw } from 'lucide-react';
 
+/** Captura errores de renderizado y muestra una vista recuperable.
+ * @extends React.Component
+ */
 export default class ErrorBoundary extends React.Component {
   constructor(props) {
     super(props);

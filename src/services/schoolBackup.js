@@ -1,8 +1,17 @@
+/**
+ * Creación, validación, firma y restauración de respaldos completos de una
+ * escuela. La clave HMAC se recibe por operación y nunca se guarda en la app.
+ */
+
 import { collection, doc, getDoc, getDocs, setDoc, writeBatch } from 'firebase/firestore';
 import { initFirebase } from './firebase.js';
 import { deriveFamilyRecords } from './familyPolicy.js';
 import { buildAnalyticsDocuments, LOG_ANALYTICS_VERSION } from './logAnalytics.js';
 
+/** Convierte valores Firestore y estructuras anidadas a datos serializables.
+ * @param {unknown} value Valor a serializar.
+ * @returns {unknown} Valor serializable.
+ */
 function serializeValue(value) {
   if (value == null || typeof value !== 'object') return value;
   if (typeof value.toDate === 'function') return value.toDate().toISOString();
@@ -10,6 +19,10 @@ function serializeValue(value) {
   return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, serializeValue(item)]));
 }
 
+/** Serializa objetos con claves ordenadas para obtener una representación estable.
+ * @param {unknown} value Valor que se serializará.
+ * @returns {string} JSON canónico.
+ */
 function canonicalJson(value) {
   if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
   if (value && typeof value === 'object') {
@@ -18,6 +31,11 @@ function canonicalJson(value) {
   return JSON.stringify(value);
 }
 
+/** Calcula el resumen SHA-256 de un respaldo.
+ * @param {object} value Respaldo a resumir.
+ * @returns {Promise<string>} Hash hexadecimal.
+ * @throws {Error} Si Web Crypto no está disponible.
+ */
 async function sha256(value) {
   if (!globalThis.crypto?.subtle) throw new Error('Este navegador no permite verificar respaldos con SHA-256.');
   const bytes = new TextEncoder().encode(canonicalJson(value));
@@ -25,6 +43,12 @@ async function sha256(value) {
   return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
+/** Firma un respaldo mediante HMAC-SHA-256.
+ * @param {string} keyString Clave de firma.
+ * @param {object} value Respaldo a firmar.
+ * @returns {Promise<string>} Firma hexadecimal.
+ * @throws {Error} Si Web Crypto no está disponible.
+ */
 async function hmacSha256(keyString, value) {
   if (!globalThis.crypto?.subtle) throw new Error('Este navegador no permite firmar respaldos con HMAC.');
   const enc = new TextEncoder();
@@ -41,6 +65,11 @@ async function hmacSha256(keyString, value) {
   return [...new Uint8Array(signature)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
+/** Añade integridad SHA-256 y, opcionalmente, una firma HMAC.
+ * @param {object} backup Respaldo que se protegerá.
+ * @param {string|null} signingKey Clave opcional de firma.
+ * @returns {Promise<object>} Respaldo con integridad.
+ */
 export async function addBackupIntegrity(backup, signingKey = null) {
   const hash = await sha256(backup);
   const integrity = {
@@ -54,6 +83,12 @@ export async function addBackupIntegrity(backup, signingKey = null) {
   };
 }
 
+/** Verifica el hash y la firma opcional de un respaldo.
+ * @param {object} backup Respaldo que se verificará.
+ * @param {string|null} verificationKey Clave opcional de verificación.
+ * @returns {Promise<boolean>} True si la integridad es válida.
+ * @throws {Error} Si el hash, firma o contenido no coinciden.
+ */
 export async function verifyBackupIntegrity(backup, verificationKey = null) {
   const algorithm = backup?.integrity?.algorithm;
   const hashValue = backup?.integrity?.value;
@@ -85,10 +120,18 @@ export async function verifyBackupIntegrity(backup, verificationKey = null) {
   return true;
 }
 
+/** Extrae datos serializables de un documento Firestore.
+ * @param {object} snapshot Snapshot de Firestore.
+ * @returns {object} Datos del documento con su identificador.
+ */
 function documentData(snapshot) {
   return serializeValue({ ...snapshot.data(), id: snapshot.id });
 }
 
+/** Construye un respaldo completo de una escuela.
+ * @param {{organization: object, members?: Array<object>, venues?: Array<object>, events?: Array<object>, exportedAt?: string}} input Datos de la escuela.
+ * @returns {object} Respaldo con resumen y esquema.
+ */
 export function createSchoolBackup({ organization, members = [], venues = [], events = [], exportedAt = new Date().toISOString() }) {
   const normalizedEvents = events.map((event) => ({
     ...serializeValue(event),
@@ -119,6 +162,11 @@ export function createSchoolBackup({ organization, members = [], venues = [], ev
   };
 }
 
+/** Genera un nombre de archivo seguro para un respaldo escolar.
+ * @param {object} organization Organización respaldada.
+ * @param {Date} date Fecha del respaldo.
+ * @returns {string} Nombre de archivo JSON.
+ */
 export function schoolBackupFilename(organization, date = new Date()) {
   const safeName = String(organization?.name || organization?.id || 'escuela')
     .normalize('NFD')
@@ -129,6 +177,12 @@ export function schoolBackupFilename(organization, date = new Date()) {
   return `respaldo-${safeName}-${date.toISOString().slice(0, 10)}.json`;
 }
 
+/** Descarga todos los datos de una escuela y calcula su integridad.
+ * @param {string} organizationId Organización a respaldar.
+ * @param {string} signingKey Clave opcional de firma.
+ * @returns {Promise<object>} Respaldo completo.
+ * @throws {Error} Si Firebase no está disponible o la organización no existe.
+ */
 export async function fetchSchoolBackup(organizationId, signingKey = '') {
   const { db, isConfigured } = initFirebase();
   if (!isConfigured || !db) throw new Error('Firebase no está conectado; no se puede generar un respaldo completo.');
@@ -170,6 +224,12 @@ export async function fetchSchoolBackup(organizationId, signingKey = '') {
   }), signingKey);
 }
 
+/** Genera y descarga un respaldo completo de una escuela.
+ * @param {string} organizationId Organización a respaldar.
+ * @param {string} signingKey Clave de respaldo.
+ * @returns {Promise<object>} Resumen del respaldo descargado.
+ * @throws {Error} Si la clave o la conexión no son válidas.
+ */
 export async function downloadSchoolBackup(organizationId, signingKey = '') {
   if (String(signingKey).length < 12) throw new Error('La clave de respaldo debe tener al menos 12 caracteres.');
   const backup = await fetchSchoolBackup(organizationId, signingKey);
@@ -186,8 +246,18 @@ export async function downloadSchoolBackup(organizationId, signingKey = '') {
 }
 
 const BATCH_LIMIT = 400;
+/** Indica si un valor puede usarse como identificador de documento.
+ * @param {unknown} value Valor candidato.
+ * @returns {boolean} True si es un identificador válido.
+ */
 const validDocumentId = (value) => typeof value === 'string' && value.length > 0 && value.length <= 500 && !value.includes('/');
 
+/** Valida estructura, pertenencia e identificadores de un respaldo.
+ * @param {object} backup Respaldo a validar.
+ * @param {string} organizationId Organización esperada.
+ * @returns {true} True si el respaldo es válido.
+ * @throws {Error} Si el respaldo está incompleto o es incompatible.
+ */
 export function validateSchoolBackup(backup, organizationId) {
   if (!backup || backup.format !== 'mundopalabra-school-backup' || ![1, 2, 3, 4].includes(backup.schemaVersion)) {
     throw new Error('El archivo no es un respaldo válido de MundoPalabra.');
@@ -235,6 +305,11 @@ export function validateSchoolBackup(backup, organizationId) {
   return backup;
 }
 
+/** Ejecuta operaciones de escritura en lotes de Firestore.
+ * @param {object} db Cliente de Firestore.
+ * @param {Array<Function>} operations Operaciones de escritura.
+ * @returns {Promise<void>} Promesa de confirmación.
+ */
 async function commitOperations(db, operations) {
   for (let start = 0; start < operations.length; start += BATCH_LIMIT) {
     const batch = writeBatch(db);
@@ -243,6 +318,10 @@ async function commitOperations(db, operations) {
   }
 }
 
+/** Normaliza los datos de un evento restaurado.
+ * @param {object} event Evento del respaldo.
+ * @returns {object} Datos listos para persistir.
+ */
 function restoredEventData(event) {
   const keys = ['id', 'name', 'institution', 'date', 'defaultCapacity', 'doors', 'status', 'startsAt', 'endsAt', 'archived', 'studentsInitialized', 'initializedAt', 'createdAt', 'updatedAt'];
   const restored = { status: 'open', startsAt: '', endsAt: '', ...Object.fromEntries(keys.filter((key) => event[key] !== undefined).map((key) => [key, event[key]])) };
@@ -255,6 +334,12 @@ function restoredEventData(event) {
   };
 }
 
+/** Restaura un evento y sus subcolecciones de forma controlada.
+ * @param {object} eventRef Referencia al evento destino.
+ * @param {object} eventData Datos del evento.
+ * @param {object} work Acumuladores de trabajo.
+ * @returns {Promise<void>} Promesa de restauración.
+ */
 async function restoreEventSafely(eventRef, eventData, work) {
   const startedAt = new Date().toISOString();
   await setDoc(eventRef, {
@@ -276,6 +361,13 @@ async function restoreEventSafely(eventRef, eventData, work) {
   }
 }
 
+/** Valida y restaura un respaldo completo en una organización.
+ * @param {string} organizationId Organización destino.
+ * @param {object|string} rawBackup Respaldo u objeto JSON.
+ * @param {string} verificationKey Clave de verificación HMAC.
+ * @returns {Promise<object>} Resumen de restauración.
+ * @throws {Error} Si el respaldo no supera validación o integridad.
+ */
 export async function restoreSchoolBackup(organizationId, rawBackup, verificationKey = '') {
   const backup = validateSchoolBackup(rawBackup, organizationId);
   await verifyBackupIntegrity(backup, verificationKey || null);

@@ -1,12 +1,27 @@
+/**
+ * Lectura y generación de hojas de cálculo para importaciones y reportes.
+ * Valida tamaño, extensión, estructura y número de filas antes de procesar.
+ */
+
 const MAX_FILE_BYTES = 5 * 1024 * 1024;
 const MAX_ROWS = 5000;
 const MAX_COLUMNS = 50;
 const ALLOWED_EXTENSIONS = ['xlsx', 'csv'];
 
+/** Obtiene la extensión de un nombre de archivo.
+ * @param {string} name Nombre del archivo.
+ * @returns {string} Extensión en minúsculas.
+ */
 function extensionOf(name = '') {
   return String(name).split('.').pop()?.toLowerCase() || '';
 }
 
+/** Valida tamaño y formato de una planilla.
+ * @param {object} file Archivo seleccionado.
+ * @param {{maxBytes?: number}} options Límites de validación.
+ * @returns {string} Extensión validada.
+ * @throws {Error} Si el archivo no cumple los límites.
+ */
 export function validateSpreadsheetFile(file, { maxBytes = MAX_FILE_BYTES } = {}) {
   if (!file) throw new Error('Selecciona una planilla para continuar.');
   const extension = extensionOf(file.name);
@@ -18,6 +33,10 @@ export function validateSpreadsheetFile(file, { maxBytes = MAX_FILE_BYTES } = {}
   return extension;
 }
 
+/** Convierte el valor de una celda a texto o valor simple.
+ * @param {unknown} value Valor de celda.
+ * @returns {unknown} Valor legible.
+ */
 function cellText(value) {
   if (value == null) return '';
   if (value instanceof Date) return value.toISOString();
@@ -28,6 +47,12 @@ function cellText(value) {
   return String(value);
 }
 
+/** Convierte filas tabulares en objetos usando la primera fila como encabezado.
+ * @param {Array<Array<unknown>>} rows Filas leídas.
+ * @param {{maxRows?: number, maxColumns?: number}} options Límites.
+ * @returns {Array<object>} Filas convertidas.
+ * @throws {Error} Si se exceden los límites.
+ */
 function rowsToObjects(rows, { maxRows = MAX_ROWS, maxColumns = MAX_COLUMNS } = {}) {
   if (!rows.length) return [];
   const headers = rows[0].slice(0, maxColumns).map((value) => String(cellText(value)).trim());
@@ -42,6 +67,10 @@ function rowsToObjects(rows, { maxRows = MAX_ROWS, maxColumns = MAX_COLUMNS } = 
   });
 }
 
+/** Detecta el separador más frecuente de la primera fila CSV.
+ * @param {string} text Contenido CSV.
+ * @returns {string} Separador detectado.
+ */
 function detectDelimiter(text) {
   const firstLine = text.split(/\r?\n/, 1)[0] || '';
   const counts = [',', ';', '\t'].map((delimiter) => ({
@@ -53,6 +82,12 @@ function detectDelimiter(text) {
     : ',';
 }
 
+/** Analiza texto CSV respetando comillas y límites.
+ * @param {string} text Contenido CSV.
+ * @param {{maxRows?: number, maxColumns?: number}} options Límites.
+ * @returns {Array<Array<string>>} Filas analizadas.
+ * @throws {Error} Si el CSV está mal formado o excede los límites.
+ */
 function parseCsv(text, { maxRows = MAX_ROWS, maxColumns = MAX_COLUMNS } = {}) {
   const rows = [];
   const delimiter = detectDelimiter(text);
@@ -87,11 +122,20 @@ function parseCsv(text, { maxRows = MAX_ROWS, maxColumns = MAX_COLUMNS } = {}) {
   return rows;
 }
 
+/** Carga ExcelJS bajo demanda.
+ * @returns {Promise<object>} Módulo ExcelJS.
+ */
 async function loadExcelJs() {
   const module = await import('exceljs');
   return module.default || module;
 }
 
+/** Extrae filas de una hoja de Excel respetando límites.
+ * @param {object} worksheet Hoja de ExcelJS.
+ * @param {{maxRows: number, maxColumns: number}} limits Límites.
+ * @returns {Array<Array<unknown>>} Filas extraídas.
+ * @throws {Error} Si se excede algún límite.
+ */
 function worksheetRows(worksheet, limits) {
   const rows = [];
   worksheet.eachRow({ includeEmpty: false }, (sourceRow) => {
@@ -103,6 +147,12 @@ function worksheetRows(worksheet, limits) {
   return rows;
 }
 
+/** Lee un archivo CSV o XLSX y devuelve sus hojas como objetos.
+ * @param {object} file Archivo de planilla.
+ * @param {{sheetNames?: Array<string>, maxRows?: number, maxColumns?: number, maxBytes?: number}} options Opciones de lectura.
+ * @returns {Promise<Object<string, Array<object>>>} Hojas leídas.
+ * @throws {Error} Si el archivo es inválido o no puede leerse.
+ */
 export async function readSpreadsheet(file, {
   sheetNames,
   maxRows = MAX_ROWS,
@@ -127,6 +177,10 @@ export async function readSpreadsheet(file, {
   }));
 }
 
+/** Genera y descarga un libro XLSX desde varias hojas.
+ * @param {{sheets: Array<{name: string, rows: Array<object>}>, fileName: string}} input Datos del libro.
+ * @returns {Promise<void>} Promesa de descarga.
+ */
 export async function createExcelDownload({ sheets, fileName }) {
   const ExcelJS = await loadExcelJs();
   const workbook = new ExcelJS.Workbook();

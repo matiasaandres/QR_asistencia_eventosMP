@@ -1,7 +1,20 @@
+/**
+ * Construcción de estadísticas agregadas desde la bitácora de movimientos.
+ * Los documentos agregados reducen lecturas y no reemplazan al historial
+ * original, que sigue siendo la fuente autoritativa.
+ */
+
+/** Tamaño máximo de cada página de historial. */
 export const LOG_PAGE_SIZE = 50;
+
+/** Versión del esquema de agregados para detectar reconstrucciones necesarias. */
 export const LOG_ANALYTICS_VERSION = 2;
 const HOUR_SHARDS = 5;
 
+/** Genera un identificador estable para repartir datos analíticos.
+ * @param {unknown} value Texto que se convertirá en hash.
+ * @returns {string} Hash compacto en base 36.
+ */
 function hashText(value) {
   let hash = 2166136261;
   for (const character of String(value || '')) {
@@ -11,6 +24,10 @@ function hashText(value) {
   return (hash >>> 0).toString(36);
 }
 
+/** Convierte una marca temporal en una agrupación horaria.
+ * @param {unknown} timestamp Marca temporal interpretable por Date.
+ * @returns {{key: string, label: string}|null} Agrupación o null si es inválida.
+ */
 function hourBucket(timestamp) {
   const date = new Date(timestamp);
   if (Number.isNaN(date.getTime())) return null;
@@ -27,6 +44,11 @@ function hourBucket(timestamp) {
   };
 }
 
+/** Produce mutaciones analíticas para un movimiento de acceso.
+ * @param {object} log Registro de movimiento.
+ * @param {string} logId Identificador del registro.
+ * @returns {Array<object>} Mutaciones agrupadas por puerta y hora.
+ */
 export function analyticsMutationsForLog(log, logId = log?.id) {
   const count = Math.max(1, Number(log?.count) || 1);
   const movementType = ['ENTRY', 'EXIT', 'REENTRY'].includes(log?.movementType) ? log.movementType : 'ENTRY';
@@ -69,6 +91,10 @@ export function analyticsMutationsForLog(log, logId = log?.id) {
   return mutations;
 }
 
+/** Agrega los registros de acceso en documentos analíticos.
+ * @param {Array<object>} logs Registros de movimiento.
+ * @returns {Array<object>} Documentos agregados.
+ */
 export function buildAnalyticsDocuments(logs = []) {
   const documents = new Map();
   logs.forEach((log) => analyticsMutationsForLog(log, log.id).forEach((mutation) => {
@@ -86,6 +112,10 @@ export function buildAnalyticsDocuments(logs = []) {
   return [...documents.values()];
 }
 
+/** Resume documentos analíticos por puerta y hora.
+ * @param {Array<object>} documents Documentos analíticos.
+ * @returns {object} Indicadores agregados.
+ */
 export function summarizeAnalytics(documents = []) {
   const doors = new Map();
   const hours = new Map();

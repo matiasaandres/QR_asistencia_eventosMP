@@ -1,3 +1,8 @@
+/**
+ * Panel de confirmación de entradas, salidas, reingresos y cupos extra.
+ * Recibe un estudiante ya identificado y delega la persistencia en App.
+ */
+
 import React, { useState } from 'react';
 import { 
   CheckCircle2, 
@@ -17,6 +22,10 @@ import { sounds } from '../services/sound';
 import { getCapacityState } from '../services/checkinPolicy';
 import { getStudentSeats } from '../services/seatingPolicy';
 
+/** Renderiza el panel para confirmar movimientos de acceso.
+ * @param {object} props Datos del estudiante y callbacks de operación.
+ * @returns {JSX.Element|null} Panel o nada si no hay estudiante.
+ */
 export default function CheckinPanel({ 
   student, 
   currentDoor, 
@@ -78,6 +87,11 @@ export default function CheckinPanel({
   }
 
   // Handle immediate registration
+  /** Registra el movimiento seleccionado y muestra su resultado.
+   * @param {number} countToRegister Cantidad de personas.
+   * @param {object|null} extraPerson Persona extraordinaria opcional.
+   * @returns {Promise<void>} Promesa de registro.
+   */
   const handleRegister = async (countToRegister, extraPerson = null) => {
     const movementLimit = movementType === 'EXIT' ? inside : remaining + outside;
     if (isSubmitting || (!extraPerson && countToRegister > movementLimit)) return;
@@ -120,6 +134,9 @@ export default function CheckinPanel({
     }
   };
 
+  /** Solicita el registro de una persona extraordinaria.
+   * @returns {void}
+   */
   const handleExtraRegister = () => {
     const name = extraGuestName.trim();
     const relationship = extraRelationship.trim();

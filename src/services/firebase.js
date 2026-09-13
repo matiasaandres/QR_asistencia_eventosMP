@@ -6,7 +6,14 @@ import {
   memoryLocalCache
 } from 'firebase/firestore';
 
+/**
+ * Adaptador de Firebase para la aplicación web.
+ * Centraliza la configuración pública, App Check, Firestore en memoria y la
+ * limpieza de datos locales cuando se cierra una sesión en un equipo compartido.
+ */
+
 const STORAGE_KEY_FIREBASE = 'mundopalabra_firebase_config';
+const runtimeEnv = import.meta.env || {};
 // Firebase web configuration is a public client identifier (not a server
 // credential). Keeping it here ensures every Vercel device uses the same DB,
 // even when deployment environment variables have not been configured yet.
@@ -19,14 +26,17 @@ const DEFAULT_FIREBASE_CONFIG = {
   appId: '1:609103289658:web:e213924bdd24ac4a72c403'
 };
 
+/** Obtiene la configuración de Firebase desde variables, almacenamiento o valores predeterminados.
+ * @returns {object} Configuración de Firebase.
+ */
 export function getSavedFirebaseConfig() {
   const envConfig = {
-    apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
-    authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
-    projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
-    storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
-    messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
-    appId: import.meta.env.VITE_FIREBASE_APP_ID
+    apiKey: runtimeEnv.VITE_FIREBASE_API_KEY,
+    authDomain: runtimeEnv.VITE_FIREBASE_AUTH_DOMAIN,
+    projectId: runtimeEnv.VITE_FIREBASE_PROJECT_ID,
+    storageBucket: runtimeEnv.VITE_FIREBASE_STORAGE_BUCKET,
+    messagingSenderId: runtimeEnv.VITE_FIREBASE_MESSAGING_SENDER_ID,
+    appId: runtimeEnv.VITE_FIREBASE_APP_ID
   };
 
   // A deployment-level config guarantees that every phone uses the same DB.
@@ -45,6 +55,10 @@ export function getSavedFirebaseConfig() {
   }
 }
 
+/** Guarda o elimina la configuración local de Firebase.
+ * @param {object|null} config Configuración que se almacenará.
+ * @returns {void}
+ */
 export function saveFirebaseConfig(config) {
   if (!config) {
     localStorage.removeItem(STORAGE_KEY_FIREBASE);
@@ -53,6 +67,11 @@ export function saveFirebaseConfig(config) {
   }
 }
 
+/** Analiza y valida una configuración de Firebase en JSON o sintaxis de objeto simple.
+ * @param {unknown} value Texto de configuración.
+ * @returns {object} Configuración sanitizada.
+ * @throws {Error} Si el texto o sus campos obligatorios son inválidos.
+ */
 export function parseFirebaseConfig(value) {
   let normalized = String(value || '').trim();
   normalized = normalized.replace(/^const\s+firebaseConfig\s*=\s*/, '').replace(/;\s*$/, '').trim();
@@ -83,6 +102,9 @@ export function parseFirebaseConfig(value) {
   return sanitized;
 }
 
+/** Elimina datos locales de la aplicación considerados sensibles.
+ * @returns {void}
+ */
 export function clearSensitiveLocalData() {
   if (typeof localStorage === 'undefined') return;
   const removable = [];
@@ -97,6 +119,9 @@ let cachedDb = null;
 let cachedApp = null;
 let cachedAppCheck = null;
 
+/** Inicializa y reutiliza los clientes de Firebase y App Check.
+ * @returns {{app: object|null, db: object|null, isConfigured: boolean, error?: string}} Estado de inicialización.
+ */
 export function initFirebase() {
   const config = getSavedFirebaseConfig();
   if (!config || !config.apiKey || !config.projectId) {
@@ -108,7 +133,7 @@ export function initFirebase() {
       const existing = getApps();
       cachedApp = existing.length > 0 ? getApp() : initializeApp(config);
     }
-    const appCheckSiteKey = import.meta.env.VITE_FIREBASE_APPCHECK_SITE_KEY;
+    const appCheckSiteKey = runtimeEnv.VITE_FIREBASE_APPCHECK_SITE_KEY;
     if (!cachedAppCheck && appCheckSiteKey && typeof window !== 'undefined') {
       try {
         cachedAppCheck = initializeAppCheck(cachedApp, {
@@ -135,6 +160,9 @@ export function initFirebase() {
   }
 }
 
+/** Restablece las instancias cacheadas de Firebase.
+ * @returns {void}
+ */
 export function resetFirebase() {
   cachedDb = null;
   cachedApp = null;

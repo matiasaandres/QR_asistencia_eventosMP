@@ -1,8 +1,19 @@
+/**
+ * Modelo de establecimientos, plantas, asientos y asignaciones por evento.
+ * Las funciones de este archivo son puras para permitir pruebas y previsualizar
+ * cambios antes de persistirlos.
+ */
+
 export const SEAT_COLORS = [
   '#2563eb', '#dc2626', '#16a34a', '#ca8a04', '#9333ea',
   '#db2777', '#0891b2', '#65a30d', '#ea580c', '#475569'
 ];
 
+/** Convierte un nombre en un identificador seguro y acotado.
+ * @param {unknown} value Valor original.
+ * @param {string} fallback Identificador alternativo.
+ * @returns {string} Identificador normalizado.
+ */
 const cleanId = (value, fallback = 'item') => String(value || fallback)
   .normalize('NFD')
   .replace(/[\u0300-\u036f]/g, '')
@@ -11,6 +22,10 @@ const cleanId = (value, fallback = 'item') => String(value || fallback)
   .replace(/^-|-$/g, '')
   .slice(0, 60) || fallback;
 
+/** Crea una sección de asientos a partir de filas y columnas.
+ * @param {object} input Definición de piso, sección y dimensiones.
+ * @returns {object} Sección con sus asientos.
+ */
 function createSection({ floorId, floorCode, id, code, name, rows, seatsPerRow }) {
   const sectionId = `${floorId}-${id}`;
   const seats = rows.flatMap((row) => Array.from({ length: seatsPerRow }, (_, index) => {
@@ -28,11 +43,25 @@ function createSection({ floorId, floorCode, id, code, name, rows, seatsPerRow }
   return { id: sectionId, code, name, columns: seatsPerRow, rows: rows.map(String), seats };
 }
 
+/** Genera etiquetas numéricas de filas.
+ * @param {number} count Cantidad de etiquetas.
+ * @param {number} start Valor inicial.
+ * @returns {Array<string>} Etiquetas generadas.
+ */
 function range(count, start = 1) {
   return Array.from({ length: count }, (_, index) => String(index + start));
 }
 
+/** Genera etiquetas alfabéticas de filas.
+ * @param {number} count Cantidad de etiquetas.
+ * @param {number} start Posición inicial.
+ * @returns {Array<string>} Etiquetas generadas.
+ */
 function alphabet(count, start = 0) {
+  /** Convierte una posición en una etiqueta alfabética de Excel.
+   * @param {number} position Posición cero basada.
+   * @returns {string} Etiqueta alfabética.
+   */
   const labelFor = (position) => {
     let value = position + 1;
     let label = '';
@@ -46,6 +75,13 @@ function alphabet(count, start = 0) {
   return Array.from({ length: count }, (_, index) => labelFor(start + index));
 }
 
+/** Crea un piso con sus secciones normalizadas.
+ * @param {string} id Identificador del piso.
+ * @param {string} code Código visible.
+ * @param {string} name Nombre del piso.
+ * @param {Array<object>} sectionDefinitions Definiciones de secciones.
+ * @returns {object} Piso construido.
+ */
 function createFloor(id, code, name, sectionDefinitions) {
   return {
     id,
@@ -59,6 +95,9 @@ function createFloor(id, code, name, sectionDefinitions) {
   };
 }
 
+/** Construye el establecimiento estándar del Centro Cultural CCBB.
+ * @returns {object} Establecimiento con pisos y asientos.
+ */
 export function createCcbbVenue() {
   const floors = [
     createFloor('planta-baja', 'PB', 'Planta baja', [
@@ -85,6 +124,10 @@ export function createCcbbVenue() {
   });
 }
 
+/** Construye un establecimiento rectangular configurable.
+ * @param {{name: string, rows?: number, seatsPerRow?: number}} input Dimensiones y nombre.
+ * @returns {object} Establecimiento normalizado.
+ */
 export function createGridVenue({ name, rows = 8, seatsPerRow = 10 }) {
   const safeRows = Math.trunc(Math.min(30, Math.max(1, Number(rows) || 8)));
   const safeSeats = Math.trunc(Math.min(30, Math.max(1, Number(seatsPerRow) || 10)));
@@ -100,6 +143,10 @@ export function createGridVenue({ name, rows = 8, seatsPerRow = 10 }) {
   });
 }
 
+/** Normaliza la estructura y metadatos de un establecimiento.
+ * @param {object} venue Establecimiento de origen.
+ * @returns {object} Establecimiento normalizado.
+ */
 export function normalizeVenue(venue = {}) {
   const floors = Array.isArray(venue.floors) ? venue.floors : [];
   const seatCount = floors.reduce((total, floor) => total + (floor.sections || [])
@@ -116,11 +163,20 @@ export function normalizeVenue(venue = {}) {
   };
 }
 
+/** Devuelve todos los asientos de un establecimiento.
+ * @param {object} venue Establecimiento consultado.
+ * @returns {Array<object>} Asientos aplanados.
+ */
 export function getAllSeats(venue) {
   return (venue?.floors || []).flatMap((floor) => (floor.sections || [])
     .flatMap((section) => section.seats || []));
 }
 
+/** Crea un plano de asientos vacío para un evento.
+ * @param {string} eventId Identificador del evento.
+ * @param {object|null} venue Establecimiento opcional.
+ * @returns {object} Plano vacío.
+ */
 export function createEmptySeatPlan(eventId, venue = null) {
   return {
     id: 'current',
@@ -132,6 +188,11 @@ export function createEmptySeatPlan(eventId, venue = null) {
   };
 }
 
+/** Normaliza un plano de asientos existente.
+ * @param {object} plan Plano de origen.
+ * @param {string} eventId Identificador del evento.
+ * @returns {object} Plano normalizado.
+ */
 export function normalizeSeatPlan(plan, eventId) {
   return {
     id: 'current',
@@ -143,6 +204,13 @@ export function normalizeSeatPlan(plan, eventId) {
   };
 }
 
+/** Asigna uno o más asientos a un curso y propietario.
+ * @param {object} plan Plano actual.
+ * @param {Array<string>} seatIds Identificadores de asientos.
+ * @param {object} assignment Datos de la asignación.
+ * @returns {object} Plano actualizado.
+ * @throws {Error} Si no hay asientos o curso válido.
+ */
 export function assignSeats(plan, seatIds, assignment) {
   const ids = [...new Set((seatIds || []).filter(Boolean))];
   if (!ids.length) throw new Error('Selecciona al menos un asiento.');
@@ -159,12 +227,21 @@ export function assignSeats(plan, seatIds, assignment) {
   return { ...plan, assignments, updatedAt: new Date().toISOString() };
 }
 
+/** Libera asientos del plano.
+ * @param {object} plan Plano actual.
+ * @param {Array<string>} seatIds Asientos a liberar.
+ * @returns {object} Plano actualizado.
+ */
 export function releaseSeats(plan, seatIds) {
   const assignments = { ...plan.assignments };
   (seatIds || []).forEach((seatId) => delete assignments[seatId]);
   return { ...plan, assignments, updatedAt: new Date().toISOString() };
 }
 
+/** Construye propietarios de asientos a partir de estudiantes activos.
+ * @param {Array<object>} students Nómina del evento.
+ * @returns {Array<object>} Propietarios ordenados.
+ */
 export function buildSeatOwners(students = []) {
   const owners = new Map();
   students.forEach((student) => {
@@ -198,6 +275,12 @@ export function buildSeatOwners(students = []) {
   return [...owners.values()].sort((a, b) => a.course.localeCompare(b.course, 'es') || a.name.localeCompare(b.name, 'es'));
 }
 
+/** Obtiene los asientos asignados a un estudiante o su familia.
+ * @param {object} student Estudiante consultado.
+ * @param {object} seatPlan Plano de asientos.
+ * @param {object} venue Establecimiento del evento.
+ * @returns {Array<object>} Asientos asignados.
+ */
 export function getStudentSeats(student, seatPlan, venue) {
   if (!student || !seatPlan) return [];
   const ownerId = student.familyId || student.id;
@@ -209,6 +292,11 @@ export function getStudentSeats(student, seatPlan, venue) {
     .sort((a, b) => String(a.label || a.id).localeCompare(String(b.label || b.id), 'es'));
 }
 
+/** Resume ocupación, disponibilidad y cursos de un plano.
+ * @param {object} plan Plano de asientos.
+ * @param {object} venue Establecimiento consultado.
+ * @returns {{total: number, assigned: number, withOwner: number, available: number, courses: number}} Resumen.
+ */
 export function summarizeSeatPlan(plan, venue) {
   const total = getAllSeats(venue).length;
   const values = Object.values(plan?.assignments || {});

@@ -1,3 +1,9 @@
+/**
+ * Adaptador de autenticación y ciclo de incorporación de usuarios.
+ * Coordina Firebase Auth con organizaciones, membresías, invitaciones y
+ * migraciones de datos heredados.
+ */
+
 import {
   browserLocalPersistence,
   createUserWithEmailAndPassword,
@@ -13,12 +19,16 @@ import {
   updateProfile
 } from 'firebase/auth';
 import { arrayUnion, collection, doc, getDoc, getDocs, setDoc, writeBatch } from 'firebase/firestore';
-import { initFirebase } from './firebase';
-import { createOrganizationId, normalizeOrganization } from './organizationPolicy';
-import { createEventId, normalizeEvent } from './eventPolicy';
+import { initFirebase } from './firebase.js';
+import { createOrganizationId, normalizeOrganization } from './organizationPolicy.js';
+import { createEventId, normalizeEvent } from './eventPolicy.js';
 
 let persistencePromise = null;
 
+/** Obtiene los clientes de Firebase necesarios para autenticar usuarios.
+ * @returns {{auth: object, db: object, ready: Promise}} Clientes y promesa de persistencia.
+ * @throws {Error} Si Firebase no está configurado.
+ */
 function requireFirebase() {
   const { app, db, isConfigured } = initFirebase();
   if (!isConfigured || !app || !db) {
@@ -29,6 +39,13 @@ function requireFirebase() {
   return { auth, db, ready: persistencePromise };
 }
 
+/** Copia documentos por lotes a otra colección.
+ * @param {object} db Cliente de Firestore.
+ * @param {Array<object>} sourceDocuments Documentos de origen.
+ * @param {object} destinationCollection Colección de destino.
+ * @param {Function} transform Transformación aplicada a cada documento.
+ * @returns {Promise<void>} Promesa de finalización.
+ */
 async function copyDocuments(db, sourceDocuments, destinationCollection, transform = (data) => data) {
   for (let start = 0; start < sourceDocuments.length; start += 400) {
     const batch = writeBatch(db);
@@ -39,6 +56,12 @@ async function copyDocuments(db, sourceDocuments, destinationCollection, transfo
   }
 }
 
+/** Migra los datos heredados de MundoPalabra a la organización actual.
+ * @param {object} db Cliente de Firestore.
+ * @param {string} organizationId Identificador de la organización.
+ * @param {object} user Usuario autenticado.
+ * @returns {Promise<number>} Cantidad de eventos migrados.
+ */
 async function migrateMundoPalabra(db, organizationId, user) {
   if (organizationId !== 'colegio-mundopalabra') return 0;
   const legacyEvents = await getDocs(collection(db, 'events'));
@@ -64,6 +87,10 @@ async function migrateMundoPalabra(db, organizationId, user) {
   return legacyEvents.size;
 }
 
+/** Suscribe cambios del usuario autenticado y sus claims.
+ * @param {Function} onChange Callback que recibe el usuario o un error.
+ * @returns {Function} Función para cancelar la suscripción.
+ */
 export function subscribeToAuth(onChange) {
   const { auth, ready } = requireFirebase();
   let unsubscribe = () => {};
@@ -93,6 +120,12 @@ export function subscribeToAuth(onChange) {
   return () => unsubscribe();
 }
 
+/** Inicia sesión con correo y contraseña.
+ * @param {string} email Correo de la cuenta.
+ * @param {string} password Contraseña.
+ * @returns {Promise<object>} Usuario autenticado.
+ * @throws {Error} Si Firebase rechaza las credenciales.
+ */
 export async function authenticate(email, password) {
   const { auth, ready } = requireFirebase();
   await ready;
@@ -100,6 +133,10 @@ export async function authenticate(email, password) {
   return credential.user;
 }
 
+/** Inicia sesión mediante una cuenta de Google.
+ * @returns {Promise<object>} Usuario autenticado.
+ * @throws {Error} Si el proveedor rechaza la autenticación.
+ */
 export async function authenticateWithGoogle() {
   const { auth, ready } = requireFirebase();
   await ready;
@@ -109,6 +146,11 @@ export async function authenticateWithGoogle() {
   return credential.user;
 }
 
+/** Envía un correo para restablecer la contraseña.
+ * @param {string} email Correo de la cuenta.
+ * @returns {Promise<void>} Promesa de envío.
+ * @throws {Error} Si el correo es inválido o Firebase rechaza la solicitud.
+ */
 export async function requestPasswordReset(email) {
   const { auth, ready } = requireFirebase();
   await ready;
@@ -117,6 +159,11 @@ export async function requestPasswordReset(email) {
   await sendPasswordResetEmail(auth, normalizedEmail);
 }
 
+/** Registra una organización y su administrador inicial.
+ * @param {{schoolName: string, email: string, password: string}} input Datos de registro.
+ * @returns {Promise<{user: object, organization: object}>} Cuenta y organización creadas.
+ * @throws {Error} Si falla la creación o persistencia de la organización.
+ */
 export async function registerOrganization({ schoolName, email, password }) {
   const { auth, db, ready } = requireFirebase();
   await ready;
@@ -180,6 +227,11 @@ export async function registerOrganization({ schoolName, email, password }) {
   }
 }
 
+/** Crea una cuenta o incorpora una existente mediante una invitación.
+ * @param {{invitationCode: string, email: string, password: string}} input Datos de invitación.
+ * @returns {Promise<object>} Usuario incorporado.
+ * @throws {Error} Si la invitación no es válida o la operación falla.
+ */
 export async function joinOrganization({ invitationCode, email, password }) {
   const { auth, db, ready } = requireFirebase();
   await ready;
@@ -241,6 +293,10 @@ export async function joinOrganization({ invitationCode, email, password }) {
   }
 }
 
+/** Cierra la sesión de Firebase y limpia la sesión activa.
+ * @returns {Promise<void>} Promesa de cierre de sesión.
+ * @throws {Error} Si Firebase no puede cerrar la sesión.
+ */
 export async function clearAuthSession() {
   const { auth, ready } = requireFirebase();
   await ready;

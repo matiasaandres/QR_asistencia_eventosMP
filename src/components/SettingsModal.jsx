@@ -1,3 +1,7 @@
+/**
+ * Configuración de organización, identidad visual, evento y opciones operativas.
+ */
+
 import React, { useState, useEffect } from 'react';
 import { 
   Settings, 
@@ -29,6 +33,10 @@ import {
 } from '../services/firebase';
 import { downloadSchoolBackup, restoreSchoolBackup } from '../services/schoolBackup';
 
+/** Convierte una fecha ISO al formato de un control datetime-local.
+ * @param {string|Date} value Fecha de origen.
+ * @returns {string} Fecha local para el formulario.
+ */
 function toLocalDateTime(value) {
   if (!value) return '';
   const date = new Date(value);
@@ -36,6 +44,10 @@ function toLocalDateTime(value) {
   return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
 }
 
+/** Redimensiona y comprime un logo antes de guardarlo.
+ * @param {File} file Imagen original.
+ * @returns {Promise<string>} Imagen resultante en data URL.
+ */
 function optimizeLogo(file) {
   return new Promise((resolve, reject) => {
     if (!file?.type?.startsWith('image/')) return reject(new Error('Selecciona un archivo de imagen.'));
@@ -61,7 +73,11 @@ function optimizeLogo(file) {
   });
 }
 
-export default function SettingsModal({ 
+/** Renderiza la configuración del evento, marca y respaldo.
+ * @param {object} props Configuración actual y callbacks de guardado.
+ * @returns {JSX.Element} Modal de configuración.
+ */
+export default function SettingsModal({
   isOpen, 
   onClose, 
   event, 
@@ -125,6 +141,10 @@ export default function SettingsModal({
 
   if (!isOpen) return null;
 
+  /** Guarda la configuración general del evento.
+   * @param {SubmitEvent} e Evento de envío del formulario.
+   * @returns {Promise<void>}
+   */
   const handleSaveGeneral = async (e) => {
     e.preventDefault();
     const updatedDoors = doorsListStr
@@ -159,6 +179,9 @@ export default function SettingsModal({
     }
   };
 
+  /** Guarda o elimina la configuración local de Firebase.
+   * @returns {void}
+   */
   const handleSaveFirebase = () => {
     if (!firebaseJson.trim()) {
       saveFirebaseConfig(null);
@@ -182,6 +205,10 @@ export default function SettingsModal({
     }
   };
 
+  /** Optimiza y carga el logo seleccionado.
+   * @param {Event} changeEvent Evento del selector de archivos.
+   * @returns {Promise<void>}
+   */
   const handleLogoChange = async (changeEvent) => {
     const file = changeEvent.target.files?.[0];
     if (!file) return;
@@ -195,6 +222,10 @@ export default function SettingsModal({
     }
   };
 
+  /** Guarda la identidad visual de la organización.
+   * @param {SubmitEvent} submitEvent Evento de envío del formulario.
+   * @returns {Promise<void>}
+   */
   const handleSaveBrand = async (submitEvent) => {
     submitEvent.preventDefault();
     setBrandError('');
@@ -208,6 +239,9 @@ export default function SettingsModal({
     }
   };
 
+  /** Reinicia los movimientos del evento actual.
+   * @returns {Promise<void>}
+   */
   const handleResetDataClick = async () => {
     if (confirm("¿Estás seguro de que deseas reiniciar todos los ingresos del evento? Los estudiantes volverán a tener 0 personas registradas.")) {
       setIsResetting(true);
@@ -223,6 +257,9 @@ export default function SettingsModal({
     }
   };
 
+  /** Descarga un respaldo firmado de la escuela.
+   * @returns {Promise<void>}
+   */
   const handleDownloadBackup = async () => {
     setIsDownloadingBackup(true);
     setBackupMessage('');
@@ -236,6 +273,10 @@ export default function SettingsModal({
     }
   };
 
+  /** Restaura un respaldo seleccionado desde un archivo.
+   * @param {Event} changeEvent Evento del selector de archivos.
+   * @returns {Promise<void>}
+   */
   const handleRestoreBackup = async (changeEvent) => {
     const file = changeEvent.target.files?.[0];
     changeEvent.target.value = '';

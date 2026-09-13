@@ -1,3 +1,8 @@
+/**
+ * Modal de captura QR: controla cámara, permisos, lectura y selección del
+ * estudiante antes de abrir el panel de confirmación.
+ */
+
 import React, { useEffect, useRef, useState } from 'react';
 import { Html5Qrcode } from 'html5-qrcode';
 import { 
@@ -13,7 +18,11 @@ import {
 } from 'lucide-react';
 import { sounds } from '../services/sound';
 
-export default function ScannerModal({ 
+/** Renderiza el lector de códigos QR y sus controles de cámara.
+ * @param {object} props Callbacks y opciones del escáner.
+ * @returns {JSX.Element} Modal de escaneo.
+ */
+export default function ScannerModal({
   onScanResult, 
   onSwitchToManualSearch,
   currentDoor

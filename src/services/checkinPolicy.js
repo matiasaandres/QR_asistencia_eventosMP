@@ -1,12 +1,34 @@
+/**
+ * Reglas de negocio para calcular cupos, entradas, salidas y reingresos.
+ * Este módulo no accede a Firebase ni al navegador: recibe datos y devuelve
+ * resultados deterministas para que la interfaz y las pruebas compartan la
+ * misma política.
+ */
+
+/** Capacidad usada cuando un estudiante no tiene un cupo válido configurado. */
 export const DEFAULT_CAPACITY = 5;
+
+/** Puertas que todo evento debe conservar además de las configuradas. */
 export const REQUIRED_DOORS = ['Puerta 1', 'Puerta 2'];
 
+/**
+ * Convierte un valor de capacidad a un entero no negativo.
+ * @param {unknown} value Valor recibido desde un formulario o Firestore.
+ * @param {number} fallback Valor usado cuando el dato no es numérico.
+ * @returns {number} Capacidad normalizada.
+ */
 export function normalizeCapacityValue(value, fallback = DEFAULT_CAPACITY) {
   if (value == null || value === '') return fallback;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? Math.max(0, Math.trunc(parsed)) : fallback;
 }
 
+/**
+ * Obtiene el estado calculado de capacidad de un estudiante o familia.
+ * @param {object} student Registro del estudiante con sus contadores actuales.
+ * @returns {{maxCapacity: number, enteredCount: number, insideCount: number, outsideCount: number, remaining: number, isFull: boolean, hasExtraGuest: boolean, canAddExtra: boolean, isRetired: boolean, isDisabled: boolean, isAccessBlocked: boolean}}
+ * Estado listo para mostrar o usar en una decisión de acceso.
+ */
 export function getCapacityState(student = {}) {
   const maxCapacity = normalizeCapacityValue(student.familyMaxCapacity ?? student.maxCapacity);
   const parsedEntered = Number(student.familyEnteredCount ?? student.enteredCount);
@@ -40,6 +62,12 @@ export function getCapacityState(student = {}) {
   };
 }
 
+/**
+ * Calcula una operación de entrada, salida o reingreso sin persistirla.
+ * @param {object} options Datos del estudiante, cantidad, puerta y movimiento.
+ * @returns {object} Cambios de contadores y metadatos de la operación.
+ * @throws {Error} Si la operación supera el cupo o viola la política de acceso.
+ */
 export function createMovementPlan({ student, count, movementType = 'ENTRY', doorName, timestampIso, extraPerson = null }) {
   if (movementType === 'EXIT') {
     if (!Number.isInteger(count) || count < 1) throw new Error('La cantidad debe ser un número entero mayor que cero.');
@@ -78,6 +106,12 @@ export function createMovementPlan({ student, count, movementType = 'ENTRY', doo
   return { ...plan, newInside: capacity.insideCount + count, movementType: reentries ? 'REENTRY' : 'ENTRY', newAdmissions, reentries };
 }
 
+/**
+ * Asegura las puertas requeridas y elimina duplicados conservando el orden.
+ * @param {object} eventData Evento que se está normalizando.
+ * @param {object} fallbackEvent Evento alternativo si no hay datos válidos.
+ * @returns {object} Evento con la lista de puertas completa.
+ */
 export function ensureRequiredDoors(eventData, fallbackEvent = {}) {
   const baseEvent = eventData && typeof eventData === 'object'
     ? eventData
@@ -92,6 +126,11 @@ export function ensureRequiredDoors(eventData, fallbackEvent = {}) {
   };
 }
 
+/**
+ * Limpia los campos de una persona extraordinaria antes de validarlos.
+ * @param {object|null} extraPerson Datos introducidos por el operador.
+ * @returns {{name: string, relationship: string}|null} Datos normalizados.
+ */
 export function normalizeExtraPerson(extraPerson) {
   if (!extraPerson) return null;
 
@@ -101,6 +140,11 @@ export function normalizeExtraPerson(extraPerson) {
   };
 }
 
+/**
+ * Reinicia la asistencia sin perder la identidad ni la configuración del alumno.
+ * @param {object} student Registro actual del estudiante.
+ * @returns {object} Registro con contadores de asistencia reiniciados.
+ */
 export function resetStudentAttendance(student = {}) {
   const { lastEntryAt, lastMovementAt, extraGuest, insideCount, ...studentWithoutAttendance } = student;
   const capacity = getCapacityState(student);
@@ -112,6 +156,12 @@ export function resetStudentAttendance(student = {}) {
   };
 }
 
+/**
+ * Crea el plan de una nueva admisión o de un cupo extraordinario.
+ * @param {object} options Estudiante, cantidad, puerta, fecha y persona extra.
+ * @returns {object} Resultado de la admisión que todavía no se ha guardado.
+ * @throws {Error} Si la cantidad, el estado del estudiante o el cupo son inválidos.
+ */
 export function createCheckInPlan({
   student,
   count,

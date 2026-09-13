@@ -1,7 +1,16 @@
-import { getCapacityState } from './checkinPolicy';
+/**
+ * Construcción y descarga de reportes tabulares de un evento.
+ * Convierte el modelo interno a etiquetas en español sin mutar los registros.
+ */
+
+import { getCapacityState } from './checkinPolicy.js';
 import { getUniqueCapacityStudents } from './familyPolicy.js';
 import { createExcelDownload } from './spreadsheet.js';
 
+/** Genera y descarga la exportación XLSX de un evento.
+ * @param {{event: object, students: Array<object>, logs: Array<object>, organization?: object}} input Datos a exportar.
+ * @returns {Promise<void>} Promesa de descarga.
+ */
 export async function exportToExcel({ event, students, logs, organization }) {
   const overviewRows = [
     { Campo: 'Escuela', Valor: organization?.name || event?.institution || 'Acceso Escolar' },

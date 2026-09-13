@@ -1,8 +1,22 @@
 import { ensureRequiredDoors, normalizeCapacityValue, resetStudentAttendance } from './checkinPolicy.js';
 
+/**
+ * Normalización y reglas de ciclo de vida de los eventos escolares.
+ * Mantiene los estados, fechas, puertas y nóminas en un formato común.
+ */
+
+/** Puertas disponibles por defecto en un evento nuevo. */
 export const DEFAULT_EVENT_DOORS = ['Acceso Principal', 'Puerta 1', 'Puerta 2'];
+
+/** Estados permitidos para el ciclo de vida de un evento. */
 export const EVENT_STATUSES = ['draft', 'open', 'paused', 'closed'];
 
+/**
+ * Determina el estado efectivo considerando estado manual y ventana horaria.
+ * @param {object} event Evento normalizado.
+ * @param {Date|string|number} now Instante usado para evaluar el horario.
+ * @returns {string} Estado efectivo del evento.
+ */
 export function getEffectiveEventStatus(event = {}, now = new Date()) {
   const configured = EVENT_STATUSES.includes(event.status) ? event.status : 'open';
   if (configured === 'paused' || configured === 'closed') return configured;
@@ -14,6 +28,10 @@ export function getEffectiveEventStatus(event = {}, now = new Date()) {
   return configured;
 }
 
+/** Convierte una marca temporal a un valor compatible con Firestore.
+ * @param {unknown} value Marca temporal de origen.
+ * @returns {unknown} Marca temporal normalizada.
+ */
 function timestampForFirestore(value) {
   if (!value) return null;
   if (typeof value?.toDate === 'function') return value;
@@ -21,12 +39,24 @@ function timestampForFirestore(value) {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
+/**
+ * Indica si un evento acepta movimientos en el instante indicado.
+ * @param {object} event Evento que se desea operar.
+ * @param {Date|string|number} now Instante de evaluación.
+ * @returns {boolean} `true` cuando el evento está abierto y no está mantenido.
+ */
 export function eventAllowsAccess(event = {}, now = new Date()) {
   return !event.archived
     && !event.maintenanceState
     && getEffectiveEventStatus(event, now) === 'open';
 }
 
+/**
+ * Completa y sanea un evento proveniente de formulario, Firestore o caché.
+ * @param {object} eventData Datos prioritarios del evento.
+ * @param {object} fallbackEvent Valores de respaldo.
+ * @returns {object} Evento con puertas, estados y timestamps normalizados.
+ */
 export function normalizeEvent(eventData = {}, fallbackEvent = {}) {
   const source = eventData && typeof eventData === 'object' ? eventData : {};
   const fallback = fallbackEvent && typeof fallbackEvent === 'object' ? fallbackEvent : {};
@@ -59,6 +89,13 @@ export function normalizeEvent(eventData = {}, fallbackEvent = {}) {
   };
 }
 
+/**
+ * Genera un identificador legible y único para un evento.
+ * @param {string} name Nombre del evento.
+ * @param {string} date Fecha ISO opcional.
+ * @param {number} now Marca temporal usada para completar la unicidad.
+ * @returns {string} Identificador apto para una ruta de Firestore.
+ */
 export function createEventId(name, date, now = Date.now()) {
   const slug = String(name || 'evento')
     .normalize('NFD')
@@ -74,6 +111,11 @@ export function createEventId(name, date, now = Date.now()) {
   return `${slug}-${datePart}-${Number(now).toString(36)}`;
 }
 
+/**
+ * Prepara una nómina para un evento nuevo y reinicia su asistencia.
+ * @param {Array<object>} students Estudiantes de origen.
+ * @returns {Array<object>} Estudiantes activos sin contadores anteriores.
+ */
 export function prepareStudentsForEvent(students = []) {
   const prepared = students
     .filter((student) => student?.id && student.deleted !== true)
@@ -91,6 +133,12 @@ export function prepareStudentsForEvent(students = []) {
   return prepared;
 }
 
+/**
+ * Filtra estudiantes por los cursos seleccionados por la administración.
+ * @param {Array<object>} students Nómina disponible.
+ * @param {Array<string>} selectedCourses Cursos permitidos.
+ * @returns {Array<object>} Estudiantes pertenecientes a esos cursos.
+ */
 export function selectStudentsForCourses(students = [], selectedCourses = []) {
   if (!Array.isArray(selectedCourses) || selectedCourses.length === 0) return [];
   const allowed = new Set(selectedCourses.map((course) => String(course || 'Sin curso')));

@@ -1,9 +1,25 @@
+/** Determina el estado visible según ingresos y capacidad.
+ * @param {number} enteredCount Personas ingresadas.
+ * @param {number} maxCapacity Capacidad autorizada.
+ * @returns {string} Estado de asistencia.
+ */
 function statusForEnteredCount(enteredCount, maxCapacity) {
   if (enteredCount <= 0) return 'PENDIENTE';
   if (enteredCount >= maxCapacity) return 'COMPLETO';
   return 'PARCIAL';
 }
 
+/**
+ * Reconstruye el estado de asistencia a partir de la bitácora inmutable.
+ * Se usa para validar o reparar contadores derivados sin confiar en el orden
+ * en que llegaron los documentos a la interfaz.
+ */
+
+/**
+ * @param {Array<object>} logs Movimientos históricos del evento.
+ * @param {number} maxCapacity Capacidad máxima permitida.
+ * @returns {object} Estado reconstruido y posibles inconsistencias.
+ */
 export function rebuildAttendanceFromLogs(logs = [], maxCapacity = 0) {
   const capacity = Math.max(0, Number(maxCapacity) || 0);
   let enteredCount = 0;

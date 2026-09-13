@@ -1,3 +1,8 @@
+/**
+ * Administración del catálogo de eventos: creación, edición, selección y
+ * archivado según los permisos de la organización.
+ */
+
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   Archive,
@@ -10,6 +15,10 @@ import {
   Users
 } from 'lucide-react';
 
+/** Formatea la fecha visible de un evento.
+ * @param {string|Date} value Fecha del evento.
+ * @returns {string} Fecha localizada.
+ */
 function formatEventDate(value) {
   if (!value) return 'Sin fecha';
   const date = new Date(`${value}T12:00:00`);
@@ -18,6 +27,10 @@ function formatEventDate(value) {
     : new Intl.DateTimeFormat('es-CL', { dateStyle: 'long' }).format(date);
 }
 
+/** Renderiza el administrador de eventos.
+ * @param {object} props Eventos y acciones disponibles.
+ * @returns {JSX.Element} Administrador de eventos.
+ */
 export default function EventsManager({
   events,
   currentEvent,
@@ -61,6 +74,10 @@ export default function EventsManager({
     setSelectedCourses(courseOptions.map((course) => course.name));
   }, [courseKey]);
 
+  /** Valida y crea un evento desde el formulario.
+   * @param {SubmitEvent} submitEvent Evento de envío del formulario.
+   * @returns {Promise<void>}
+   */
   const handleCreate = async (submitEvent) => {
     submitEvent.preventDefault();
     if (!name.trim()) return;
@@ -94,6 +111,10 @@ export default function EventsManager({
     }
   };
 
+  /** Archiva o reactiva un evento seleccionado.
+   * @param {object} event Evento que cambiará de estado.
+   * @returns {Promise<void>}
+   */
   const handleArchive = async (event) => {
     const action = event.archived ? 'reactivar' : 'archivar';
     if (!confirm(`¿${action[0].toUpperCase()}${action.slice(1)} el evento “${event.name}”? Sus datos no se eliminarán.`)) return;

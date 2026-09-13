@@ -1,3 +1,15 @@
+/**
+ * Generación de códigos estables para estudiantes nuevos.
+ * Evita colisiones con los códigos existentes y no permite que el usuario
+ * controle directamente el consecutivo.
+ */
+
+/**
+ * Crea un generador de identificadores estudiantiles sin colisiones.
+ * @param {Array<object>} students Estudiantes cuyos códigos deben reservarse.
+ * @param {number} year Año que formará parte del identificador.
+ * @returns {() => string} Función que genera el siguiente código disponible.
+ */
 export function createStudentCodeGenerator(students = [], year = new Date().getFullYear()) {
   const usedCodes = new Set(
     students

@@ -1,4 +1,10 @@
 // Web Audio API sound generator for mobile access control
+/**
+ * Efectos de sonido opcionales para confirmar operaciones del punto de acceso.
+ * La reproducción se mantiene encapsulada para que la interfaz pueda usarla
+ * sin conocer la implementación del navegador.
+ */
+
 class SoundEffects {
   constructor() {
     this.ctx = null;

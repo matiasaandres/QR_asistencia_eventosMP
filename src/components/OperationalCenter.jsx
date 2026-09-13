@@ -1,9 +1,21 @@
+/**
+ * Centro operativo para observar puertas, ocupación, alertas y actividad viva.
+ */
+
 import React, { useMemo } from 'react';
 import { Activity, AlertTriangle, DoorClosed, Radio, ShieldAlert, Users } from 'lucide-react';
 import { buildDoorMetrics, buildOperationalAlerts, getInsideTotal } from '../services/operationsPolicy.js';
 
+/** Formatea la hora de un movimiento operativo.
+ * @param {string|Date|null} value Marca temporal.
+ * @returns {string} Hora localizada o texto alternativo.
+ */
 const formatTime = (value) => value ? new Intl.DateTimeFormat('es-CL', { hour: '2-digit', minute: '2-digit', second: '2-digit' }).format(new Date(value)) : 'Sin movimientos';
 
+/** Renderiza el centro operativo de puertas y alertas.
+ * @param {object} props Nómina, bitácora y puertas.
+ * @returns {JSX.Element} Centro operativo.
+ */
 export default function OperationalCenter({ students, logs, doors }) {
   const metrics = useMemo(() => buildDoorMetrics(doors, logs), [doors, logs]);
   const alerts = useMemo(() => buildOperationalAlerts({ students, logs, doors }), [students, logs, doors]);

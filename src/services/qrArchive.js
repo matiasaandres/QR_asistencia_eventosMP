@@ -1,3 +1,8 @@
+/**
+ * Generación bajo demanda de credenciales QR en PDF y archivos ZIP.
+ * Las funciones producen archivos en memoria y no escriben datos en el servidor.
+ */
+
 import QRCode from 'qrcode';
 import { getCapacityState } from './checkinPolicy.js';
 
@@ -5,16 +10,28 @@ const PDF_WIDTH_MM = 210;
 let pdfLibraryPromise;
 let zipLibraryPromise;
 
+/** Carga de forma diferida la biblioteca PDF.
+ * @returns {Promise<Function>} Constructor de jsPDF.
+ */
 function loadPdfLibrary() {
   pdfLibraryPromise ||= import('jspdf').then((module) => module.jsPDF);
   return pdfLibraryPromise;
 }
 
+/** Carga de forma diferida la biblioteca ZIP.
+ * @returns {Promise<Function>} Constructor de JSZip.
+ */
 function loadZipLibrary() {
   zipLibraryPromise ||= import('jszip').then((module) => module.default);
   return zipLibraryPromise;
 }
 
+/** Sanitiza un fragmento usado en nombres de archivos.
+ * @param {unknown} value Valor original.
+ * @param {string} fallback Texto alternativo.
+ * @param {number} maxLength Longitud máxima.
+ * @returns {string} Fragmento seguro.
+ */
 export function safeFilePart(value, fallback = 'Sin nombre', maxLength = 100) {
   const cleaned = String(value || '')
     .normalize('NFC')
@@ -27,6 +44,10 @@ export function safeFilePart(value, fallback = 'Sin nombre', maxLength = 100) {
   return cleaned || fallback;
 }
 
+/** Construye la carpeta y el nombre PDF de un estudiante.
+ * @param {object} student Estudiante con curso y nombre.
+ * @returns {{folderName: string, fileName: string}} Ruta lógica del PDF.
+ */
 export function getStudentPdfPath(student) {
   const course = safeFilePart(student?.course, 'Sin curso', 70);
   const studentName = safeFilePart(student?.name, 'Alumno', 100);
@@ -36,6 +57,15 @@ export function getStudentPdfPath(student) {
   };
 }
 
+/** Agrega texto centrado con salto de línea al PDF.
+ * @param {object} pdf Documento jsPDF.
+ * @param {unknown} text Texto que se imprimirá.
+ * @param {number} y Coordenada vertical inicial.
+ * @param {number} maxWidth Ancho máximo.
+ * @param {number} fontSize Tamaño de fuente.
+ * @param {number} lineHeight Factor de interlineado.
+ * @returns {number} Coordenada vertical posterior al texto.
+ */
 function addCenteredWrappedText(pdf, text, y, maxWidth, fontSize, lineHeight = 1.15) {
   pdf.setFontSize(fontSize);
   const lines = pdf.splitTextToSize(String(text || ''), maxWidth);
@@ -43,6 +73,11 @@ function addCenteredWrappedText(pdf, text, y, maxWidth, fontSize, lineHeight = 1
   return y + (lines.length * fontSize * 0.3528 * lineHeight);
 }
 
+/** Genera un PDF individual con la credencial QR del estudiante.
+ * @param {{student: object, event?: object, organization?: object, seats?: Array<object>}} input Datos de la credencial.
+ * @returns {Promise<Uint8Array>} PDF como bytes.
+ * @throws {Error} Si faltan datos obligatorios del estudiante.
+ */
 export async function createStudentQrPdf({ student, event, organization, seats = [] }) {
   if (!student?.id || !student?.name || !student?.course) {
     throw new Error('El alumno debe tener código, nombre y curso para generar su PDF.');
@@ -185,6 +220,11 @@ export async function createStudentQrPdf({ student, event, organization, seats =
   return new Uint8Array(pdf.output('arraybuffer'));
 }
 
+/** Genera un PDF paginado con múltiples credenciales QR.
+ * @param {{students: Array<object>, event?: object, organization?: object, getSeatsForStudent?: Function, onProgress?: Function}} input Datos de las credenciales.
+ * @returns {Promise<Uint8Array>} PDF como bytes.
+ * @throws {Error} Si no hay estudiantes para procesar.
+ */
 export async function createStudentsQrPdf({ students, event, organization, getSeatsForStudent, onProgress }) {
   if (!Array.isArray(students) || students.length === 0) {
     throw new Error('No hay estudiantes disponibles para generar el PDF.');
@@ -281,6 +321,11 @@ export async function createStudentsQrPdf({ students, event, organization, getSe
   return new Uint8Array(pdf.output('arraybuffer'));
 }
 
+/** Genera un archivo ZIP con credenciales PDF agrupadas por curso.
+ * @param {{students: Array<object>, event?: object, organization?: object, onProgress?: Function, getSeatsForStudent?: Function}} input Datos del archivo.
+ * @returns {Promise<Uint8Array>} ZIP como bytes.
+ * @throws {Error} Si no hay estudiantes para procesar.
+ */
 export async function createStudentQrArchive({ students, event, organization, onProgress, getSeatsForStudent }) {
   if (!Array.isArray(students) || students.length === 0) {
     throw new Error('No hay estudiantes disponibles para generar el archivo ZIP.');

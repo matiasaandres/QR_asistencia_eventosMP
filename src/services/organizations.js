@@ -1,13 +1,24 @@
+/**
+ * Acceso a organizaciones, membresías, invitaciones y operaciones de la cuenta
+ * maestra. Las comprobaciones de interfaz complementan las reglas de Firestore.
+ */
+
 import { deleteApp, initializeApp } from 'firebase/app';
 import { createUserWithEmailAndPassword, deleteUser, getAuth, signInWithEmailAndPassword, signOut } from 'firebase/auth';
 import { arrayRemove, arrayUnion, collection, deleteField, doc, getDoc, getDocs, onSnapshot, query, setDoc, Timestamp, updateDoc, where, writeBatch } from 'firebase/firestore';
-import { getSavedFirebaseConfig, initFirebase } from './firebase';
-import { createOrganizationId, isPlatformAdmin, normalizeOrganization } from './organizationPolicy';
-import { createEventId, normalizeEvent } from './eventPolicy';
-import { INITIAL_STUDENTS } from '../mock/sampleStudents';
+import { getSavedFirebaseConfig, initFirebase } from './firebase.js';
+import { createOrganizationId, isPlatformAdmin, normalizeOrganization } from './organizationPolicy.js';
+import { createEventId, normalizeEvent } from './eventPolicy.js';
+import { INITIAL_STUDENTS } from '../mock/sampleStudents.js';
 
 const CURRENT_ORGANIZATION_KEY = 'access_current_organization_';
 
+/** Suscribe las organizaciones activas de un usuario.
+ * @param {string} userId Usuario consultado.
+ * @param {Function} onUpdate Callback con la lista actualizada.
+ * @param {Function} onError Callback opcional de error.
+ * @returns {Function} Función para cancelar la suscripción.
+ */
 export function subscribeToOrganizations(userId, onUpdate, onError) {
   const { db, isConfigured } = initFirebase();
   if (!isConfigured || !db || !userId) {
@@ -23,6 +34,13 @@ export function subscribeToOrganizations(userId, onUpdate, onError) {
   );
 }
 
+/** Suscribe la membresía de un usuario en una organización.
+ * @param {string} organizationId Organización consultada.
+ * @param {string} userId Usuario consultado.
+ * @param {Function} onUpdate Callback de actualización.
+ * @param {Function} onError Callback opcional de error.
+ * @returns {Function} Función para cancelar la suscripción.
+ */
 export function subscribeToMembership(organizationId, userId, onUpdate, onError) {
   const { db, isConfigured } = initFirebase();
   if (!isConfigured || !db || !organizationId || !userId) {
@@ -36,14 +54,28 @@ export function subscribeToMembership(organizationId, userId, onUpdate, onError)
   );
 }
 
+/** Recupera la organización seleccionada guardada localmente.
+ * @param {string} userId Usuario propietario de la selección.
+ * @returns {string} Identificador guardado o cadena vacía.
+ */
 export function getSavedOrganizationId(userId) {
   return localStorage.getItem(CURRENT_ORGANIZATION_KEY + userId) || '';
 }
 
+/** Guarda la organización seleccionada para un usuario.
+ * @param {string} userId Usuario propietario de la selección.
+ * @param {string} organizationId Organización seleccionada.
+ * @returns {void}
+ */
 export function saveOrganizationId(userId, organizationId) {
   localStorage.setItem(CURRENT_ORGANIZATION_KEY + userId, organizationId);
 }
 
+/** Suscribe todas las organizaciones visibles para la cuenta maestra.
+ * @param {Function} onUpdate Callback de actualización.
+ * @param {Function} onError Callback opcional de error.
+ * @returns {Function} Función para cancelar la suscripción.
+ */
 export function subscribeToAllOrganizations(onUpdate, onError) {
   const { db, isConfigured } = initFirebase();
   if (!isConfigured || !db) {
@@ -59,6 +91,11 @@ export function subscribeToAllOrganizations(onUpdate, onError) {
   );
 }
 
+/** Crea una escuela y su administrador inicial desde la cuenta maestra.
+ * @param {{schoolName: string, adminEmail: string, temporaryPassword: string, plan?: string, masterUser: object}} input Datos de provisión.
+ * @returns {Promise<object>} Organización creada.
+ * @throws {Error} Si la cuenta no es maestra o la provisión falla.
+ */
 export async function createSchoolWithAdministrator({ schoolName, adminEmail, temporaryPassword, plan, masterUser }) {
   const { db } = initFirebase();
   if (!db || !isPlatformAdmin(masterUser)) throw new Error('Solo la cuenta maestra puede crear escuelas.');
@@ -132,6 +169,12 @@ export async function createSchoolWithAdministrator({ schoolName, adminEmail, te
   }
 }
 
+/** Actualiza el estado operativo de una organización.
+ * @param {string} organizationId Organización a actualizar.
+ * @param {string} status Estado nuevo.
+ * @returns {Promise<void>} Promesa de actualización.
+ * @throws {Error} Si el estado no es válido.
+ */
 export async function updateOrganizationStatus(organizationId, status) {
   const { db } = initFirebase();
   if (!['active', 'suspended'].includes(status)) throw new Error('Estado de escuela no válido.');
@@ -141,6 +184,12 @@ export async function updateOrganizationStatus(organizationId, status) {
   });
 }
 
+/** Actualiza nombre, logo y color institucional.
+ * @param {string} organizationId Organización a actualizar.
+ * @param {{name: string, logoUrl?: string, primaryColor: string}} input Marca institucional.
+ * @returns {Promise<void>} Promesa de actualización.
+ * @throws {Error} Si algún valor no es válido.
+ */
 export async function updateOrganizationBrand(organizationId, { name, logoUrl, primaryColor }) {
   const { db } = initFirebase();
   if (!db || !organizationId) throw new Error('No fue posible conectar con la escuela.');
@@ -159,6 +208,11 @@ export async function updateOrganizationBrand(organizationId, { name, logoUrl, p
   });
 }
 
+/** Asigna o crea un administrador para una escuela.
+ * @param {{organizationId: string, adminEmail: string, password: string, masterUser: object}} input Datos de la cuenta.
+ * @returns {Promise<{organizationId: string, email: string}>} Cuenta asignada.
+ * @throws {Error} Si la cuenta maestra o los datos no son válidos.
+ */
 export async function assignSchoolAdministrator({ organizationId, adminEmail, password, masterUser }) {
   const { db } = initFirebase();
   if (!db || !isPlatformAdmin(masterUser)) throw new Error('Solo la cuenta maestra puede asignar cuentas escolares.');
@@ -216,6 +270,13 @@ export async function assignSchoolAdministrator({ organizationId, adminEmail, pa
   }
 }
 
+/** Copia documentos Firestore en lotes.
+ * @param {object} db Cliente Firestore.
+ * @param {Array<object>} sourceDocuments Documentos de origen.
+ * @param {object} destinationCollection Colección destino.
+ * @param {Function} transform Transformación por documento.
+ * @returns {Promise<void>} Promesa de copia.
+ */
 async function copyDocuments(db, sourceDocuments, destinationCollection, transform = (data) => data) {
   for (let start = 0; start < sourceDocuments.length; start += 400) {
     const batch = writeBatch(db);
@@ -226,6 +287,11 @@ async function copyDocuments(db, sourceDocuments, destinationCollection, transfo
   }
 }
 
+/** Elimina documentos Firestore en lotes.
+ * @param {object} db Cliente Firestore.
+ * @param {Array<object>} sourceDocuments Documentos a eliminar.
+ * @returns {Promise<void>} Promesa de eliminación.
+ */
 async function deleteDocuments(db, sourceDocuments) {
   for (let start = 0; start < sourceDocuments.length; start += 400) {
     const batch = writeBatch(db);
@@ -234,6 +300,12 @@ async function deleteDocuments(db, sourceDocuments) {
   }
 }
 
+/** Reemplaza el snapshot de asistencia de estudiantes sin perder contadores actuales.
+ * @param {object} db Cliente Firestore.
+ * @param {object} eventRef Referencia del evento.
+ * @param {Array<object>} students Estudiantes a persistir.
+ * @returns {Promise<void>} Promesa de actualización.
+ */
 async function replaceStudentAttendanceSnapshot(db, eventRef, students) {
   const destination = collection(eventRef, 'students');
   const existingSnapshot = await getDocs(destination);
@@ -264,6 +336,11 @@ async function replaceStudentAttendanceSnapshot(db, eventRef, students) {
   }
 }
 
+/** Migra eventos y bitácoras desde la estructura heredada.
+ * @param {{organizationId: string, user: object}} input Organización y usuario.
+ * @returns {Promise<object>} Conteos de datos migrados.
+ * @throws {Error} Si la organización o sesión no son válidas.
+ */
 export async function migrateLegacyMundoPalabra({ organizationId, user }) {
   if (organizationId !== 'colegio-mundopalabra') {
     throw new Error('La recuperación anterior solo corresponde a Colegio MundoPalabra.');
@@ -300,6 +377,12 @@ export async function migrateLegacyMundoPalabra({ organizationId, user }) {
   return { events: legacyEvents.size, students: studentsCopied, logs: logsCopied };
 }
 
+/** Convierte fecha y hora heredadas a ISO.
+ * @param {unknown} dateValue Fecha textual.
+ * @param {unknown} timeValue Hora textual.
+ * @param {number} fallbackIndex Índice para desempatar.
+ * @returns {string} Marca temporal ISO.
+ */
 function parseLegacyDateTime(dateValue, timeValue, fallbackIndex) {
   const dateMatch = String(dateValue || '').match(/(\d{1,2})[-/]([0-1]?\d)[-/](\d{4})/);
   const timeText = String(timeValue || '').toLowerCase().replaceAll('.', '').replace(/\s+/g, ' ').trim();
@@ -315,11 +398,21 @@ function parseLegacyDateTime(dateValue, timeValue, fallbackIndex) {
   return localDate.toISOString();
 }
 
+/** Convierte un valor numérico heredado a entero.
+ * @param {unknown} value Valor original.
+ * @param {number} fallback Valor alternativo.
+ * @returns {number} Entero normalizado.
+ */
 function numberValue(value, fallback = 0) {
   const parsed = Number(String(value ?? '').replace(',', '.'));
   return Number.isFinite(parsed) ? Math.trunc(parsed) : fallback;
 }
 
+/** Importa el informe heredado de MundoPalabra como evento recuperado.
+ * @param {{organizationId: string, user: object, studentRows: Array<object>, logRows: Array<object>}} input Filas importadas.
+ * @returns {Promise<object>} Conteos de importación.
+ * @throws {Error} Si la cuenta o los datos no son válidos.
+ */
 export async function importMundoPalabraReport({ organizationId, user, studentRows, logRows }) {
   if (organizationId !== 'colegio-mundopalabra' || !isPlatformAdmin(user)) {
     throw new Error('Solo la cuenta maestra puede importar el respaldo de Mundo Palabra.');
@@ -408,6 +501,11 @@ export async function importMundoPalabraReport({ organizationId, user, studentRo
   };
 }
 
+/** Restaura estados especiales de estudiantes de MundoPalabra.
+ * @param {{organizationId: string, user: object}} input Organización y usuario.
+ * @returns {Promise<{deleted: number, disabled: number}>} Conteos restaurados.
+ * @throws {Error} Si la cuenta no es maestra o el respaldo no coincide.
+ */
 export async function restoreMundoPalabraStudentStates({ organizationId, user }) {
   if (organizationId !== 'colegio-mundopalabra' || !isPlatformAdmin(user)) {
     throw new Error('Solo la cuenta maestra puede restaurar estos estados de Mundo Palabra.');
@@ -440,6 +538,12 @@ export async function restoreMundoPalabraStudentStates({ organizationId, user })
   return { deleted: retired.length, disabled: disabled.length };
 }
 
+/** Suscribe los miembros de una organización.
+ * @param {string} organizationId Organización consultada.
+ * @param {Function} onUpdate Callback de actualización.
+ * @param {Function} onError Callback opcional de error.
+ * @returns {Function} Función para cancelar la suscripción.
+ */
 export function subscribeToMembers(organizationId, onUpdate, onError) {
   const { db } = initFirebase();
   return onSnapshot(
@@ -449,6 +553,11 @@ export function subscribeToMembers(organizationId, onUpdate, onError) {
   );
 }
 
+/** Activa o deshabilita un miembro sin permitir cambios sobre el propietario.
+ * @param {{organizationId: string, userId: string, status: string}} input Datos del miembro.
+ * @returns {Promise<void>} Promesa de actualización.
+ * @throws {Error} Si el estado o miembro no son válidos.
+ */
 export async function updateOrganizationMemberStatus({ organizationId, userId, status }) {
   if (!['active', 'disabled'].includes(status)) throw new Error('Estado de usuario no válido.');
   const { app, db } = initFirebase();
@@ -470,6 +579,11 @@ export async function updateOrganizationMemberStatus({ organizationId, userId, s
   await batch.commit();
 }
 
+/** Elimina el acceso de un miembro de una organización.
+ * @param {{organizationId: string, userId: string}} input Identificadores de organización y usuario.
+ * @returns {Promise<void>} Promesa de eliminación.
+ * @throws {Error} Si el usuario no puede eliminarse.
+ */
 export async function removeOrganizationMember({ organizationId, userId }) {
   const { app, db } = initFirebase();
   if (!app || !db) throw new Error('No fue posible conectar con la escuela.');
@@ -489,12 +603,19 @@ export async function removeOrganizationMember({ organizationId, userId }) {
   await batch.commit();
 }
 
+/** Genera un código aleatorio para invitaciones.
+ * @returns {string} Código de invitación.
+ */
 function createInvitationCode() {
   const bytes = new Uint8Array(8);
   crypto.getRandomValues(bytes);
   return Array.from(bytes, (value) => value.toString(36).padStart(2, '0')).join('').toUpperCase();
 }
 
+/** Crea una invitación de membresía con vencimiento.
+ * @param {{organization: object, email: string, role: string}} input Datos de la invitación.
+ * @returns {Promise<{code: string, expiresAt: string}>} Código y vencimiento.
+ */
 export async function createInvitation({ organization, email, role }) {
   const { db } = initFirebase();
   const code = createInvitationCode();

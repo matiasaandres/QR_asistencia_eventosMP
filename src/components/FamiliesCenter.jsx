@@ -1,7 +1,16 @@
+/**
+ * Centro de familias para consultar cupos compartidos, miembros y cambios de
+ * agrupación sin duplicar la lógica de capacidad del servicio de dominio.
+ */
+
 import React, { useMemo, useState } from 'react';
 import { Link2, Search, Split, Users } from 'lucide-react';
 import { getFamilyGroups } from '../services/operationsPolicy.js';
 
+/** Renderiza la gestión de familias y sus cambios.
+ * @param {object} props Nómina, historial y callbacks familiares.
+ * @returns {JSX.Element} Centro de familias.
+ */
 export default function FamiliesCenter({ students, history = [], onMerge, onSplit }) {
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState([]);
@@ -10,6 +19,9 @@ export default function FamiliesCenter({ students, history = [], onMerge, onSpli
   const normalized = query.toLocaleLowerCase('es').trim();
   const visible = families.filter((family) => !normalized || [family.id, ...family.members.map((member) => `${member.name} ${member.course}`)].join(' ').toLocaleLowerCase('es').includes(normalized));
 
+  /** Une las familias seleccionadas y muestra el código resultante.
+   * @returns {Promise<void>}
+   */
   const merge = async () => {
     if (selected.length < 2 || !confirm(`¿Unir ${selected.length} familias bajo un nuevo código automático?`)) return;
     setSaving(true);
@@ -17,6 +29,11 @@ export default function FamiliesCenter({ students, history = [], onMerge, onSpli
     catch (error) { alert(`No fue posible unir las familias: ${error.message}`); }
     finally { setSaving(false); }
   };
+  /** Separa un integrante de su familia actual.
+   * @param {object} family Familia de origen.
+   * @param {object} member Integrante que se separará.
+   * @returns {Promise<void>}
+   */
   const split = async (family, member) => {
     if (!confirm(`¿Separar a ${member.name} de ${family.id}? Se generará un código nuevo automáticamente.`)) return;
     setSaving(true);

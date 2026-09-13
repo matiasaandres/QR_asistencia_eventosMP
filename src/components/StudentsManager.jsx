@@ -1,3 +1,7 @@
+/**
+ * Administración de nómina: importación, cupos, familias, estados y QR.
+ */
+
 import React, { useState } from 'react';
 import { 
   Users, 
@@ -34,6 +38,10 @@ const ROSTER_STATUS = {
   PENDING: { label: 'PENDIENTE', className: 'bg-slate-100 text-slate-600' }
 };
 
+/** Obtiene la etiqueta de estado para un cupo.
+ * @param {object} capacity Estado de capacidad.
+ * @returns {string} Etiqueta de estado.
+ */
 const getRosterStatus = (capacity) => {
   if (capacity.isRetired) return 'RETIRED';
   if (capacity.isDisabled) return 'DISABLED';
@@ -43,7 +51,11 @@ const getRosterStatus = (capacity) => {
   return 'PENDING';
 };
 
-export default function StudentsManager({ 
+/** Renderiza la nómina y sus acciones de edición.
+ * @param {object} props Estudiantes, familias y callbacks de persistencia.
+ * @returns {JSX.Element} Gestor de estudiantes.
+ */
+export default function StudentsManager({
   students, 
   onSaveStudents, 
   onSaveCapacities,
@@ -81,16 +93,30 @@ export default function StudentsManager({
         .sort((a, b) => a.localeCompare(b, 'es'))
     }));
 
+  /** Obtiene la etiqueta visible de una familia.
+   * @param {string} familyId Identificador de la familia.
+   * @returns {string} Etiqueta de integrantes o cupo individual.
+   */
   const familyLabel = (familyId) => {
     const family = familyOptions.find((option) => option.id === familyId);
     return family ? family.members.join(' / ') : 'Cupo individual';
   };
 
+  /** Muestra temporalmente un mensaje de estado.
+   * @param {string} message Mensaje que se mostrará.
+   * @returns {void}
+   */
   const showStatus = (message) => {
     setImportStatus(message);
     setTimeout(() => setImportStatus(null), 4000);
   };
 
+  /** Persiste cambios de estudiantes y comunica el resultado.
+   * @param {Array<object>} updatedStudents Estudiantes actualizados.
+   * @param {string} successMessage Mensaje de éxito.
+   * @param {Function} save Función de persistencia.
+   * @returns {Promise<boolean>} Indica si el guardado tuvo éxito.
+   */
   const persistStudents = async (updatedStudents, successMessage, save = onSaveStudents) => {
     setIsSaving(true);
     try {
@@ -106,6 +132,9 @@ export default function StudentsManager({
     }
   };
 
+  /** Actualiza el cupo de los estudiantes editables.
+   * @returns {Promise<void>}
+   */
   const handleBulkCapacity = async () => {
     const nextCapacity = normalizeCapacityValue(bulkCapacity, -1);
     const editableStudents = students.filter((student) => !getCapacityState(student).isRetired);
@@ -124,12 +153,20 @@ export default function StudentsManager({
     );
   };
 
+  /** Abre el editor de familia y cupo de un estudiante.
+   * @param {object} student Estudiante que se editará.
+   * @returns {void}
+   */
   const openCapacityEditor = (student) => {
     setEditingStudent(student);
     setStudentCapacity(getCapacityState(student).maxCapacity);
     setStudentFamilySelection(student.familyId || '');
   };
 
+  /** Guarda la familia y el cupo del estudiante editado.
+   * @param {SubmitEvent} event Evento de envío del formulario.
+   * @returns {Promise<void>}
+   */
   const handleStudentCapacity = async (event) => {
     event.preventDefault();
     if (!editingStudent) return;
@@ -154,6 +191,10 @@ export default function StudentsManager({
     }
   };
 
+  /** Alterna la habilitación de un estudiante.
+   * @param {object} student Estudiante que cambiará de estado.
+   * @returns {Promise<void>}
+   */
   const handleToggleStudent = async (student) => {
     const willDisable = student.disabled !== true;
     if (willDisable && !window.confirm(`¿Deshabilitar a ${student.name}? Su QR dejará de permitir ingresos.`)) return;
@@ -168,6 +209,11 @@ export default function StudentsManager({
     );
   };
 
+  /** Elimina estudiantes de la nómina y comunica el resultado.
+   * @param {Array<object>} studentsToDelete Estudiantes que se eliminarán.
+   * @param {string} successMessage Mensaje de éxito.
+   * @returns {Promise<boolean>} Indica si la eliminación tuvo éxito.
+   */
   const deleteRosterStudents = async (studentsToDelete, successMessage) => {
     setIsSaving(true);
     try {
@@ -183,6 +229,10 @@ export default function StudentsManager({
     }
   };
 
+  /** Confirma y elimina un estudiante de la nómina.
+   * @param {object} student Estudiante que se eliminará.
+   * @returns {Promise<void>}
+   */
   const handleDeleteStudent = async (student) => {
     const entered = getCapacityState(student).enteredCount;
     const historyMessage = entered > 0
@@ -196,6 +246,9 @@ export default function StudentsManager({
   const courses = [...new Set(students.map((student) => student.course).filter(Boolean))]
     .sort((a, b) => a.localeCompare(b, 'es', { numeric: true }));
 
+  /** Elimina todos los estudiantes del curso seleccionado.
+   * @returns {Promise<void>}
+   */
   const handleDeleteCourse = async () => {
     const courseStudents = students.filter((student) => student.course === courseToDelete);
     if (!courseStudents.length) {
@@ -242,6 +295,9 @@ export default function StudentsManager({
     || capacityFilter !== 'ALL'
     || statusFilter !== 'ALL';
 
+  /** Restablece todos los filtros de la nómina.
+   * @returns {void}
+   */
   const clearFilters = () => {
     setSearchTerm('');
     setCourseFilter('ALL');
@@ -249,6 +305,10 @@ export default function StudentsManager({
     setStatusFilter('ALL');
   };
 
+  /** Valida y agrega un estudiante a la nómina.
+   * @param {SubmitEvent} e Evento de envío del formulario.
+   * @returns {Promise<void>}
+   */
   const handleAddStudent = async (e) => {
     e.preventDefault();
     if (!newStudent.name.trim() || !newStudent.course.trim()) return;
@@ -282,6 +342,10 @@ export default function StudentsManager({
     }
   };
 
+  /** Importa estudiantes desde una planilla seleccionada.
+   * @param {Event} e Evento del selector de archivos.
+   * @returns {Promise<void>}
+   */
   const handleFileUpload = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;

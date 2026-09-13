@@ -12,6 +12,44 @@ export const SEAT_COLORS = [
 /** Posiciones permitidas para el escenario del recinto. */
 export const STAGE_POSITIONS = ['top', 'bottom', 'left', 'right', 'none'];
 
+/**
+ * Distribución espacial del Centro Cultural CCBB. Las medidas son coordenadas
+ * lógicas (no píxeles de pantalla) para conservar la relación entre escenario,
+ * pasillos, escaleras y bloques en cualquier nivel de zoom.
+ */
+const CCBB_SPATIAL_LAYOUT = {
+  'planta-baja': {
+    width: 1120,
+    height: 690,
+    landmarks: [
+      { id: 'escenario', type: 'stage', label: 'ESCENARIO', x: 245, y: 18, width: 630, height: 68 },
+      { id: 'pasillo-central', type: 'aisle', label: 'Pasillo central', x: 410, y: 555, width: 300, height: 88 }
+    ],
+    sections: {
+      'planta-baja-lateral-izquierdo': { x: 28, y: 130, width: 190, rotation: 8, seatSize: 23, gap: 5 },
+      'planta-baja-central': { x: 286, y: 118, width: 550, rotation: 0, seatSize: 24, gap: 5 },
+      'planta-baja-lateral-derecho': { x: 910, y: 130, width: 165, rotation: -9, seatSize: 23, gap: 5 },
+      'planta-baja-posterior': { x: 445, y: 575, width: 230, rotation: 0, seatSize: 24, gap: 7 }
+    }
+  },
+  'planta-alta': {
+    width: 1120,
+    height: 720,
+    landmarks: [
+      { id: 'escalera-izquierda', type: 'stairs', label: 'ESCALERAS', x: 150, y: 505, width: 165, height: 125 },
+      { id: 'escalera-derecha', type: 'stairs', label: 'ESCALERAS', x: 795, y: 505, width: 165, height: 125 }
+    ],
+    sections: {
+      'planta-alta-ala-izquierda': { x: 26, y: 95, width: 120, rotation: 0, seatSize: 23, gap: 5 },
+      'planta-alta-bloque-izquierdo': { x: 180, y: 95, width: 330, rotation: 0, seatSize: 23, gap: 5 },
+      'planta-alta-bloque-derecho': { x: 590, y: 95, width: 330, rotation: 0, seatSize: 23, gap: 5 },
+      'planta-alta-ala-derecha': { x: 970, y: 95, width: 120, rotation: 0, seatSize: 23, gap: 5 },
+      'planta-alta-posterior-izquierdo': { x: 340, y: 560, width: 205, rotation: 0, seatSize: 23, gap: 6 },
+      'planta-alta-posterior-derecho': { x: 565, y: 560, width: 205, rotation: 0, seatSize: 23, gap: 6 }
+    }
+  }
+};
+
 /** Convierte un nombre en un identificador seguro y acotado.
  * @param {unknown} value Valor original.
  * @param {string} fallback Identificador alternativo.
@@ -85,15 +123,25 @@ function alphabet(count, start = 0) {
  * @param {Array<object>} sectionDefinitions Definiciones de secciones.
  * @returns {object} Piso construido.
  */
-function createFloor(id, code, name, sectionDefinitions) {
+function createFloor(id, code, name, sectionDefinitions, layout = null) {
   return {
     id,
     code,
     name,
+    ...(layout ? {
+      layout: {
+        width: layout.width,
+        height: layout.height,
+        landmarks: layout.landmarks || []
+      }
+    } : {}),
     sections: sectionDefinitions.map((section) => createSection({
       floorId: id,
       floorCode: code,
       ...section
+    })).map((section) => ({
+      ...section,
+      ...(layout?.sections?.[section.id] ? { layout: layout.sections[section.id] } : {})
     }))
   };
 }
@@ -108,7 +156,7 @@ export function createCcbbVenue() {
       { id: 'central', code: 'CEN', name: 'Sector central', rows: range(10), seatsPerRow: 18 },
       { id: 'lateral-derecho', code: 'LD', name: 'Lateral derecho', rows: alphabet(13), seatsPerRow: 5 },
       { id: 'posterior', code: 'POS', name: 'Posterior escenario', rows: ['A', 'B'], seatsPerRow: 6 }
-    ]),
+    ], CCBB_SPATIAL_LAYOUT['planta-baja']),
     createFloor('planta-alta', 'PA', 'Planta alta', [
       { id: 'ala-izquierda', code: 'AI', name: 'Ala izquierda', rows: range(10), seatsPerRow: 4 },
       { id: 'bloque-izquierdo', code: 'BI', name: 'Bloque central izquierdo', rows: range(8), seatsPerRow: 11 },
@@ -116,7 +164,7 @@ export function createCcbbVenue() {
       { id: 'ala-derecha', code: 'AD', name: 'Ala derecha', rows: range(10), seatsPerRow: 4 },
       { id: 'posterior-izquierdo', code: 'PI', name: 'Posterior izquierdo', rows: ['A', 'B'], seatsPerRow: 7 },
       { id: 'posterior-derecho', code: 'PD', name: 'Posterior derecho', rows: ['A', 'B'], seatsPerRow: 7 }
-    ])
+    ], CCBB_SPATIAL_LAYOUT['planta-alta'])
   ];
   return normalizeVenue({
     id: 'centro-cultural-ccbb-2026',
@@ -174,7 +222,24 @@ export function createVisualVenue({
  * @returns {object} Establecimiento normalizado.
  */
 export function normalizeVenue(venue = {}) {
-  const floors = Array.isArray(venue.floors) ? venue.floors : [];
+  const floors = (Array.isArray(venue.floors) ? venue.floors : []).map((floor) => {
+    // Los recintos CCBB guardados antes del editor espacial reciben el layout
+    // sin alterar IDs ni asignaciones de asientos existentes.
+    const spatial = venue.templateKey === 'ccbb-2026' ? CCBB_SPATIAL_LAYOUT[floor.id] : null;
+    if (!spatial) return floor;
+    return {
+      ...floor,
+      layout: floor.layout || {
+        width: spatial.width,
+        height: spatial.height,
+        landmarks: spatial.landmarks || []
+      },
+      sections: (floor.sections || []).map((section) => ({
+        ...section,
+        layout: section.layout || spatial.sections?.[section.id]
+      }))
+    };
+  });
   const seatCount = floors.reduce((total, floor) => total + (floor.sections || [])
     .reduce((subtotal, section) => subtotal + (section.seats || []).length, 0), 0);
   return {
@@ -285,9 +350,11 @@ export function buildSeatOwners(students = []) {
         name: `Familia ${student.familyId}`,
         course: student.course,
         capacity: Number(student.familyMaxCapacity ?? student.maxCapacity) || 0,
-        members: []
+        members: [],
+        courses: []
       };
       current.members.push(student.name);
+      if (student.course && !current.courses.includes(student.course)) current.courses.push(student.course);
       if (!current.course && student.course) current.course = student.course;
       owners.set(key, current);
     } else {
@@ -298,11 +365,75 @@ export function buildSeatOwners(students = []) {
         name: student.name,
         course: student.course,
         capacity: Number(student.maxCapacity) || 0,
-        members: [student.name]
+        members: [student.name],
+        courses: [student.course].filter(Boolean)
       });
     }
   });
-  return [...owners.values()].sort((a, b) => a.course.localeCompare(b.course, 'es') || a.name.localeCompare(b.name, 'es'));
+  return [...owners.values()].sort((a, b) => String(a.course || '').localeCompare(String(b.course || ''), 'es') || a.name.localeCompare(b.name, 'es'));
+}
+
+/** Devuelve alumnos y familias que pertenecen al curso seleccionado.
+ * @param {Array<object>} owners Propietarios construidos desde la nómina.
+ * @param {string} course Curso seleccionado.
+ * @returns {Array<object>} Propietarios filtrados.
+ */
+export function getOwnersForCourse(owners = [], course = '') {
+  const normalizedCourse = String(course || '').trim();
+  if (!normalizedCourse) return [];
+  return owners.filter((owner) => (owner.courses || [owner.course]).includes(normalizedCourse));
+}
+
+/** Asigna automáticamente los cupos reservados del curso a cada alumno/familia.
+ * Conserva asignaciones manuales y nunca ocupa asientos de otro curso.
+ * @param {object} plan Plano actual.
+ * @param {string} course Curso que se distribuirá.
+ * @param {Array<object>} owners Alumnos/familias del curso.
+ * @returns {{plan: object, assignedOwners: number, assignedSeats: number, pendingOwners: number, remainingSeats: number}}
+ */
+export function autoAssignCourseOwners(plan, course, owners = []) {
+  const normalizedCourse = String(course || '').trim();
+  if (!normalizedCourse) throw new Error('Selecciona un curso antes de distribuir alumnos.');
+  const assignments = { ...(plan?.assignments || {}) };
+  const assignedSeatCounts = Object.values(assignments).reduce((counts, assignment) => {
+    if (!assignment.ownerId) return counts;
+    const key = `${assignment.ownerType}:${assignment.ownerId}`;
+    counts.set(key, (counts.get(key) || 0) + 1);
+    return counts;
+  }, new Map());
+  const availableSeatIds = Object.entries(assignments)
+    .filter(([, assignment]) => assignment.course === normalizedCourse && !assignment.ownerId)
+    .map(([seatId]) => seatId);
+  const pendingOwners = owners.filter((owner) => {
+    const capacity = Math.max(1, Math.trunc(Number(owner.capacity) || 0));
+    return (assignedSeatCounts.get(`${owner.type}:${owner.id}`) || 0) < capacity;
+  });
+  let assignedOwners = 0;
+  let assignedSeats = 0;
+  pendingOwners.forEach((owner) => {
+    const capacity = Math.max(1, Math.trunc(Number(owner.capacity) || 0));
+    const key = `${owner.type}:${owner.id}`;
+    const missingSeats = Math.max(0, capacity - (assignedSeatCounts.get(key) || 0));
+    if (availableSeatIds.length < missingSeats) return;
+    availableSeatIds.splice(0, missingSeats).forEach((seatId) => {
+      assignments[seatId] = {
+        ...assignments[seatId],
+        ownerId: owner.id,
+        ownerType: owner.type,
+        ownerName: owner.name
+      };
+    });
+    assignedOwners += 1;
+    assignedSeats += missingSeats;
+    assignedSeatCounts.set(key, capacity);
+  });
+  return {
+    plan: { ...plan, assignments, updatedAt: new Date().toISOString() },
+    assignedOwners,
+    assignedSeats,
+    pendingOwners: Math.max(0, pendingOwners.length - assignedOwners),
+    remainingSeats: availableSeatIds.length
+  };
 }
 
 /** Obtiene los asientos asignados a un estudiante o su familia.

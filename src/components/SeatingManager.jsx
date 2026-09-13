@@ -9,11 +9,13 @@ import {
 } from 'lucide-react';
 import {
   assignSeats,
+  autoAssignCourseOwners,
   buildSeatOwners,
   createCcbbVenue,
   createEmptySeatPlan,
   createVisualVenue,
   getAllSeats,
+  getOwnersForCourse,
   releaseSeats,
   SEAT_COLORS,
   STAGE_POSITIONS,
@@ -24,7 +26,7 @@ import {
  * @param {object} props Datos del asiento y callbacks de selección.
  * @returns {JSX.Element} Botón de asiento.
  */
-function SeatButton({ seat, assignment, selected, onToggle }) {
+function SeatButton({ seat, assignment, selected, onToggle, size = 32 }) {
   const background = assignment?.color || '#e2e8f0';
   const label = assignment?.ownerName
     ? `${seat.label}: ${assignment.ownerName} · ${assignment.course}`
@@ -38,12 +40,61 @@ function SeatButton({ seat, assignment, selected, onToggle }) {
       aria-label={label}
       aria-pressed={selected}
       onClick={() => onToggle(seat.id)}
-      className={`relative flex h-9 w-8 items-center justify-center rounded-t-lg rounded-b-sm border-2 text-[9px] font-black transition-transform hover:-translate-y-0.5 ${selected ? 'z-10 border-slate-950 ring-2 ring-sky-300' : 'border-slate-400/70'}`}
-      style={{ backgroundColor: background, color: assignment ? '#ffffff' : '#475569' }}
+      className={`relative flex items-center justify-center rounded-t-lg rounded-b-sm border-2 text-[8px] font-black transition-transform hover:-translate-y-0.5 ${selected ? 'z-10 border-slate-950 ring-2 ring-sky-300' : 'border-slate-400/70'}`}
+      style={{ width: size, height: size + 4, backgroundColor: background, color: assignment ? '#ffffff' : '#475569' }}
     >
       {seat.number}
       {assignment?.ownerId && <span className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full border border-white bg-slate-950" />}
     </button>
+  );
+}
+
+/** Muestra todos los bloques de una planta conservando su ubicación relativa. */
+function SpatialFloorMap({ floor, assignments, selectedSeats, onToggle, onSelectSection, zoom }) {
+  const layout = floor?.layout;
+  if (!layout) return null;
+  const scaledWidth = Math.round(layout.width * zoom);
+  const scaledHeight = Math.round(layout.height * zoom);
+  return (
+    <div className="overflow-auto rounded-2xl border border-slate-200 bg-slate-100 p-3">
+      <div className="relative mx-auto" style={{ width: scaledWidth, height: scaledHeight }}>
+        <div className="absolute left-0 top-0 origin-top-left overflow-hidden rounded-2xl border-2 border-slate-300 bg-white shadow-inner" style={{ width: layout.width, height: layout.height, transform: `scale(${zoom})` }}>
+          {(layout.landmarks || []).map((landmark) => (
+            <div
+              key={landmark.id}
+              className={`absolute flex items-center justify-center border-2 text-center font-black ${landmark.type === 'stage' ? 'rounded-xl border-slate-500 bg-gradient-to-b from-slate-100 to-slate-300 text-2xl tracking-[0.18em] text-slate-800' : landmark.type === 'stairs' ? 'border-lime-500 bg-lime-100 text-sm text-lime-950' : 'border-slate-300 bg-slate-50 text-xs uppercase tracking-widest text-slate-400'}`}
+              style={{ left: landmark.x, top: landmark.y, width: landmark.width, height: landmark.height }}
+            >
+              {landmark.label}
+            </div>
+          ))}
+          {(floor.sections || []).map((mapSection) => {
+            const sectionLayout = mapSection.layout;
+            if (!sectionLayout) return null;
+            return (
+              <section
+                key={mapSection.id}
+                className="absolute rounded-xl border border-transparent p-1.5 hover:border-sky-200 hover:bg-sky-50/40"
+                style={{
+                  left: sectionLayout.x,
+                  top: sectionLayout.y,
+                  width: sectionLayout.width,
+                  transform: `rotate(${sectionLayout.rotation || 0}deg)`,
+                  transformOrigin: 'center'
+                }}
+              >
+                <button type="button" onClick={() => onSelectSection(mapSection)} className="mb-1 block w-full truncate text-center text-[10px] font-black uppercase tracking-wide text-slate-500 hover:text-sky-700">
+                  {mapSection.name}
+                </button>
+                <div className="grid justify-center" style={{ gridTemplateColumns: `repeat(${mapSection.columns || 1}, ${sectionLayout.seatSize || 23}px)`, gap: sectionLayout.gap || 4 }}>
+                  {(mapSection.seats || []).map((seat) => <SeatButton key={seat.id} seat={seat} assignment={assignments?.[seat.id]} selected={selectedSeats.includes(seat.id)} onToggle={onToggle} size={sectionLayout.seatSize || 23} />)}
+                </div>
+              </section>
+            );
+          })}
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -131,6 +182,8 @@ export default function SeatingManager({ organization, event, students, venues, 
   const [course, setCourse] = useState('');
   const [color, setColor] = useState(SEAT_COLORS[0]);
   const [ownerKey, setOwnerKey] = useState('');
+  const [assignmentStep, setAssignmentStep] = useState('course');
+  const [zoom, setZoom] = useState(0.75);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
   const [showCreator, setShowCreator] = useState(false);
@@ -140,8 +193,22 @@ export default function SeatingManager({ organization, event, students, venues, 
   const courses = useMemo(() => [...new Set(students.map((student) => student.course).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'es')), [students]);
   const floor = venue?.floors.find((item) => item.id === floorId) || venue?.floors[0] || null;
   const section = floor?.sections.find((item) => item.id === sectionId) || floor?.sections[0] || null;
-  const selectedOwner = owners.find((owner) => owner.key === ownerKey) || null;
+  const courseOwners = useMemo(() => getOwnersForCourse(owners, course), [owners, course]);
+  const selectedOwner = courseOwners.find((owner) => owner.key === ownerKey) || null;
   const stats = summarizeSeatPlan(seatPlan, venue);
+  const floorSeats = useMemo(() => (floor?.sections || []).flatMap((item) => item.seats || []), [floor]);
+  const visibleSeats = floor?.layout ? floorSeats : section?.seats || [];
+  const courseAssignments = Object.values(seatPlan?.assignments || {}).filter((assignment) => assignment.course === course);
+  const ownerAssignmentCounts = Object.values(seatPlan?.assignments || {}).reduce((counts, assignment) => {
+    if (!assignment.ownerId) return counts;
+    const key = `${assignment.ownerType}:${assignment.ownerId}`;
+    counts.set(key, (counts.get(key) || 0) + 1);
+    return counts;
+  }, new Map());
+  const courseOwnerKeys = new Set(courseOwners
+    .filter((owner) => (ownerAssignmentCounts.get(owner.key) || 0) >= Math.max(1, owner.capacity || 0))
+    .map((owner) => owner.key));
+  const courseSeatDemand = courseOwners.reduce((total, owner) => total + Math.max(0, Math.max(1, owner.capacity || 0) - (ownerAssignmentCounts.get(owner.key) || 0)), 0);
 
   useEffect(() => {
     if (!venue) return;
@@ -228,9 +295,14 @@ export default function SeatingManager({ organization, event, students, venues, 
    * @returns {void}
    */
   const suggestSeats = () => {
-    if (!section) return;
-    const desired = Math.max(2, selectedOwner?.capacity || 2);
-    const available = section.seats.filter((seat) => !seatPlan.assignments?.[seat.id]).slice(0, desired).map((seat) => seat.id);
+    if (!visibleSeats.length) return;
+    const desired = assignmentStep === 'course'
+      ? Math.max(1, courseOwners.reduce((total, owner) => total + Math.max(1, owner.capacity || 0), 0))
+      : Math.max(1, selectedOwner?.capacity || 0);
+    const available = visibleSeats.filter((seat) => {
+      const assignment = seatPlan.assignments?.[seat.id];
+      return assignmentStep === 'course' ? !assignment : assignment?.course === course && !assignment.ownerId;
+    }).slice(0, desired).map((seat) => seat.id);
     setSelectedSeats(available);
     setMessage(available.length < desired ? `Solo hay ${available.length} asientos libres en este sector.` : `Se seleccionaron ${available.length} asientos sugeridos.`);
   };
@@ -239,16 +311,37 @@ export default function SeatingManager({ organization, event, students, venues, 
    * @returns {void}
    */
   const applyAssignment = () => {
-    const occupied = selectedSeats.filter((seatId) => seatPlan.assignments?.[seatId]);
+    if (assignmentStep === 'owners' && !selectedOwner) {
+      setMessage('Selecciona un alumno o familia del curso.');
+      return;
+    }
+    if (assignmentStep === 'owners') {
+      const outsideCourse = selectedSeats.filter((seatId) => seatPlan.assignments?.[seatId]?.course !== course);
+      if (outsideCourse.length) {
+        setMessage(`Hay ${outsideCourse.length} asiento(s) que todavía no están reservados para ${course}. Completa primero el paso 1.`);
+        return;
+      }
+    }
+    const occupied = selectedSeats.filter((seatId) => assignmentStep === 'course'
+      ? seatPlan.assignments?.[seatId]
+      : seatPlan.assignments?.[seatId]?.ownerId);
     if (occupied.length > 0 && !window.confirm(`${occupied.length} asiento(s) ya tienen una asignación. ¿Deseas reemplazarla?`)) return;
     const next = assignSeats(seatPlan, selectedSeats, {
       course,
       color,
-      ownerId: selectedOwner?.id || '',
-      ownerType: selectedOwner?.type || '',
-      ownerName: selectedOwner?.name || ''
+      ownerId: assignmentStep === 'owners' ? selectedOwner?.id || '' : '',
+      ownerType: assignmentStep === 'owners' ? selectedOwner?.type || '' : '',
+      ownerName: assignmentStep === 'owners' ? selectedOwner?.name || '' : ''
     });
-    persist(next, `${selectedSeats.length} asiento(s) asignado(s) correctamente.`);
+    persist(next, assignmentStep === 'course'
+      ? `${selectedSeats.length} asiento(s) reservados para ${course}. Ya puedes pasar a asignar alumnos.`
+      : `${selectedSeats.length} asiento(s) asignados a ${selectedOwner.name}.`);
+  };
+
+  /** Distribuye un asiento reservado a cada alumno o familia pendiente del curso. */
+  const handleAutoAssign = () => {
+    const result = autoAssignCourseOwners(seatPlan, course, courseOwners);
+    persist(result.plan, `${result.assignedOwners} alumno(s) o familia(s) asignados automáticamente. ${result.pendingOwners ? `${result.pendingOwners} quedaron pendientes por falta de asientos.` : 'El curso quedó distribuido.'}`);
   };
 
   if (!venues.length) {
@@ -290,21 +383,53 @@ export default function SeatingManager({ organization, event, students, venues, 
 
         <div className="grid gap-5 xl:grid-cols-[330px_minmax(0,1fr)]">
           <aside className="space-y-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <div><label className="text-xs font-black text-slate-700">Curso y color</label><select value={course} onChange={(change) => { setCourse(change.target.value); setOwnerKey(''); }} className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm font-bold"><option value="">Seleccionar curso</option>{courses.map((item) => <option key={item}>{item}</option>)}</select></div>
+            <div className="grid grid-cols-2 gap-2" aria-label="Etapa de asignación">
+              <button type="button" onClick={() => { setAssignmentStep('course'); setOwnerKey(''); setSelectedSeats([]); }} className={`rounded-xl border p-3 text-left ${assignmentStep === 'course' ? 'border-sky-500 bg-sky-50 text-sky-950 ring-2 ring-sky-100' : 'border-slate-200 text-slate-600'}`}>
+                <span className="block text-[10px] font-black uppercase tracking-wider">Paso 1</span>
+                <span className="mt-1 block text-xs font-black">Reservar al curso</span>
+              </button>
+              <button type="button" onClick={() => { setAssignmentStep('owners'); setSelectedSeats([]); }} className={`rounded-xl border p-3 text-left ${assignmentStep === 'owners' ? 'border-violet-500 bg-violet-50 text-violet-950 ring-2 ring-violet-100' : 'border-slate-200 text-slate-600'}`}>
+                <span className="block text-[10px] font-black uppercase tracking-wider">Paso 2</span>
+                <span className="mt-1 block text-xs font-black">Asignar alumnos</span>
+              </button>
+            </div>
+            <div><label className="text-xs font-black text-slate-700">Curso</label><select value={course} onChange={(change) => { setCourse(change.target.value); setOwnerKey(''); setSelectedSeats([]); }} className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm font-bold"><option value="">Seleccionar curso</option>{courses.map((item) => <option key={item}>{item}</option>)}</select></div>
             <div className="flex flex-wrap gap-2" aria-label="Color del curso">{SEAT_COLORS.map((item) => <button key={item} type="button" onClick={() => setColor(item)} aria-label={`Usar color ${item}`} className={`h-8 w-8 rounded-full border-2 ${color === item ? 'border-slate-950 ring-2 ring-sky-300' : 'border-white'}`} style={{ backgroundColor: item }}>{color === item && <Check className="mx-auto h-4 w-4 text-white" />}</button>)}</div>
-            <div><label className="text-xs font-black text-slate-700">Alumno o familia (opcional)</label><select value={ownerKey} onChange={(change) => setOwnerKey(change.target.value)} className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"><option value="">Solo reservar para el curso</option>{owners.map((owner) => <option key={owner.key} value={owner.key}>{owner.type === 'family' ? 'Familia' : 'Alumno'} · {owner.name} · {owner.course} · {owner.capacity} puestos</option>)}</select>{selectedOwner?.type === 'family' && <p className="mt-1 text-[11px] text-slate-500">Integrantes: {selectedOwner.members.join(', ')}</p>}</div>
-            <div className="rounded-xl bg-slate-50 p-3 text-xs text-slate-600"><MousePointer2 className="mb-1 h-4 w-4 text-sky-600" />Pulsa los asientos para seleccionarlos. Puedes mezclar filas y sectores antes de guardar.</div>
-            <button onClick={suggestSeats} disabled={!section} className="flex w-full items-center justify-center gap-2 rounded-xl border border-violet-200 bg-violet-50 py-2.5 text-xs font-black text-violet-800"><Sparkles className="h-4 w-4" />Sugerir {Math.max(2, selectedOwner?.capacity || 2)} asientos</button>
-            <button onClick={applyAssignment} disabled={saving || !selectedSeats.length || !course} className="flex w-full items-center justify-center gap-2 rounded-xl bg-sky-600 py-3 text-sm font-black text-white disabled:bg-slate-300"><Save className="h-4 w-4" />Asignar {selectedSeats.length || ''} asiento(s)</button>
+            {assignmentStep === 'course' ? (
+              <div className="rounded-xl border border-sky-100 bg-sky-50 p-3 text-xs text-sky-950">
+                <p className="font-black">Reserva primero la zona del curso</p>
+                <p className="mt-1">{courseAssignments.length} asientos reservados · {courseOwners.length} alumnos o familias · {courseSeatDemand} cupos aún pendientes.</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <div className="rounded-xl border border-violet-100 bg-violet-50 p-3 text-xs text-violet-950">
+                  <p className="font-black">Distribución del curso</p>
+                  <p className="mt-1">{courseOwnerKeys.size} de {courseOwners.length} alumnos o familias ya tienen asiento.</p>
+                </div>
+                <div><label className="text-xs font-black text-slate-700">Alumno o familia</label><select value={ownerKey} onChange={(change) => setOwnerKey(change.target.value)} className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"><option value="">Seleccionar de {course || 'este curso'}</option>{courseOwners.map((owner) => <option key={owner.key} value={owner.key}>{owner.type === 'family' ? 'Familia' : 'Alumno'} · {owner.name} · {Math.max(1, owner.capacity || 0)} puesto(s){courseOwnerKeys.has(owner.key) ? ' · asignado' : ''}</option>)}</select>{selectedOwner?.type === 'family' && <p className="mt-1 text-[11px] text-slate-500">Integrantes: {selectedOwner.members.join(', ')}</p>}</div>
+                <button onClick={handleAutoAssign} disabled={saving || !course || !courseOwners.length || courseOwnerKeys.size >= courseOwners.length || !courseAssignments.some((assignment) => !assignment.ownerId)} className="flex w-full items-center justify-center gap-2 rounded-xl border border-violet-200 bg-violet-50 py-2.5 text-xs font-black text-violet-800 disabled:opacity-40"><UsersRound className="h-4 w-4" />Distribuir automáticamente</button>
+              </div>
+            )}
+            <div className="rounded-xl bg-slate-50 p-3 text-xs text-slate-600"><MousePointer2 className="mb-1 h-4 w-4 text-sky-600" />Pulsa asientos en cualquier bloque de la planta. El plano mantiene la ubicación, pasillos y orientación del recinto.</div>
+            <button onClick={suggestSeats} disabled={!visibleSeats.length || !course || (assignmentStep === 'owners' && !selectedOwner)} className="flex w-full items-center justify-center gap-2 rounded-xl border border-violet-200 bg-violet-50 py-2.5 text-xs font-black text-violet-800 disabled:opacity-40"><Sparkles className="h-4 w-4" />{assignmentStep === 'course' ? `Sugerir ${Math.max(1, courseSeatDemand)} para el curso` : `Sugerir ${Math.max(1, selectedOwner?.capacity || 1)} reservado(s)`}</button>
+            <button onClick={applyAssignment} disabled={saving || !selectedSeats.length || !course || (assignmentStep === 'owners' && !selectedOwner)} className="flex w-full items-center justify-center gap-2 rounded-xl bg-sky-600 py-3 text-sm font-black text-white disabled:bg-slate-300"><Save className="h-4 w-4" />{assignmentStep === 'course' ? `Reservar ${selectedSeats.length || ''} al curso` : `Asignar ${selectedSeats.length || ''} a alumno`}</button>
             <button onClick={() => persist(releaseSeats(seatPlan, selectedSeats), `${selectedSeats.length} asiento(s) liberado(s).`)} disabled={saving || !selectedSeats.length} className="flex w-full items-center justify-center gap-2 rounded-xl border border-rose-200 py-2.5 text-xs font-black text-rose-700 disabled:opacity-40"><Eraser className="h-4 w-4" />Liberar seleccionados</button>
-            {selectedOwner && selectedSeats.length > 0 && selectedSeats.length !== selectedOwner.capacity && <p className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs font-bold text-amber-900">La selección tiene {selectedSeats.length} asientos y el cupo registrado es {selectedOwner.capacity}. Puedes guardarla, pero conviene revisar la diferencia.</p>}
+            {selectedOwner && selectedSeats.length > 0 && selectedSeats.length !== Math.max(1, selectedOwner.capacity || 0) && <p className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs font-bold text-amber-900">La selección tiene {selectedSeats.length} asientos y el cupo registrado es {Math.max(1, selectedOwner.capacity || 0)}. Puedes guardarla, pero conviene revisar la diferencia.</p>}
             {message && <p role="status" className="text-xs font-bold text-sky-700">{message}</p>}
           </aside>
 
           <section className="min-w-0 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
-            <div className="mb-4 flex flex-wrap gap-2">{venue.floors.map((item) => <button key={item.id} onClick={() => setFloorId(item.id)} className={`rounded-xl px-4 py-2 text-xs font-black ${floor?.id === item.id ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600'}`}>{item.name}</button>)}</div>
-            <div className="mb-5 flex gap-2 overflow-x-auto pb-1">{floor?.sections.map((item) => <button key={item.id} onClick={() => setSectionId(item.id)} className={`whitespace-nowrap rounded-lg border px-3 py-1.5 text-xs font-bold ${section?.id === item.id ? 'border-sky-500 bg-sky-50 text-sky-800' : 'border-slate-200 text-slate-600'}`}>{item.name}</button>)}</div>
-            <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+              <div className="flex flex-wrap gap-2">{venue.floors.map((item) => <button key={item.id} onClick={() => setFloorId(item.id)} className={`rounded-xl px-4 py-2 text-xs font-black ${floor?.id === item.id ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600'}`}>{item.name}</button>)}</div>
+              {floor?.layout && <label className="flex items-center gap-2 text-xs font-bold text-slate-600">Zoom<select value={zoom} onChange={(change) => setZoom(Number(change.target.value))} className="rounded-lg border border-slate-300 bg-white px-2 py-1.5"><option value="0.5">50%</option><option value="0.65">65%</option><option value="0.75">75%</option><option value="0.9">90%</option><option value="1">100%</option></select></label>}
+            </div>
+            <div className="mb-5 flex gap-2 overflow-x-auto pb-1">{floor?.sections.map((item) => <button key={item.id} title={floor.layout ? 'Seleccionar todos los asientos del bloque' : 'Mostrar bloque'} onClick={() => { setSectionId(item.id); setSelectedSeats(floor.layout ? item.seats.map((seat) => seat.id) : []); }} className={`whitespace-nowrap rounded-lg border px-3 py-1.5 text-xs font-bold ${section?.id === item.id ? 'border-sky-500 bg-sky-50 text-sky-800' : 'border-slate-200 text-slate-600'}`}>{item.name}</button>)}</div>
+            {floor?.layout ? (
+              <>
+                <div className="mb-3 flex items-center justify-between gap-4"><div><h2 className="font-black text-slate-900">{floor.name}</h2><p className="text-xs text-slate-500">Plano completo · {floorSeats.length} asientos · seleccionados {selectedSeats.length}</p></div><button onClick={() => setSelectedSeats([])} className="text-xs font-black text-sky-700">Limpiar selección</button></div>
+                <SpatialFloorMap floor={floor} assignments={seatPlan.assignments} selectedSeats={selectedSeats} onToggle={toggleSeat} onSelectSection={(item) => { setSectionId(item.id); setSelectedSeats(item.seats.map((seat) => seat.id)); }} zoom={zoom} />
+              </>
+            ) : <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-slate-50 p-4">
               <div className="mb-4 flex items-center justify-between gap-4"><div><h2 className="font-black text-slate-900">{section?.name}</h2><p className="text-xs text-slate-500">{section?.seats.length || 0} asientos · seleccionados {selectedSeats.length}</p></div><button onClick={() => setSelectedSeats(section?.seats.map((seat) => seat.id) || [])} className="text-xs font-black text-sky-700">Seleccionar sector</button></div>
               <div className={`mx-auto flex min-w-max gap-4 ${venue.stage?.position === 'left' || venue.stage?.position === 'right' ? 'flex-row items-center' : 'flex-col'}`}>
                 {venue.stage?.position === 'top' && <div className="rounded-xl border-2 border-slate-400 bg-slate-100 py-3 text-center text-lg font-black tracking-[0.2em] text-slate-700">{venue.stage.label}</div>}
@@ -315,7 +440,7 @@ export default function SeatingManager({ organization, event, students, venues, 
                 {venue.stage?.position === 'right' && <div className="flex w-12 items-center justify-center rounded-xl border-2 border-slate-400 bg-slate-100 py-6 text-center text-xs font-black uppercase text-slate-700 [writing-mode:vertical-rl]">{venue.stage.label}</div>}
                 {venue.stage?.position === 'bottom' && <div className="rounded-xl border-2 border-slate-400 bg-slate-100 py-3 text-center text-lg font-black tracking-[0.2em] text-slate-700">{venue.stage.label}</div>}
               </div>
-            </div>
+            </div>}
             <div className="mt-4 flex flex-wrap gap-4 text-[11px] font-bold text-slate-600"><span className="flex items-center gap-1"><span className="h-3 w-3 rounded bg-slate-200" />Disponible</span><span className="flex items-center gap-1"><span className="h-3 w-3 rounded bg-sky-600" />Curso asignado</span><span className="flex items-center gap-1"><span className="h-3 w-3 rounded bg-slate-950" />Punto: familia/alumno asignado</span></div>
           </section>
         </div>
